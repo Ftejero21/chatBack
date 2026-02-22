@@ -554,6 +554,11 @@ public class ChatServiceImpl implements ChatService {
 
     @Override
     public List<ChatResumenDTO> listarConversacionesDeUsuario(Long usuarioId) {
+        Long requesterId = securityUtils.getAuthenticatedUserId();
+        boolean requesterIsAdmin = usuarioRepo.findById(requesterId)
+                .map(this::esAdmin)
+                .orElse(false);
+
         List<ChatResumenDTO> resumenes = new ArrayList<>();
 
         // 1. Chats Individuales
@@ -568,7 +573,12 @@ public class ChatServiceImpl implements ChatService {
             dto.setTotalMensajes((int) totalMensajes);
 
             mensajeRepository.findTopByChatIdAndActivoTrueOrderByFechaEnvioDesc(ci.getId())
-                    .ifPresent(m -> dto.setUltimoMensaje(m.getContenido()));
+                    .ifPresent(m -> {
+                        dto.setUltimoMensaje(m.getContenido());
+                        if (requesterIsAdmin) {
+                            dto.setUltimoMensajeDescifrado(m.getContenido());
+                        }
+                    });
 
             resumenes.add(dto);
         }
@@ -584,11 +594,24 @@ public class ChatServiceImpl implements ChatService {
             // Temporal mientras conectamos el repo de mensajes grupales real
             dto.setTotalMensajes(0);
             dto.setUltimoMensaje(Constantes.MSG_SIN_DATOS);
+            if (requesterIsAdmin) {
+                dto.setUltimoMensajeDescifrado(Constantes.MSG_SIN_DATOS);
+            }
 
             resumenes.add(dto);
         }
 
         return resumenes;
+    }
+
+    private boolean esAdmin(UsuarioEntity usuario) {
+        if (usuario == null || usuario.getRoles() == null) {
+            return false;
+        }
+        return usuario.getRoles().stream()
+                .filter(Objects::nonNull)
+                .map(String::trim)
+                .anyMatch(rol -> "ROLE_ADMIN".equalsIgnoreCase(rol) || "ADMIN".equalsIgnoreCase(rol));
     }
 
 

@@ -11,7 +11,10 @@ import jakarta.transaction.Transactional;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.time.LocalDateTime;
 import java.util.*;
@@ -19,6 +22,8 @@ import java.util.stream.Collectors;
 
 @Service
 public class ChatServiceImpl implements ChatService {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(ChatServiceImpl.class);
 
     @Autowired
     private UsuarioRepository usuarioRepo;

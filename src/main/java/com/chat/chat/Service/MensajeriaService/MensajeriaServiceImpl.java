@@ -13,6 +13,7 @@ import com.chat.chat.Utils.MappingUtils;
 import com.chat.chat.Utils.SecurityUtils;
 import com.chat.chat.Utils.Utils;
 import com.chat.chat.Utils.Constantes;
+import com.chat.chat.Utils.E2EPayloadUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
@@ -86,6 +87,7 @@ public class MensajeriaServiceImpl implements MensajeriaService {
         }
 
         MensajeEntity mensaje = MappingUtils.mensajeDtoAEntity(dto, emisor, receptor);
+        mensaje.setContenido(E2EPayloadUtils.normalizeForStorage(mensaje.getContenido()));
         mensaje.setChat(chat);
         mensaje.setFechaEnvio(LocalDateTime.now());
         mensaje.setActivo(true);
@@ -106,6 +108,7 @@ public class MensajeriaServiceImpl implements MensajeriaService {
                 .orElseThrow(() -> new RuntimeException(Constantes.MSG_CHAT_GRUPAL_NO_ENCONTRADO));
 
         MensajeEntity mensaje = MappingUtils.mensajeDtoAEntity(dto, emisor, null);
+        mensaje.setContenido(E2EPayloadUtils.normalizeForStorage(mensaje.getContenido()));
         mensaje.setChat(chatGrupal);
         mensaje.setFechaEnvio(LocalDateTime.now());
         mensaje.setActivo(true);

@@ -63,7 +63,7 @@ public class ChatServiceImpl implements ChatService {
         UsuarioEntity u2 = usuarioRepo.findById(usuario2Id).orElseThrow();
 
         if (u1.getBloqueados().contains(u2) || u2.getBloqueados().contains(u1)) {
-            throw new RuntimeException("No puedes crear un chat individual con un usuario bloqueado");
+            throw new RuntimeException(Constantes.MSG_CHAT_INDIVIDUAL_BLOQUEADO);
         }
 
         ChatIndividualEntity chat = new ChatIndividualEntity();
@@ -82,14 +82,14 @@ public class ChatServiceImpl implements ChatService {
 
         // 1) Creador desde auth
         UsuarioEntity creador = usuarioRepo.findById(authenticatedUserId)
-                .orElseThrow(() -> new RuntimeException("Creador no encontrado"));
+                .orElseThrow(() -> new RuntimeException(Constantes.MSG_CREADOR_NO_ENCONTRADO));
 
         // 2) Procesar fotoGrupo: dataURL -> guardar; URL pública -> usar
         String fotoUrl = null;
         if (dto.getFotoGrupo() != null) {
             String f = dto.getFotoGrupo().trim();
-            if (f.startsWith("data:image")) {
-                fotoUrl = Utils.saveDataUrlToUploads(f, "group-photos", uploadsRoot, uploadsBaseUrl);
+            if (f.startsWith(Constantes.DATA_IMAGE_PREFIX)) {
+                fotoUrl = Utils.saveDataUrlToUploads(f, Constantes.DIR_GROUP_PHOTOS, uploadsRoot, uploadsBaseUrl);
             } else if (Utils.isPublicUrl(f)) {
                 fotoUrl = f;
             }
@@ -123,7 +123,7 @@ public class ChatServiceImpl implements ChatService {
         List<GroupInviteEntity> invites = new ArrayList<>();
         for (Long inviteeId : inviteeIds) {
             UsuarioEntity invitee = usuarioRepo.findById(inviteeId)
-                    .orElseThrow(() -> new IllegalArgumentException("Usuario invitado no existe: " + inviteeId));
+                    .orElseThrow(() -> new IllegalArgumentException(Constantes.MSG_USUARIO_INVITADO_NO_EXISTE + inviteeId));
             GroupInviteEntity inv = new GroupInviteEntity();
             inv.setChat(chat);
             inv.setInviter(creador);
@@ -152,7 +152,7 @@ public class ChatServiceImpl implements ChatService {
             long unseen = notificationRepo.countByUserIdAndSeenFalse(inv.getInvitee().getId());
             wsPayload.unseenCount = (int) unseen;
 
-            messagingTemplate.convertAndSend("/topic/notifications." + inv.getInvitee().getId(), wsPayload);
+            messagingTemplate.convertAndSend(Constantes.WS_TOPIC_NOTIFICATIONS + inv.getInvitee().getId(), wsPayload);
         }
 
         // 7) DTO de salida (con foto)
@@ -169,20 +169,20 @@ public class ChatServiceImpl implements ChatService {
     public MessagueSalirGrupoDTO salirDeChatGrupal(Long groupId, Long userId) {
         // Validaciones básicas (según tu requerimiento, userId nunca será null)
         if (groupId == null) {
-            return new MessagueSalirGrupoDTO(false, "groupId es obligatorio.", null, userId, false);
+            return new MessagueSalirGrupoDTO(false, Constantes.MSG_GROUP_ID_OBLIGATORIO, null, userId, false);
         }
 
         ChatGrupalEntity chat = chatGrupalRepo.findById(groupId)
-                .orElseThrow(() -> new IllegalArgumentException("No existe el grupo con id: " + groupId));
+                .orElseThrow(() -> new IllegalArgumentException(Constantes.MSG_GRUPO_NO_EXISTE_ID + groupId));
 
         UsuarioEntity usuario = usuarioRepo.findById(userId)
-                .orElseThrow(() -> new IllegalArgumentException("No existe el usuario con id: " + userId));
+                .orElseThrow(() -> new IllegalArgumentException(Constantes.MSG_USUARIO_NO_EXISTE_ID + userId));
 
         // Comprobar membresía
         boolean eraMiembro = chat.getUsuarios() != null &&
                 chat.getUsuarios().stream().anyMatch(u -> Objects.equals(u.getId(), userId));
         if (!eraMiembro) {
-            return new MessagueSalirGrupoDTO(false, "No perteneces a este grupo.", groupId, userId, false);
+            return new MessagueSalirGrupoDTO(false, Constantes.MSG_NO_PERTENECE_GRUPO, groupId, userId, false);
         }
 
         // Eliminar del listado de usuarios
@@ -200,14 +200,14 @@ public class ChatServiceImpl implements ChatService {
             chatGrupalRepo.delete(chat);
 
             return new MessagueSalirGrupoDTO(true,
-                    "Has salido del grupo. El grupo se ha eliminado por quedar vacío.",
+                    Constantes.MSG_SALIO_GRUPO_ELIMINADO,
                     groupId, userId, true);
         }
 
         // Persistir cambios cuando no se elimina
         chatGrupalRepo.save(chat);
 
-        return new MessagueSalirGrupoDTO(true, "Has salido del grupo.", groupId, userId, false);
+        return new MessagueSalirGrupoDTO(true, Constantes.MSG_SALIO_GRUPO, groupId, userId, false);
     }
 
     @Override
@@ -289,7 +289,7 @@ public class ChatServiceImpl implements ChatService {
                 continue;
             }
             UsuarioEntity invitee = usuarioRepo.findById(inviteeId)
-                    .orElseThrow(() -> new IllegalArgumentException("Usuario invitado no existe: " + inviteeId));
+                    .orElseThrow(() -> new IllegalArgumentException(Constantes.MSG_USUARIO_INVITADO_NO_EXISTE + inviteeId));
 
             GroupInviteEntity inv = new GroupInviteEntity();
             inv.setChat(chat);
@@ -325,7 +325,7 @@ public class ChatServiceImpl implements ChatService {
             wsPayload.setUnseenCount((int) unseen);
 
             // Emitir WS
-            messagingTemplate.convertAndSend("/topic/notifications." + inv.getInvitee().getId(), wsPayload);
+            messagingTemplate.convertAndSend(Constantes.WS_TOPIC_NOTIFICATIONS + inv.getInvitee().getId(), wsPayload);
 
             // Añadir a respuesta
             invitacionesWs.add(wsPayload);
@@ -420,12 +420,12 @@ public class ChatServiceImpl implements ChatService {
 
                     // Foto del GRUPO (soporta fotoGrupo o foto, según tu DTO)
                     String fg = dto.getFotoGrupo();
-                    if (fg != null && !fg.startsWith("data:") && fg.startsWith("/uploads/")) {
+                    if (fg != null && !fg.startsWith("data:") && fg.startsWith(Constantes.UPLOADS_PREFIX)) {
                         String data = Utils.toDataUrlFromUrl(fg, uploadsRoot);
                         dto.setFotoGrupo(data != null ? data : fg);
                     }
                     String f2 = dto.getFotoGrupo();
-                    if (f2 != null && !f2.startsWith("data:") && f2.startsWith("/uploads/")) {
+                    if (f2 != null && !f2.startsWith("data:") && f2.startsWith(Constantes.UPLOADS_PREFIX)) {
                         String data = Utils.toDataUrlFromUrl(f2, uploadsRoot);
                         dto.setFotoGrupo(data != null ? data : f2);
                     }
@@ -434,7 +434,7 @@ public class ChatServiceImpl implements ChatService {
                     if (dto.getUsuarios() != null) {
                         dto.getUsuarios().forEach(u -> {
                             String fu = u.getFoto();
-                            if (fu != null && !fu.startsWith("data:") && fu.startsWith("/uploads/")) {
+                            if (fu != null && !fu.startsWith("data:") && fu.startsWith(Constantes.UPLOADS_PREFIX)) {
                                 String data = Utils.toDataUrlFromUrl(fu, uploadsRoot);
                                 u.setFoto(data != null ? data : fu);
                             }
@@ -514,7 +514,7 @@ public class ChatServiceImpl implements ChatService {
     @Override
     public List<MensajeDTO> listarMensajesPorChatId(Long chatId) {
         ChatEntity chat = chatRepository.findById(chatId)
-                .orElseThrow(() -> new RuntimeException("Chat no encontrado con ID: " + chatId));
+                .orElseThrow(() -> new RuntimeException(Constantes.MSG_CHAT_NO_ENCONTRADO_ID + chatId));
 
         List<MensajeEntity> mensajes = chat.getMensajes();
 
@@ -526,7 +526,7 @@ public class ChatServiceImpl implements ChatService {
     @Override
     public List<MensajeDTO> listarMensajesPorChatGrupal(Long chatId) {
         ChatGrupalEntity chat = chatGrupalRepo.findById(chatId)
-                .orElseThrow(() -> new RuntimeException("Chat grupal no encontrado con ID: " + chatId));
+                .orElseThrow(() -> new RuntimeException(Constantes.MSG_CHAT_GRUPAL_NO_ENCONTRADO_ID + chatId));
 
         // Si tienes un repo con este método, úsalo; si no, ordenamos en memoria:
         // List<MensajeEntity> mensajes =
@@ -561,8 +561,8 @@ public class ChatServiceImpl implements ChatService {
         for (ChatIndividualEntity ci : individuales) {
             ChatResumenDTO dto = new ChatResumenDTO();
             dto.setId(ci.getId());
-            dto.setTipo("INDIVIDUAL");
-            dto.setNombreChat(ci.getUsuario1().getNombre() + " y " + ci.getUsuario2().getNombre());
+            dto.setTipo(Constantes.CHAT_TIPO_INDIVIDUAL);
+            dto.setNombreChat(ci.getUsuario1().getNombre() + Constantes.MSG_Y + ci.getUsuario2().getNombre());
 
             long totalMensajes = mensajeRepository.countByChatIdAndActivoTrue(ci.getId());
             dto.setTotalMensajes((int) totalMensajes);
@@ -578,12 +578,12 @@ public class ChatServiceImpl implements ChatService {
         for (ChatGrupalEntity cg : grupales) {
             ChatResumenDTO dto = new ChatResumenDTO();
             dto.setId(cg.getId());
-            dto.setTipo("GRUPAL");
-            dto.setNombreChat(cg.getNombreGrupo() + " (Grupo)");
+            dto.setTipo(Constantes.CHAT_TIPO_GRUPAL);
+            dto.setNombreChat(cg.getNombreGrupo() + Constantes.MSG_GRUPO_SUFFIX);
 
             // Temporal mientras conectamos el repo de mensajes grupales real
             dto.setTotalMensajes(0);
-            dto.setUltimoMensaje("Sin datos");
+            dto.setUltimoMensaje(Constantes.MSG_SIN_DATOS);
 
             resumenes.add(dto);
         }

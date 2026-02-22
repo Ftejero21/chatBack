@@ -10,7 +10,7 @@ import java.util.List;
 import java.util.Map;
 
 @RestController
-@RequestMapping("/api/notifications")
+@RequestMapping(Constantes.API_NOTIFICATIONS)
 @CrossOrigin("*")
 public class NotificationController {
 
@@ -22,7 +22,7 @@ public class NotificationController {
     @GetMapping(Constantes.NOTIFICACIONES_COUNT)
     public Map<String, Object> unseenCount(@RequestParam("userId") Long userId) {
         long count = notificationService.unseenCount(userId);
-        return Map.of("unseenCount", count);
+        return Map.of(Constantes.KEY_UNSEEN_COUNT, count);
     }
 
     @GetMapping(Constantes.NOTIFICACIONES_PENDIENTES)

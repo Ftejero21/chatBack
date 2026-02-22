@@ -11,6 +11,7 @@ import com.chat.chat.DTO.MensajeDTO;
 import com.chat.chat.Repository.UsuarioRepository;
 import com.chat.chat.Service.CallService.CallService;
 import com.chat.chat.Service.MensajeriaService.MensajeriaService;
+import com.chat.chat.Utils.Constantes;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.messaging.handler.annotation.MessageMapping;
 import org.springframework.messaging.handler.annotation.Payload;
@@ -68,9 +69,9 @@ public class WebSocketChatController {
         System.out.println("[WS] send to receptor " + guardado.getReceptorId() +
                 " from " + guardado.getEmisorId() +
                 " tipo=" + guardado.getTipo());
-        messagingTemplate.convertAndSend("/topic/chat." + guardado.getReceptorId(), guardado);
+        messagingTemplate.convertAndSend(Constantes.TOPIC_CHAT + guardado.getReceptorId(), guardado);
         // ✅ Enviar también al emisor (para que lo vea con id y estado)
-        messagingTemplate.convertAndSend("/topic/chat." + guardado.getEmisorId(), guardado);
+        messagingTemplate.convertAndSend(Constantes.TOPIC_CHAT + guardado.getEmisorId(), guardado);
     }
 
     @MessageMapping("/chat.eliminar")
@@ -81,8 +82,8 @@ public class WebSocketChatController {
             // (opcional) incluye chatId si tu front lo usa para preview
             // dto.setChatId(chatIdDelMensaje);
 
-            messagingTemplate.convertAndSend("/topic/chat." + mensajeDTO.getEmisorId(), mensajeDTO);
-            messagingTemplate.convertAndSend("/topic/chat." + mensajeDTO.getReceptorId(), mensajeDTO);
+            messagingTemplate.convertAndSend(Constantes.TOPIC_CHAT + mensajeDTO.getEmisorId(), mensajeDTO);
+            messagingTemplate.convertAndSend(Constantes.TOPIC_CHAT + mensajeDTO.getReceptorId(), mensajeDTO);
         }
     }
 
@@ -98,7 +99,7 @@ public class WebSocketChatController {
         payload.put("emisorId", dto.getEmisorId());
         payload.put("escribiendo", dto.isEscribiendo());
 
-        messagingTemplate.convertAndSend("/topic/escribiendo." + dto.getReceptorId(), payload);
+        messagingTemplate.convertAndSend(Constantes.TOPIC_ESCRIBIENDO + dto.getReceptorId(), payload);
     }
 
     @MessageMapping("/escribiendo.grupo")
@@ -113,23 +114,23 @@ public class WebSocketChatController {
             payload.put("emisorApellido", u.getApellido());
         });
 
-        messagingTemplate.convertAndSend("/topic/escribiendo.grupo." + dto.getChatId(), payload);
+        messagingTemplate.convertAndSend(Constantes.TOPIC_ESCRIBIENDO_GRUPO + dto.getChatId(), payload);
     }
 
     @MessageMapping("/estado")
     public void actualizarEstadoUsuario(@Payload EstadoDTO dto) {
-        if ("Conectado".equalsIgnoreCase(dto.getEstado())) {
+        if (Constantes.ESTADO_CONECTADO.equalsIgnoreCase(dto.getEstado())) {
             estadoUsuarioManager.marcarConectado(dto.getUsuarioId());
         } else {
             estadoUsuarioManager.marcarDesconectado(dto.getUsuarioId());
         }
 
-        messagingTemplate.convertAndSend("/topic/estado." + dto.getUsuarioId(), dto.getEstado());
+        messagingTemplate.convertAndSend(Constantes.TOPIC_ESTADO + dto.getUsuarioId(), dto.getEstado());
     }
 
     @MessageMapping("/chat.grupal")
     public void enviarMensajeGrupal(@Payload MensajeDTO mensajeDTO) {
         MensajeDTO guardado = mensajeriaService.guardarMensajeGrupal(mensajeDTO);
-        messagingTemplate.convertAndSend("/topic/chat.grupal." + mensajeDTO.getReceptorId(), guardado);
+        messagingTemplate.convertAndSend(Constantes.TOPIC_CHAT_GRUPAL + mensajeDTO.getReceptorId(), guardado);
     }
 }

@@ -60,33 +60,33 @@ public class UsuarioController {
     public ResponseEntity<java.util.Map<String, String>> bloquearUsuario(
             @PathVariable("bloqueadoId") Long bloqueadoId) {
         usuarioService.bloquearUsuario(bloqueadoId);
-        return ResponseEntity.ok(java.util.Map.of("mensaje", "Usuario bloqueado"));
+        return ResponseEntity.ok(java.util.Map.of(Constantes.KEY_MENSAJE, Constantes.MSG_USUARIO_BLOQUEADO));
     }
 
     @PostMapping(Constantes.USUARIO_DESBLOQUEAR)
     public ResponseEntity<java.util.Map<String, String>> desbloquearUsuario(
             @PathVariable("bloqueadoId") Long bloqueadoId) {
         usuarioService.desbloquearUsuario(bloqueadoId);
-        return ResponseEntity.ok(java.util.Map.of("mensaje", "Usuario desbloqueado"));
+        return ResponseEntity.ok(java.util.Map.of(Constantes.KEY_MENSAJE, Constantes.MSG_USUARIO_DESBLOQUEADO));
     }
 
     @PostMapping(Constantes.RECUPERAR_PASSWORD_SOLICITAR)
     public ResponseEntity<Map<String, String>> solicitarRecuperacion(@RequestBody Map<String, String> payload) {
         String email = payload.get("email");
         if (email == null || email.isBlank()) {
-            return ResponseEntity.badRequest().body(Map.of("mensaje", "Email es requerido"));
+            return ResponseEntity.badRequest().body(Map.of(Constantes.KEY_MENSAJE, Constantes.MSG_EMAIL_REQUERIDO));
         }
 
         if (!usuarioService.existePorEmail(email)) {
             return ResponseEntity.badRequest()
-                    .body(Map.of("mensaje", "El email proporcionado no está registrado en el sistema."));
+                    .body(Map.of(Constantes.KEY_MENSAJE, Constantes.MSG_EMAIL_NO_REGISTRADO));
         }
 
         try {
             passwordResetService.generateAndSendResetCode(email);
-            return ResponseEntity.ok(Map.of("mensaje", "Código enviado al correo"));
+            return ResponseEntity.ok(Map.of(Constantes.KEY_MENSAJE, Constantes.MSG_CODIGO_ENVIADO));
         } catch (Exception e) {
-            return ResponseEntity.internalServerError().body(Map.of("mensaje", "Error enviando correo"));
+            return ResponseEntity.internalServerError().body(Map.of(Constantes.KEY_MENSAJE, Constantes.MSG_ERROR_ENVIANDO_CORREO));
         }
     }
 
@@ -97,34 +97,34 @@ public class UsuarioController {
         String newPassword = payload.get("newPassword");
 
         if (email == null || code == null || newPassword == null) {
-            return ResponseEntity.badRequest().body(Map.of("mensaje", "Faltan datos requeridos"));
+            return ResponseEntity.badRequest().body(Map.of(Constantes.KEY_MENSAJE, Constantes.MSG_FALTAN_DATOS_REQUERIDOS));
         }
 
         boolean isValid = passwordResetService.isCodeValid(email, code);
         if (!isValid) {
-            return ResponseEntity.badRequest().body(Map.of("mensaje", "Código inválido o expirado"));
+            return ResponseEntity.badRequest().body(Map.of(Constantes.KEY_MENSAJE, Constantes.MSG_CODIGO_INVALIDO_O_EXPIRADO));
         }
 
         try {
             usuarioService.actualizarPasswordPorEmail(email, newPassword);
             passwordResetService.invalidateCode(email);
-            return ResponseEntity.ok(Map.of("mensaje", "Contraseña actualizada exitosamente"));
+            return ResponseEntity.ok(Map.of(Constantes.KEY_MENSAJE, Constantes.MSG_CONTRASENA_ACTUALIZADA));
         } catch (Exception e) {
-            return ResponseEntity.badRequest().body(Map.of("mensaje", e.getMessage()));
+            return ResponseEntity.badRequest().body(Map.of(Constantes.KEY_MENSAJE, e.getMessage()));
         }
     }
 
-    @GetMapping("/admin/dashboard-stats")
+    @GetMapping(Constantes.ADMIN_DASHBOARD_STATS)
     public DashboardStatsDTO getDashboardStats() {
         return usuarioService.getDashboardStats();
     }
 
-    @GetMapping("/admin/recientes")
+    @GetMapping(Constantes.ADMIN_RECIENTES)
     public List<UsuarioDTO> listarRecientes() {
         return usuarioService.listarRecientes();
     }
 
-    @PostMapping("/admin/{id}/ban")
+    @PostMapping(Constantes.ADMIN_USUARIO_BAN)
     public ResponseEntity<?> banear(
         @PathVariable("id") Long id, 
         @RequestParam("motivo") String motivo) { // Recibimos el motivo aquí
@@ -133,9 +133,9 @@ public class UsuarioController {
         return ResponseEntity.ok().build();
     }
 
-    @PostMapping("/admin/{id}/unban")
+    @PostMapping(Constantes.ADMIN_USUARIO_UNBAN)
     public ResponseEntity<Map<String, String>> desbanearUsuario(@PathVariable("id") Long id) {
         usuarioService.desbanearAdministrativamente(id);
-        return ResponseEntity.ok(Map.of("mensaje", "Usuario reactivado exitosamente"));
+        return ResponseEntity.ok(Map.of(Constantes.KEY_MENSAJE, Constantes.MSG_USUARIO_REACTIVADO));
     }
 }

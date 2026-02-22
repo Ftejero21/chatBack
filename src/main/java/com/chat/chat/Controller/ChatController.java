@@ -43,7 +43,7 @@ public class ChatController {
         return chatService.anadirUsuariosAGrupo(dto);
     }
 
-    @GetMapping("/admin/usuario/{id}/chats")
+    @GetMapping(Constantes.ADMIN_USUARIO_CHATS)
     public List<ChatResumenDTO> getChatsUsuario(@PathVariable("id") Long id) {
         return chatService.listarConversacionesDeUsuario(id);
     }

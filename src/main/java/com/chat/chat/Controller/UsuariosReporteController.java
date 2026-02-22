@@ -21,9 +21,9 @@ public class UsuariosReporteController {
     public ResponseEntity<String> exportar(@RequestParam(defaultValue = "false") boolean soloActivos) {
         try {
             scheduler.lanzar(soloActivos);
-            return ResponseEntity.ok("Reporte de usuarios lanzado (soloActivos=" + soloActivos + ").");
+            return ResponseEntity.ok(Constantes.MSG_REPORTE_LANZADO + soloActivos + Constantes.MSG_REPORTE_LANZADO_FIN);
         } catch (Exception e) {
-            return ResponseEntity.internalServerError().body("Error al lanzar reporte: " + e.getMessage());
+            return ResponseEntity.internalServerError().body(Constantes.MSG_ERROR_LANZAR_REPORTE + e.getMessage());
         }
     }
 

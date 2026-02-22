@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #1e293b; line-height: 1.6; }
+        .container { max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 16px; overflow: hidden; }
+        .header { background: linear-gradient(135deg, #ef4444 0%, #991b1b 100%); padding: 30px; text-align: center; color: white; }
+        .content { padding: 30px; background-color: #ffffff; }
+        .footer { background-color: #f8fafc; padding: 20px; text-align: center; font-size: 12px; color: #64748b; }
+        .status-badge { background-color: #fee2e2; color: #991b1b; padding: 5px 12px; border-radius: 20px; font-weight: bold; font-size: 12px; text-transform: uppercase; }
+        .reason-box { background-color: #f1f5f9; border-left: 4px solid #ef4444; padding: 15px; margin: 20px 0; border-radius: 4px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1 style="margin:0;">Cuenta Suspendida</h1>
+        </div>
+        <div class="content">
+            <p>Hola <strong>{{nombre}}</strong>,</p>
+            <p>Lamentamos informarte que tu cuenta en <strong>TejeChat</strong> ha sido inhabilitada por un administrador del sistema.</p>
+            
+            <div style="margin: 20px 0;">
+                <span class="status-badge">Estado: Suspendido</span>
+            </div>
+
+            <p>El motivo de esta decisión es el siguiente:</p>
+            <div class="reason-box">
+                "{{motivo}}"
+            </div>
+
+            <p>Debido a esto, tu sesión ha sido cerrada y no podrás acceder a la plataforma ni a tus conversaciones hasta nuevo aviso.</p>
+            <p>Si crees que esto es un error, puedes ponerte en contacto con nuestro equipo de soporte.</p>
+        </div>
+        <div class="footer">
+            © 2026 TejeChat - Gestión de Comunidad
+        </div>
+    </div>
+</body>
+</html>

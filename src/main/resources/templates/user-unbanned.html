@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #1e293b; line-height: 1.6; }
+        .container { max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 16px; overflow: hidden; }
+        .header { background: linear-gradient(135deg, #10b981 0%, #3b82f6 100%); padding: 30px; text-align: center; color: white; }
+        .content { padding: 30px; background-color: #ffffff; }
+        .footer { background-color: #f8fafc; padding: 20px; text-align: center; font-size: 12px; color: #64748b; }
+        .btn { display: inline-block; background: #10b981; color: white; padding: 12px 25px; text-decoration: none; border-radius: 10px; font-weight: bold; margin-top: 20px; }
+        .welcome-icon { font-size: 40px; margin-bottom: 10px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="welcome-icon">🎉</div>
+            <h1 style="margin:0;">¡Bienvenido de nuevo!</h1>
+        </div>
+        <div class="content" style="text-align: center;">
+            <p>¡Hola <strong>{{nombre}}</strong>!</p>
+            <p>Tenemos excelentes noticias. Un administrador ha revisado tu caso y tu cuenta en <strong>TejeChat</strong> ha sido <strong>reactivada</strong> exitosamente.</p>
+            
+            <p>Ya puedes volver a disfrutar de todas nuestras funciones, chatear con tus amigos y participar en los grupos.</p>
+
+            <a href="http://localhost:4200" class="btn">Acceder a mi cuenta</a>
+
+            <p style="margin-top: 30px; font-size: 14px; color: #64748b;">
+                Gracias por formar parte de nuestra comunidad.
+            </p>
+        </div>
+        <div class="footer">
+            © 2026 TejeChat Team
+        </div>
+    </div>
+</body>
+</html>

@@ -1,6 +1,7 @@
 package com.chat.chat.Utils;
 
 import com.chat.chat.DTO.*;
+import com.chat.chat.DTO.*;
 import com.chat.chat.Entity.*;
 
 import java.util.List;
@@ -75,8 +76,8 @@ public class MappingUtils {
     }
 
     public static MensajeEntity mensajeDtoAEntity(MensajeDTO dto,
-            UsuarioEntity emisor,
-            UsuarioEntity receptor) {
+                                                  UsuarioEntity emisor,
+                                                  UsuarioEntity receptor) {
         MensajeEntity e = new MensajeEntity();
         e.setId(dto.getId());
         e.setEmisor(emisor);
@@ -132,7 +133,7 @@ public class MappingUtils {
     }
 
     public static ChatIndividualDTO chatIndividualEntityADto(ChatIndividualEntity entity,
-            UsuarioEntity usuarioLogueado) {
+                                                             UsuarioEntity usuarioLogueado) {
         ChatIndividualDTO dto = new ChatIndividualDTO();
         dto.setId(entity.getId());
 

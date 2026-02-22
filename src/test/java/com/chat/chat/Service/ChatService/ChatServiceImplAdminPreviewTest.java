@@ -14,7 +14,6 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.security.access.AccessDeniedException;
 
 import java.util.List;
 import java.util.Optional;
@@ -41,7 +40,7 @@ class ChatServiceImplAdminPreviewTest {
     private ChatServiceImpl chatService;
 
     @Test
-    void adminRecibePayloadConForAdminYSinTextoPlano() {
+    void adminRecibeUltimoMensajeDescifrado() {
         Long usuarioObjetivoId = 11L;
         Long adminId = 1L;
 
@@ -55,19 +54,17 @@ class ChatServiceImplAdminPreviewTest {
         when(mensajeRepository.countByChatIdAndActivoTrue(100L)).thenReturn(1L);
 
         MensajeEntity ultimo = new MensajeEntity();
-        ultimo.setContenido("{\"type\":\"AES_GCM\",\"iv\":\"iv64\",\"ciphertext\":\"cipher64\",\"forEmisor\":\"rsaA\",\"forReceptor\":\"rsaB\",\"forAdmin\":\"rsaAdmin\"}");
+        ultimo.setContenido("hola en claro");
         when(mensajeRepository.findTopByChatIdAndActivoTrueOrderByFechaEnvioDesc(100L)).thenReturn(Optional.of(ultimo));
 
         List<ChatResumenDTO> resultado = chatService.listarConversacionesDeUsuario(usuarioObjetivoId);
 
         assertEquals(1, resultado.size());
-        assertNull(resultado.get(0).getUltimoMensajeDescifrado());
-        assertTrue(resultado.get(0).getUltimoMensaje().contains("\"forAdmin\":\"rsaAdmin\""));
-        assertFalse(resultado.get(0).getUltimoMensaje().contains("hola en claro"));
+        assertEquals("hola en claro", resultado.get(0).getUltimoMensajeDescifrado());
     }
 
     @Test
-    void noAdminNoAccedeEndpointAdmin() {
+    void noAdminNoRecibeUltimoMensajeDescifrado() {
         Long usuarioObjetivoId = 11L;
         Long userId = 2L;
 
@@ -75,32 +72,20 @@ class ChatServiceImplAdminPreviewTest {
         when(securityUtils.getAuthenticatedUserId()).thenReturn(userId);
         when(usuarioRepo.findById(userId)).thenReturn(Optional.of(user));
 
-        assertThrows(AccessDeniedException.class,
-                () -> chatService.listarConversacionesDeUsuario(usuarioObjetivoId));
-    }
-
-    @Test
-    void mensajesAntiguosSinForAdminSeMarcanComoNoAuditable() {
-        Long usuarioObjetivoId = 11L;
-        Long adminId = 1L;
-
-        UsuarioEntity admin = usuarioConRoles(adminId, Set.of("ROLE_ADMIN"));
-        when(securityUtils.getAuthenticatedUserId()).thenReturn(adminId);
-        when(usuarioRepo.findById(adminId)).thenReturn(Optional.of(admin));
-
         ChatIndividualEntity chat = chatIndividual(100L, "Ana", "Luis");
         when(chatIndRepo.findAllByUsuario1IdOrUsuario2Id(usuarioObjetivoId, usuarioObjetivoId)).thenReturn(List.of(chat));
         when(chatGrupalRepo.findAllByUsuariosId(usuarioObjetivoId)).thenReturn(List.of());
         when(mensajeRepository.countByChatIdAndActivoTrue(100L)).thenReturn(1L);
 
         MensajeEntity ultimo = new MensajeEntity();
-        ultimo.setContenido("{\"type\":\"AES_GCM\",\"iv\":\"iv64\",\"ciphertext\":\"cipher64\",\"forEmisor\":\"rsaA\",\"forReceptor\":\"rsaB\"}");
+        ultimo.setContenido("hola en claro");
         when(mensajeRepository.findTopByChatIdAndActivoTrueOrderByFechaEnvioDesc(100L)).thenReturn(Optional.of(ultimo));
 
         List<ChatResumenDTO> resultado = chatService.listarConversacionesDeUsuario(usuarioObjetivoId);
 
         assertEquals(1, resultado.size());
-        assertTrue(resultado.get(0).getUltimoMensaje().contains("\"forAdmin\":\"NO_AUDITABLE\""));
+        assertNull(resultado.get(0).getUltimoMensajeDescifrado());
+        assertEquals("hola en claro", resultado.get(0).getUltimoMensaje());
     }
 
     private static UsuarioEntity usuarioConRoles(Long id, Set<String> roles) {

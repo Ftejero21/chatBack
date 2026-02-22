@@ -12,6 +12,7 @@ import com.chat.chat.Repository.UsuarioRepository;
 import com.chat.chat.Utils.MappingUtils;
 import com.chat.chat.Utils.SecurityUtils;
 import com.chat.chat.Utils.Utils;
+import com.chat.chat.Utils.Constantes;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
@@ -62,16 +63,16 @@ public class MensajeriaServiceImpl implements MensajeriaService {
 
         ChatIndividualEntity chat = chatIndividualRepository.findByUsuario1AndUsuario2(emisor, receptor)
                 .or(() -> chatIndividualRepository.findByUsuario1AndUsuario2(receptor, emisor))
-                .orElseThrow(() -> new RuntimeException("Chat individual no encontrado"));
+                .orElseThrow(() -> new RuntimeException(Constantes.MSG_CHAT_INDIVIDUAL_NO_ENCONTRADO));
 
         if (emisor.getBloqueados().contains(receptor) || receptor.getBloqueados().contains(emisor)) {
-            throw new RuntimeException("No puedes enviar mensajes en esta conversación");
+            throw new RuntimeException(Constantes.MSG_NO_PUEDE_ENVIAR_MENSAJES);
         }
 
         // === AUDIO ===
-        if (dto.getAudioDataUrl() != null && dto.getAudioDataUrl().startsWith("data:audio")) {
+        if (dto.getAudioDataUrl() != null && dto.getAudioDataUrl().startsWith(Constantes.DATA_AUDIO_PREFIX)) {
             // Guardar a disco (voice/)
-            String publicUrl = Utils.saveDataUrlToUploads(dto.getAudioDataUrl(), "voice", uploadsRoot, uploadsBaseUrl);
+            String publicUrl = Utils.saveDataUrlToUploads(dto.getAudioDataUrl(), Constantes.DIR_VOICE, uploadsRoot, uploadsBaseUrl);
             dto.setAudioUrl(publicUrl);
             // inferir mime del dataURL
             String mime = dto.getAudioDataUrl().substring(5, dto.getAudioDataUrl().indexOf(';')); // "audio/webm"
@@ -102,7 +103,7 @@ public class MensajeriaServiceImpl implements MensajeriaService {
 
         // ⚠️ dto.receptorId llega con el id del chat grupal
         ChatGrupalEntity chatGrupal = chatGrupalRepository.findById(dto.getReceptorId())
-                .orElseThrow(() -> new RuntimeException("Chat grupal no encontrado"));
+                .orElseThrow(() -> new RuntimeException(Constantes.MSG_CHAT_GRUPAL_NO_ENCONTRADO));
 
         MensajeEntity mensaje = MappingUtils.mensajeDtoAEntity(dto, emisor, null);
         mensaje.setChat(chatGrupal);
@@ -136,9 +137,9 @@ public class MensajeriaServiceImpl implements MensajeriaService {
         mensajes.forEach(mensaje -> {
             Long emisorId = mensaje.getEmisor().getId();
             Map<String, Long> payload = new HashMap<>();
-            payload.put("mensajeId", mensaje.getId());
+            payload.put(Constantes.KEY_MENSAJE_ID, mensaje.getId());
 
-            messagingTemplate.convertAndSend("/topic/leido." + emisorId, payload);
+            messagingTemplate.convertAndSend(Constantes.WS_TOPIC_LEIDO + emisorId, payload);
         });
     }
 

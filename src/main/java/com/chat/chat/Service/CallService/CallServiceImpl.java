@@ -6,6 +6,7 @@ import com.chat.chat.Call.DTO.CallEndDTO;
 import com.chat.chat.Call.DTO.CallInviteDTO;
 import com.chat.chat.Entity.UsuarioEntity;
 import com.chat.chat.Repository.UsuarioRepository;
+import com.chat.chat.Utils.Constantes;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
@@ -29,7 +30,7 @@ public class CallServiceImpl implements CallService {
         CallSession session = callManager.create(dto.getCallerId(), dto.getCalleeId());
 
         // Obtener datos del caller (nombre/apellido)
-        String nombre = "Usuario";
+        String nombre = Constantes.DEFAULT_CALLER_NAME;
         String apellido = "";
         try {
             UsuarioEntity u = usuarioRepository.findById(dto.getCallerId()).orElse(null);
@@ -48,7 +49,7 @@ public class CallServiceImpl implements CallService {
         invite.setChatId(dto.getChatId());
 
         // Notificar al CALLEE
-        messagingTemplate.convertAndSend("/topic/call.invite." + dto.getCalleeId(), invite);
+        messagingTemplate.convertAndSend(Constantes.TOPIC_CALL_INVITE + dto.getCalleeId(), invite);
 
         // Feedback al CALLER: "RINGING"
         CallAnswerWS ringing = new CallAnswerWS();
@@ -56,8 +57,8 @@ public class CallServiceImpl implements CallService {
         ringing.setAccepted(false);
         ringing.setFromUserId(dto.getCalleeId());
         ringing.setToUserId(dto.getCallerId());
-        ringing.setReason("RINGING");
-        messagingTemplate.convertAndSend("/topic/call.answer." + dto.getCallerId(), ringing);
+        ringing.setReason(Constantes.RINGING);
+        messagingTemplate.convertAndSend(Constantes.TOPIC_CALL_ANSWER + dto.getCallerId(), ringing);
 
         return invite;
     }
@@ -81,9 +82,9 @@ public class CallServiceImpl implements CallService {
         answer.setReason(dto.getReason());
 
         // Notificar al CALLER (iniciador)
-        messagingTemplate.convertAndSend("/topic/call.answer." + dto.getCallerId(), answer);
+        messagingTemplate.convertAndSend(Constantes.TOPIC_CALL_ANSWER + dto.getCallerId(), answer);
         // (Eco) Notificar al CALLEE
-        messagingTemplate.convertAndSend("/topic/call.answer." + dto.getCalleeId(), answer);
+        messagingTemplate.convertAndSend(Constantes.TOPIC_CALL_ANSWER + dto.getCalleeId(), answer);
 
         return answer;
     }
@@ -107,9 +108,9 @@ public class CallServiceImpl implements CallService {
         end.setNotifyUserId(notifyUserId);
 
         // Notificar a la otra parte
-        messagingTemplate.convertAndSend("/topic/call.end." + notifyUserId, end);
+        messagingTemplate.convertAndSend(Constantes.TOPIC_CALL_END + notifyUserId, end);
         // (Eco) Notificar al que cuelga
-        messagingTemplate.convertAndSend("/topic/call.end." + dto.getByUserId(), end);
+        messagingTemplate.convertAndSend(Constantes.TOPIC_CALL_END + dto.getByUserId(), end);
 
         return end;
     }

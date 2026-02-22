@@ -5,6 +5,7 @@ import com.chat.chat.DTO.UnseenCountWS;
 import com.chat.chat.Entity.NotificationEntity;
 import com.chat.chat.Repository.NotificationRepo;
 import com.chat.chat.Utils.MappingUtils;
+import com.chat.chat.Utils.Constantes;
 import com.chat.chat.Utils.Utils;
 import com.chat.chat.Utils.ExceptionConstants;
 import jakarta.transaction.Transactional;
@@ -38,7 +39,7 @@ public class NotificationServiceImpl implements NotificationService {
     @Transactional
     public void markSeen(Long userId, Long notificationId) {
         NotificationEntity n = notificationRepo.findById(notificationId)
-                .orElseThrow(() -> new IllegalArgumentException("Notificación no existe: " + notificationId));
+                .orElseThrow(() -> new IllegalArgumentException(Constantes.MSG_NOTIFICACION_NO_EXISTE + notificationId));
         if (!Objects.equals(n.getUserId(), userId))
             throw new IllegalArgumentException(ExceptionConstants.ERROR_NOT_AUTHORIZED_MARK);
 
@@ -71,7 +72,7 @@ public class NotificationServiceImpl implements NotificationService {
     @Transactional
     public void resolve(Long userId, Long notificationId) {
         NotificationEntity n = notificationRepo.findById(notificationId)
-                .orElseThrow(() -> new IllegalArgumentException("Notificación no existe: " + notificationId));
+                .orElseThrow(() -> new IllegalArgumentException(Constantes.MSG_NOTIFICACION_NO_EXISTE + notificationId));
         if (!Objects.equals(n.getUserId(), userId))
             throw new IllegalArgumentException(ExceptionConstants.ERROR_NOT_AUTHORIZED_RESOLVE);
 

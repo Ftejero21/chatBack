@@ -83,10 +83,10 @@ public class UsuarioServiceImpl implements UsuarioService {
         String fotoUrl = null;
         if (dto.getFoto() != null) {
             String f = dto.getFoto();
-            if (dto.getFoto() != null && dto.getFoto().startsWith("data:image")) {
-                String url = Utils.saveDataUrlToUploads(dto.getFoto(), "avatars", uploadsRoot, uploadsBaseUrl);
+            if (dto.getFoto() != null && dto.getFoto().startsWith(Constantes.DATA_IMAGE_PREFIX)) {
+                String url = Utils.saveDataUrlToUploads(dto.getFoto(), Constantes.DIR_AVATARS, uploadsRoot, uploadsBaseUrl);
                 dto.setFoto(url); // guarda URL pública en DTO
-            } else if (f.startsWith("/uploads/") || f.startsWith("http")) {
+            } else if (f.startsWith(Constantes.UPLOADS_PREFIX) || f.startsWith(Constantes.HTTP_PREFIX)) {
                 fotoUrl = f; // ya es una URL válida
             }
             // si quieres, limpia dto para no guardar base64 por error
@@ -139,7 +139,7 @@ public class UsuarioServiceImpl implements UsuarioService {
         // 🔄 Convertir /uploads/... a dataURL Base64 (igual que getById)
         for (UsuarioDTO dto : list) {
             String foto = dto.getFoto();
-            if (foto != null && foto.startsWith("/uploads/")) {
+            if (foto != null && foto.startsWith(Constantes.UPLOADS_PREFIX)) {
                 String dataUrl = Utils.toDataUrlFromUrl(foto, uploadsRoot);
                 if (dataUrl != null) {
                     dto.setFoto(dataUrl);
@@ -156,7 +156,7 @@ public class UsuarioServiceImpl implements UsuarioService {
                 .orElseThrow(EmailNoRegistradoException::new);
 
         if (!usuario.isActivo()) {
-            throw new UsuarioInactivoException("Esta cuenta ha sido inhabilitada por un administrador.");
+            throw new UsuarioInactivoException(Constantes.MSG_CUENTA_INHABILITADA);
         }
 
         if (!passwordEncoder.matches(password, usuario.getPassword())) {
@@ -164,7 +164,7 @@ public class UsuarioServiceImpl implements UsuarioService {
         }
 
         UsuarioDTO dto = MappingUtils.usuarioEntityADto(usuario);
-        if (dto.getFoto() != null && dto.getFoto().startsWith("/uploads/")) {
+        if (dto.getFoto() != null && dto.getFoto().startsWith(Constantes.UPLOADS_PREFIX)) {
             dto.setFoto(Utils.toDataUrlFromUrl(dto.getFoto(), uploadsRoot)); // data:image/...;base64,...
         }
 
@@ -193,11 +193,11 @@ public class UsuarioServiceImpl implements UsuarioService {
     @Override
     public UsuarioDTO getById(Long id) {
         UsuarioEntity u = usuarioRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
+                .orElseThrow(() -> new RuntimeException(Constantes.MSG_USUARIO_NO_ENCONTRADO));
         UsuarioDTO dto = MappingUtils.usuarioEntityADto(u);
         // 👉 Si la foto es una URL pública (/uploads/...), la convertimos a Base64 para
         // el front
-        if (dto.getFoto() != null && dto.getFoto().startsWith("/uploads/")) {
+        if (dto.getFoto() != null && dto.getFoto().startsWith(Constantes.UPLOADS_PREFIX)) {
             dto.setFoto(Utils.toDataUrlFromUrl(dto.getFoto(), uploadsRoot));
         }
         return dto;
@@ -220,7 +220,7 @@ public class UsuarioServiceImpl implements UsuarioService {
         // Convertir /uploads/... a dataURL Base64 (igual que en otros métodos)
         for (UsuarioDTO dto : list) {
             String foto = dto.getFoto();
-            if (foto != null && foto.startsWith("/uploads/")) {
+            if (foto != null && foto.startsWith(Constantes.UPLOADS_PREFIX)) {
                 String dataUrl = Utils.toDataUrlFromUrl(foto, uploadsRoot);
                 if (dataUrl != null) {
                     dto.setFoto(dataUrl);
@@ -247,8 +247,8 @@ public class UsuarioServiceImpl implements UsuarioService {
             System.out.println("USUARIO BLOQUEADO CON ÉXITO EN BD");
             usuarioRepository.save(user);
             // Notify the blocked user via STOMP that their status changed
-            messagingTemplate.convertAndSend("/topic/user/" + bloqueadoId + "/bloqueos",
-                    "{\"blockerId\":" + authenticatedUserId + ",\"type\":\"BLOCKED\"}");
+            messagingTemplate.convertAndSend(Constantes.WS_TOPIC_USER_BLOQUEOS_PREFIX + bloqueadoId + Constantes.WS_TOPIC_USER_BLOQUEOS_SUFFIX,
+                    "{\"blockerId\":" + authenticatedUserId + ",\"type\":\"" + Constantes.WS_TYPE_BLOCKED + "\"}");
         } else {
             System.out.println("USUARIO YA ESTABA BLOQUEADO EN BD");
         }
@@ -265,8 +265,8 @@ public class UsuarioServiceImpl implements UsuarioService {
         if (user.getBloqueados().remove(blocked)) {
             usuarioRepository.save(user);
             // Notify the unblocked user via STOMP
-            messagingTemplate.convertAndSend("/topic/user/" + bloqueadoId + "/bloqueos",
-                    "{\"blockerId\":" + authenticatedUserId + ",\"type\":\"UNBLOCKED\"}");
+            messagingTemplate.convertAndSend(Constantes.WS_TOPIC_USER_BLOQUEOS_PREFIX + bloqueadoId + Constantes.WS_TOPIC_USER_BLOQUEOS_SUFFIX,
+                    "{\"blockerId\":" + authenticatedUserId + ",\"type\":\"" + Constantes.WS_TYPE_UNBLOCKED + "\"}");
         }
     }
 
@@ -346,7 +346,7 @@ public class UsuarioServiceImpl implements UsuarioService {
 
         // Motivo por defecto si viene null o vacío
         String motivoFinal = (motivo == null || motivo.trim().isEmpty())
-                ? "Tu cuenta ha sido suspendida temporalmente por incumplimiento de las normas de uso de TejeChat."
+                ? Constantes.BAN_MOTIVO_DEFAULT
                 : motivo.trim();
 
         bloqueado.setActivo(false);
@@ -355,19 +355,19 @@ public class UsuarioServiceImpl implements UsuarioService {
         // 1. WebSocket con el motivo final
         messagingTemplate.convertAndSendToUser(
                 bloqueado.getEmail(),
-                "/queue/baneos",
+                Constantes.WS_QUEUE_BANEOS,
                 "{\"banned\": true, \"motivo\": \"" + escapeJson(motivoFinal) + "\"}"
         );
 
         // 2. Enviar Email con el motivo final
         Map<String, String> vars = new java.util.HashMap<>();
-        vars.put("nombre", bloqueado.getNombre());
-        vars.put("motivo", motivoFinal);
+        vars.put(Constantes.EMAIL_VAR_NOMBRE, bloqueado.getNombre());
+        vars.put(Constantes.EMAIL_VAR_MOTIVO, motivoFinal);
 
         emailService.sendHtmlEmail(
                 bloqueado.getEmail(),
-                "Aviso de suspensión de cuenta - TejeChat",
-                "templates/user-banned.html",
+                Constantes.EMAIL_SUBJECT_BAN,
+                Constantes.EMAIL_TEMPLATE_BAN,
                 vars
         );
     }
@@ -382,12 +382,12 @@ public class UsuarioServiceImpl implements UsuarioService {
 
         // 3. Enviar Email de Desbaneo
         Map<String, String> vars = new java.util.HashMap<>();
-        vars.put("nombre", vetado.getNombre());
+        vars.put(Constantes.EMAIL_VAR_NOMBRE, vetado.getNombre());
 
         emailService.sendHtmlEmail(
                 vetado.getEmail(),
-                "¡Cuenta reactivada! Bienvenido de nuevo - TejeChat",
-                "templates/user-unbanned.html",
+                Constantes.EMAIL_SUBJECT_UNBAN,
+                Constantes.EMAIL_TEMPLATE_UNBAN,
                 vars);
     }
 }

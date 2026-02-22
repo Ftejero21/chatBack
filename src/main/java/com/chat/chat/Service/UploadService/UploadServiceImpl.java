@@ -2,6 +2,7 @@ package com.chat.chat.Service.UploadService;
 
 import com.chat.chat.DTO.AudioUploadResponseDTO;
 import com.chat.chat.Utils.Utils;
+import com.chat.chat.Utils.Constantes;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
@@ -38,7 +39,7 @@ public class UploadServiceImpl implements UploadService {
 
         try {
             // 2. Preparar rutas y nombres
-            String subDirectory = "voice";
+            String subDirectory = Constantes.DIR_VOICE;
             Path destinationDir = prepareDirectory(subDirectory);
 
             // Generar nombre seguro

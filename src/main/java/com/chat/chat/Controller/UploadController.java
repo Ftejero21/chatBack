@@ -9,7 +9,7 @@ import org.springframework.web.multipart.MultipartFile;
 import com.chat.chat.Utils.Constantes;
 
 @RestController
-@RequestMapping("/api/uploads")
+@RequestMapping(Constantes.API_UPLOADS_ALL)
 @CrossOrigin("*")
 public class UploadController {
 

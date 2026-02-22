@@ -11,7 +11,8 @@ import org.springframework.web.socket.config.annotation.WebSocketTransportRegist
 @EnableWebSocketMessageBroker
 public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
-
+    @org.springframework.beans.factory.annotation.Autowired
+    private WebSocketSecurityInterceptor webSocketSecurityInterceptor;
 
     @Override
     public void registerStompEndpoints(StompEndpointRegistry registry) {
@@ -23,21 +24,27 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
                 .setDisconnectDelay(30_000);
     }
 
-
     @Override
     public void configureMessageBroker(MessageBrokerRegistry registry) {
         // Destino para mensajes que se envían desde el cliente (app/chat.send)
         registry.setApplicationDestinationPrefixes("/app");
 
         // Destino al que el cliente se suscribe para recibir mensajes (topic/chat.{id})
-        registry.enableSimpleBroker("/topic");
+        // Añadido /queue para permitir a Spring enrutar convertAndSendToUser
+        registry.enableSimpleBroker("/topic", "/queue");
     }
 
     @Override
     public void configureWebSocketTransport(WebSocketTransportRegistration registry) {
         registry
-                .setMessageSizeLimit(256 * 1024)     // 256 KB (ajusta a gusto)
-                .setSendBufferSizeLimit(512 * 1024)  // buffer envío
-                .setSendTimeLimit(25_000);           // 25s
+                .setMessageSizeLimit(256 * 1024) // 256 KB (ajusta a gusto)
+                .setSendBufferSizeLimit(512 * 1024) // buffer envío
+                .setSendTimeLimit(25_000); // 25s
+    }
+
+    @Override
+    public void configureClientInboundChannel(
+            org.springframework.messaging.simp.config.ChannelRegistration registration) {
+        registration.interceptors(webSocketSecurityInterceptor);
     }
 }

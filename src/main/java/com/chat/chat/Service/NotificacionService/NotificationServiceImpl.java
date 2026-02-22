@@ -6,6 +6,7 @@ import com.chat.chat.Entity.NotificationEntity;
 import com.chat.chat.Repository.NotificationRepo;
 import com.chat.chat.Utils.MappingUtils;
 import com.chat.chat.Utils.Utils;
+import com.chat.chat.Utils.ExceptionConstants;
 import jakarta.transaction.Transactional;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
@@ -19,7 +20,8 @@ public class NotificationServiceImpl implements NotificationService {
 
     @Autowired
     private NotificationRepo notificationRepo;
-    @Autowired private SimpMessagingTemplate messagingTemplate;
+    @Autowired
+    private SimpMessagingTemplate messagingTemplate;
 
     @Override
     public long unseenCount(Long userId) {
@@ -29,8 +31,7 @@ public class NotificationServiceImpl implements NotificationService {
     @Override
     public List<NotificationDTO> list(Long userId) {
         return MappingUtils.notificationEntityListADto(
-                notificationRepo.findByUserIdOrderByCreatedAtDesc(userId)
-        );
+                notificationRepo.findByUserIdOrderByCreatedAtDesc(userId));
     }
 
     @Override
@@ -39,7 +40,7 @@ public class NotificationServiceImpl implements NotificationService {
         NotificationEntity n = notificationRepo.findById(notificationId)
                 .orElseThrow(() -> new IllegalArgumentException("Notificación no existe: " + notificationId));
         if (!Objects.equals(n.getUserId(), userId))
-            throw new IllegalArgumentException("No autorizado para marcar esta notificación");
+            throw new IllegalArgumentException(ExceptionConstants.ERROR_NOT_AUTHORIZED_MARK);
 
         n.setSeen(true);
         notificationRepo.save(n);
@@ -63,8 +64,7 @@ public class NotificationServiceImpl implements NotificationService {
     @Override
     public List<NotificationDTO> listPending(Long userId) {
         return MappingUtils.notificationEntityListADto(
-                notificationRepo.findByUserIdAndResolvedFalseOrderByCreatedAtDesc(userId)
-        );
+                notificationRepo.findByUserIdAndResolvedFalseOrderByCreatedAtDesc(userId));
     }
 
     @Override
@@ -73,7 +73,7 @@ public class NotificationServiceImpl implements NotificationService {
         NotificationEntity n = notificationRepo.findById(notificationId)
                 .orElseThrow(() -> new IllegalArgumentException("Notificación no existe: " + notificationId));
         if (!Objects.equals(n.getUserId(), userId))
-            throw new IllegalArgumentException("No autorizado para resolver esta notificación");
+            throw new IllegalArgumentException(ExceptionConstants.ERROR_NOT_AUTHORIZED_RESOLVE);
 
         n.setResolved(true);
         notificationRepo.save(n);

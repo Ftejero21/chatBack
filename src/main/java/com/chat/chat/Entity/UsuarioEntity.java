@@ -37,8 +37,16 @@ public class UsuarioEntity {
     @Column(name = "foto_url")
     private String fotoUrl;
 
+    @Lob
+    @Column(columnDefinition = "TEXT")
+    private String publicKey;
+
     @OneToMany(mappedBy = "emisor", cascade = CascadeType.ALL)
     private List<MensajeEntity> mensajes = new ArrayList<>();
+
+    @ManyToMany(fetch = FetchType.LAZY)
+    @JoinTable(name = "usuario_bloqueados", joinColumns = @JoinColumn(name = "usuario_id"), inverseJoinColumns = @JoinColumn(name = "bloqueado_id"))
+    private Set<UsuarioEntity> bloqueados = new HashSet<>();
 
     public Long getId() {
         return id;
@@ -48,8 +56,22 @@ public class UsuarioEntity {
         this.id = id;
     }
 
-    public String getFotoUrl() { return fotoUrl; }
-    public void setFotoUrl(String fotoUrl) { this.fotoUrl = fotoUrl; }
+    public String getPublicKey() {
+        return publicKey;
+    }
+
+    public void setPublicKey(String publicKey) {
+        this.publicKey = publicKey;
+    }
+
+    public String getFotoUrl() {
+        return fotoUrl;
+    }
+
+    public void setFotoUrl(String fotoUrl) {
+        this.fotoUrl = fotoUrl;
+    }
+
     public String getNombre() {
         return nombre;
     }
@@ -98,7 +120,6 @@ public class UsuarioEntity {
         this.roles = roles;
     }
 
-
     public List<MensajeEntity> getMensajes() {
         return mensajes;
     }
@@ -113,5 +134,24 @@ public class UsuarioEntity {
 
     public void setEmail(String email) {
         this.email = email;
+    }
+
+    public Set<UsuarioEntity> getBloqueados() {
+        return bloqueados;
+    }
+
+    public void setBloqueados(Set<UsuarioEntity> bloqueados) {
+        this.bloqueados = bloqueados;
+    }
+
+    @ManyToMany(mappedBy = "bloqueados", fetch = FetchType.LAZY)
+    private Set<UsuarioEntity> meHanBloqueado = new HashSet<>();
+
+    public Set<UsuarioEntity> getMeHanBloqueado() {
+        return meHanBloqueado;
+    }
+
+    public void setMeHanBloqueado(Set<UsuarioEntity> meHanBloqueado) {
+        this.meHanBloqueado = meHanBloqueado;
     }
 }

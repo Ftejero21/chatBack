@@ -2,6 +2,7 @@ package com.chat.chat.Entity;
 
 import jakarta.persistence.*;
 
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -13,6 +14,9 @@ public abstract class ChatEntity {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
+
+    @Column(name = "fecha_creacion", updatable = false)
+    private LocalDateTime fechaCreacion;
 
     @OneToMany(mappedBy = "chat", cascade = CascadeType.ALL)
     private List<MensajeEntity> mensajes = new ArrayList<>();
@@ -31,5 +35,20 @@ public abstract class ChatEntity {
 
     public void setMensajes(List<MensajeEntity> mensajes) {
         this.mensajes = mensajes;
+    }
+
+    public LocalDateTime getFechaCreacion() {
+        return fechaCreacion;
+    }
+
+    public void setFechaCreacion(LocalDateTime fechaCreacion) {
+        this.fechaCreacion = fechaCreacion;
+    }
+
+    @PrePersist
+    protected void onCreate() {
+        if (this.fechaCreacion == null) {
+            this.fechaCreacion = LocalDateTime.now();
+        }
     }
 }

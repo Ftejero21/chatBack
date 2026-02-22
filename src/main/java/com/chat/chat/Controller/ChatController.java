@@ -1,6 +1,5 @@
 package com.chat.chat.Controller;
 
-
 import com.chat.chat.DTO.*;
 
 import com.chat.chat.Service.ChatService.ChatService;
@@ -25,7 +24,7 @@ public class ChatController {
     }
 
     @GetMapping(Constantes.GRUPAL_ES_MIEMBRO)
-    public EsMiembroDTO esMiembroDeGrupo(@PathVariable Long groupId, @PathVariable Long userId) {
+    public EsMiembroDTO esMiembroDeGrupo(@PathVariable("groupId") Long groupId, @PathVariable("userId") Long userId) {
         return chatService.esMiembroDeChatGrupal(groupId, userId);
     }
 
@@ -34,7 +33,7 @@ public class ChatController {
         return chatService.crearChatGrupal(dto);
     }
 
-    @PostMapping("/{groupId}/usuarios")
+    @PostMapping(Constantes.GRUPAL_ADD_USUARIOS)
     public AddUsuariosGrupoWSResponse anadirUsuariosAGrupo(
             @PathVariable("groupId") Long groupId,
             @RequestBody AddUsuariosGrupoDTO dto) {
@@ -44,6 +43,11 @@ public class ChatController {
         return chatService.anadirUsuariosAGrupo(dto);
     }
 
+    @GetMapping("/admin/usuario/{id}/chats")
+    public List<ChatResumenDTO> getChatsUsuario(@PathVariable("id") Long id) {
+        return chatService.listarConversacionesDeUsuario(id);
+    }
+
     @PostMapping(Constantes.GRUPAL_SALIR)
     public MessagueSalirGrupoDTO salirDeChatGrupal(@RequestBody LeaveGroupRequestDTO dto) {
         // userId viene SIEMPRE en el body (no usamos JWT)
@@ -51,23 +55,23 @@ public class ChatController {
     }
 
     @GetMapping(Constantes.GRUPALES_USUARIO)
-    public List<ChatGrupalDTO> listarGrupalesPorUsuario(@PathVariable Long usuarioId) {
+    public List<ChatGrupalDTO> listarGrupalesPorUsuario(@PathVariable("usuarioId") Long usuarioId) {
         return chatService.listarChatsGrupalesPorUsuario(usuarioId);
     }
 
     @GetMapping(Constantes.CHATS_USUARIO)
-    public List<Object> listarTodosLosChats(@PathVariable Long usuarioId) {
+    public List<Object> listarTodosLosChats(@PathVariable("usuarioId") Long usuarioId) {
         return chatService.listarTodosLosChatsDeUsuario(usuarioId);
     }
 
     @GetMapping(Constantes.LISTAR_MENSAJES_CHAT + "/{chatId}")
-    public ResponseEntity<List<MensajeDTO>> listarMensajesPorChatId(@PathVariable Long chatId) {
+    public ResponseEntity<List<MensajeDTO>> listarMensajesPorChatId(@PathVariable("chatId") Long chatId) {
         List<MensajeDTO> mensajes = chatService.listarMensajesPorChatId(chatId);
         return ResponseEntity.ok(mensajes);
     }
 
-    @GetMapping("/mensajes/grupo/{chatId}")
-    public ResponseEntity<List<MensajeDTO>> listarMensajesPorChatGrupal(@PathVariable Long chatId) {
+    @GetMapping(Constantes.MENSAJES_GRUPO)
+    public ResponseEntity<List<MensajeDTO>> listarMensajesPorChatGrupal(@PathVariable("chatId") Long chatId) {
         return ResponseEntity.ok(chatService.listarMensajesPorChatGrupal(chatId));
     }
 }

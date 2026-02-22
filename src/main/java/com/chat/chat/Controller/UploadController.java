@@ -6,6 +6,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
+import com.chat.chat.Utils.Constantes;
 
 @RestController
 @RequestMapping("/api/uploads")
@@ -15,11 +16,10 @@ public class UploadController {
     @Autowired
     private UploadService uploadService;
 
-    @PostMapping(value = "/audio", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PostMapping(value = Constantes.UPLOAD_AUDIO, consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public AudioUploadResponseDTO uploadAudio(
             @RequestParam("file") MultipartFile file,
-            @RequestParam(value = "durMs", required = false) Integer durMs
-    ) {
+            @RequestParam(value = "durMs", required = false) Integer durMs) {
         return uploadService.uploadAudio(file, durMs);
     }
 }

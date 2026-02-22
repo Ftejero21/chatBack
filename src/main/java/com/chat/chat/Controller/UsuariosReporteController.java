@@ -4,8 +4,10 @@ import com.chat.chat.Batch.UsuariosReporteScheduler;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import com.chat.chat.Utils.Constantes;
+
 @RestController
-@RequestMapping("/api/reportes")
+@RequestMapping(Constantes.API_REPORTES)
 @CrossOrigin("*")
 public class UsuariosReporteController {
 
@@ -15,7 +17,7 @@ public class UsuariosReporteController {
         this.scheduler = scheduler;
     }
 
-    @PostMapping("/usuarios")
+    @PostMapping(Constantes.USUARIOS_SUB)
     public ResponseEntity<String> exportar(@RequestParam(defaultValue = "false") boolean soloActivos) {
         try {
             scheduler.lanzar(soloActivos);
@@ -24,6 +26,5 @@ public class UsuariosReporteController {
             return ResponseEntity.internalServerError().body("Error al lanzar reporte: " + e.getMessage());
         }
     }
-
 
 }

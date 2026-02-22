@@ -1,10 +1,11 @@
 package com.chat.chat.Service.ChatService;
 
-
 import com.chat.chat.DTO.*;
 import com.chat.chat.Entity.*;
 import com.chat.chat.Repository.*;
 import com.chat.chat.Utils.*;
+import com.chat.chat.Utils.ExceptionConstants;
+import com.chat.chat.Utils.ChatConstants;
 import jakarta.transaction.Transactional;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -24,8 +25,8 @@ public class ChatServiceImpl implements ChatService {
     @Autowired
     private ChatIndividualRepository chatIndRepo;
 
-     @Autowired
-     SimpMessagingTemplate messagingTemplate;
+    @Autowired
+    SimpMessagingTemplate messagingTemplate;
 
     @Value("${app.uploads.root:uploads}")
     private String uploadsRoot;
@@ -40,19 +41,30 @@ public class ChatServiceImpl implements ChatService {
     private ChatRepository chatRepository;
 
     @Autowired
-    private UsuarioRepository usuarioRepository;
+    private GroupInviteRepo inviteRepo;
     @Autowired
-    private  GroupInviteRepo inviteRepo;
-    @Autowired
-    private  NotificationRepo notificationRepo;
+    private NotificationRepo notificationRepo;
 
     @Autowired
     private ChatGrupalRepository chatGrupalRepo;
 
+    @Autowired
+    private SecurityUtils securityUtils;
+
     @Override
     public ChatIndividualDTO crearChatIndividual(Long usuario1Id, Long usuario2Id) {
+        Long authenticatedUserId = securityUtils.getAuthenticatedUserId();
+        // Solo podemos crear chats donde participemos nosotros mismos
+        if (!authenticatedUserId.equals(usuario1Id) && !authenticatedUserId.equals(usuario2Id)) {
+            throw new SecurityException(ExceptionConstants.ERROR_CREATE_THIRD_PARTY_CHAT);
+        }
+
         UsuarioEntity u1 = usuarioRepo.findById(usuario1Id).orElseThrow();
         UsuarioEntity u2 = usuarioRepo.findById(usuario2Id).orElseThrow();
+
+        if (u1.getBloqueados().contains(u2) || u2.getBloqueados().contains(u1)) {
+            throw new RuntimeException("No puedes crear un chat individual con un usuario bloqueado");
+        }
 
         ChatIndividualEntity chat = new ChatIndividualEntity();
         chat.setUsuario1(u1);
@@ -64,8 +76,13 @@ public class ChatServiceImpl implements ChatService {
     @Override
     @Transactional
     public ChatGrupalDTO crearChatGrupal(ChatGrupalDTO dto) {
-        // 1) Creador desde util
-        UsuarioEntity creador = Utils.getCreadorOrThrow(dto, usuarioRepo); // ya lo tenías
+        // En vez de usar el ID que manda el front (que se puede falsificar), usamos el
+        // del token
+        Long authenticatedUserId = securityUtils.getAuthenticatedUserId();
+
+        // 1) Creador desde auth
+        UsuarioEntity creador = usuarioRepo.findById(authenticatedUserId)
+                .orElseThrow(() -> new RuntimeException("Creador no encontrado"));
 
         // 2) Procesar fotoGrupo: dataURL -> guardar; URL pública -> usar
         String fotoUrl = null;
@@ -85,12 +102,21 @@ public class ChatServiceImpl implements ChatService {
         chat.setUsuarios(new ArrayList<>(List.of(creador)));
         chat = chatGrupalRepo.save(chat);
 
-        // 4) Preparar invitados (los que vienen en dto, excepto el creador, sin duplicados)
-        Set<Long> inviteeIds = (dto.getUsuarios() == null) ? Set.of() :
-                dto.getUsuarios().stream()
+        // 4) Preparar invitados (los que vienen en dto, excepto el creador, sin
+        // duplicados)
+        Set<Long> inviteeIds = (dto.getUsuarios() == null) ? Set.of()
+                : dto.getUsuarios().stream()
                         .map(UsuarioDTO::getId)
-                        .filter(Objects::nonNull)
-                        .filter(id -> !Objects.equals(id, dto.getIdCreador()))
+                        .filter(id -> !Objects.equals(id, authenticatedUserId))
+                        .filter(id -> {
+                            UsuarioEntity potentialInvitee = usuarioRepo.findById(id).orElse(null);
+                            if (potentialInvitee == null)
+                                return false;
+                            // Prevenir agregar si creador bloqueó al invitado, o si el invitado bloqueó al
+                            // creador
+                            return !creador.getBloqueados().contains(potentialInvitee) &&
+                                    !potentialInvitee.getBloqueados().contains(creador);
+                        })
                         .collect(Collectors.toCollection(LinkedHashSet::new));
 
         // 5) Crear invitaciones
@@ -114,7 +140,7 @@ public class ChatServiceImpl implements ChatService {
             wsPayload.groupId = chat.getId();
             wsPayload.groupName = chat.getNombreGrupo();
             wsPayload.inviterId = creador.getId();
-            wsPayload.inviterNombre = creador.getNombre(); // añade apellidos si quieres
+            wsPayload.inviterNombre = creador.getNombre();
 
             NotificationEntity notif = new NotificationEntity();
             notif.setUserId(inv.getInvitee().getId());
@@ -131,13 +157,12 @@ public class ChatServiceImpl implements ChatService {
 
         // 7) DTO de salida (con foto)
         ChatGrupalDTO out = MappingUtils.chatGrupalEntityADto(chat);
-        out.setUltimaMensaje("Grupo creado");
+        out.setUltimaMensaje(ChatConstants.MSG_GRUPO_CREADO);
         out.setUltimaFecha(LocalDateTime.now());
         out.setIdCreador(creador.getId());
-        out.setFotoGrupo(fotoUrl); // redundante si el mapper ya lo pone, pero ok
+        out.setFotoGrupo(fotoUrl);
         return out;
     }
-
 
     @Override
     @Transactional
@@ -182,22 +207,19 @@ public class ChatServiceImpl implements ChatService {
         // Persistir cambios cuando no se elimina
         chatGrupalRepo.save(chat);
 
-
-
         return new MessagueSalirGrupoDTO(true, "Has salido del grupo.", groupId, userId, false);
     }
 
     @Override
     public EsMiembroDTO esMiembroDeChatGrupal(Long groupId, Long userId) {
-        var opt = chatGrupalRepo.findById(groupId);
-        if (opt.isEmpty()) return new EsMiembroDTO(false, true);
-        var chat = opt.get();
+        Optional<ChatGrupalEntity> opt = chatGrupalRepo.findById(groupId);
+        if (opt.isEmpty())
+            return new EsMiembroDTO(false, true);
+        ChatGrupalEntity chat = opt.get();
         boolean esMiembro = chat.getUsuarios() != null &&
                 chat.getUsuarios().stream().anyMatch(u -> u.getId().equals(userId));
         return new EsMiembroDTO(esMiembro, false);
     }
-
-
 
     @Override
     public List<ChatGrupalDTO> listarChatsGrupalesPorUsuario(Long usuarioId) {
@@ -222,12 +244,12 @@ public class ChatServiceImpl implements ChatService {
         boolean inviterEsMiembro = chat.getUsuarios() != null
                 && chat.getUsuarios().stream().anyMatch(u -> Objects.equals(u.getId(), inviter.getId()));
         if (!inviterEsMiembro) {
-            throw new IllegalStateException("El invitador no pertenece al grupo");
+            throw new IllegalStateException(ExceptionConstants.ERROR_NOT_GROUP_MEMBER);
         }
 
         // 2) Normalizar IDs a invitar (sin duplicados, sin incluir al invitador)
-        Set<Long> solicitados = (dto.getUsuarios() == null) ? Set.of() :
-                dto.getUsuarios().stream()
+        Set<Long> solicitados = (dto.getUsuarios() == null) ? Set.of()
+                : dto.getUsuarios().stream()
                         .map(UsuarioDTO::getId)
                         .filter(Objects::nonNull)
                         .filter(id -> !Objects.equals(id, inviter.getId()))
@@ -239,6 +261,15 @@ public class ChatServiceImpl implements ChatService {
 
         Set<Long> noMiembros = solicitados.stream()
                 .filter(id -> !miembrosIds.contains(id))
+                .filter(id -> {
+                    UsuarioEntity potentialInvitee = usuarioRepo.findById(id).orElse(null);
+                    if (potentialInvitee == null)
+                        return false;
+                    // Prevenir agregar si invitador bloqueó al invitado, o si el invitado bloqueó
+                    // al invitador
+                    return !inviter.getBloqueados().contains(potentialInvitee) &&
+                            !potentialInvitee.getBloqueados().contains(inviter);
+                })
                 .collect(Collectors.toCollection(LinkedHashSet::new));
 
         // 4) Evitar duplicar invitaciones PENDING
@@ -319,15 +350,23 @@ public class ChatServiceImpl implements ChatService {
         Map<Long, Long> unreadMap = mensajeRepository.countUnreadByUser(usuarioId)
                 .stream()
                 .collect(Collectors.toMap(
-                        r -> (Long) r[0],  // chatId
-                        r -> (Long) r[1]   // count
+                        r -> (Long) r[0], // chatId
+                        r -> (Long) r[1] // count
                 ));
 
         // === INDIVIDUALES ===
         List<ChatIndividualDTO> individuales = chatIndRepo.findAll().stream()
-                .filter(chat -> chat.getUsuario1().getId().equals(usuarioId) || chat.getUsuario2().getId().equals(usuarioId))
+                .filter(chat -> chat.getUsuario1().getId().equals(usuarioId)
+                        || chat.getUsuario2().getId().equals(usuarioId))
                 .map(chat -> {
-                    ChatIndividualDTO dto = MappingUtils.chatIndividualEntityADto(chat, usuario);
+                    // Decide quién es el receptor basado en el usuario actual
+                    boolean soyUser1 = chat.getUsuario1().getId().equals(usuarioId);
+                    UsuarioEntity peer = soyUser1 ? chat.getUsuario2() : chat.getUsuario1();
+
+                    // Si por algún motivo era un chat conmigo mismo, peer = yo mismo
+                    ChatIndividualDTO dto = MappingUtils.chatIndividualEntityADto(chat,
+                            soyUser1 ? chat.getUsuario1() : chat.getUsuario2());
+                    dto.setReceptor(MappingUtils.usuarioEntityADto(peer));
 
                     // 👇 convertir la foto del receptor a Base64 (dataURL) para el front
                     if (dto.getReceptor() != null && dto.getReceptor().getFoto() != null) {
@@ -341,11 +380,11 @@ public class ChatServiceImpl implements ChatService {
                     MensajeEntity last = mensajeRepository.findTopByChatIdOrderByFechaEnvioDesc(dto.getId());
 
                     if (last == null) {
-                        dto.setUltimaMensaje("Sin mensajes aún");
+                        dto.setUltimaMensaje(ChatConstants.MSG_SIN_MENSAJES);
                         dto.setUltimaFecha(null);
                         // dto.setUltimaMensajeId(null); // si tienes este campo
                     } else if (!last.isActivo()) {
-                        dto.setUltimaMensaje("Mensaje eliminado");
+                        dto.setUltimaMensaje(ChatConstants.MSG_MENSAJE_ELIMINADO);
                         dto.setUltimaFecha(last.getFechaEnvio());
                         // dto.setUltimaMensajeId(last.getId());
                     } else {
@@ -359,13 +398,15 @@ public class ChatServiceImpl implements ChatService {
                             String dur = Utils.mmss(last.getMediaDuracionMs());
                             // ✅ sin "Mensaje de voz", solo micro + duración
                             preview = pref + "🎤" + (dur.isEmpty() ? "" : " (" + dur + ")");
+                        } else if (last.getContenido() != null && last.getContenido().contains("\"type\":\"E2E\"")) {
+                            preview = pref + last.getContenido(); // No truncar JSON E2E
                         } else {
                             preview = pref + Utils.truncarSafe(last.getContenido(), 60);
                         }
 
                         dto.setUltimaMensaje(preview);
                         dto.setUltimaFecha(last.getFechaEnvio());
-                            // dto.setUltimaMensajeId(last.getId());
+                        // dto.setUltimaMensajeId(last.getId());
                     }
                     return dto;
                 })
@@ -413,11 +454,11 @@ public class ChatServiceImpl implements ChatService {
                     MensajeEntity last = mensajeRepository.findTopByChatIdOrderByFechaEnvioDesc(dto.getId());
 
                     if (last == null) {
-                        dto.setUltimaMensaje("Sin mensajes aún");
+                        dto.setUltimaMensaje(ChatConstants.MSG_SIN_MENSAJES);
                         dto.setUltimaFecha(null);
                         // dto.setUltimaMensajeId(null);
                     } else if (!last.isActivo()) {
-                        dto.setUltimaMensaje("Mensaje eliminado");
+                        dto.setUltimaMensaje(ChatConstants.MSG_MENSAJE_ELIMINADO);
                         dto.setUltimaFecha(last.getFechaEnvio());
                         // dto.setUltimaMensajeId(last.getId());
                     } else {
@@ -431,6 +472,8 @@ public class ChatServiceImpl implements ChatService {
                             String dur = Utils.mmss(last.getMediaDuracionMs());
                             // ✅ “Nombre: 🎤 (mm:ss)”
                             preview = prefix + "🎤" + (dur.isEmpty() ? "" : " (" + dur + ")");
+                        } else if (last.getContenido() != null && last.getContenido().contains("\"type\":\"E2E\"")) {
+                            preview = prefix + last.getContenido(); // No truncar JSON E2E
                         } else {
                             preview = prefix + Utils.truncarSafe(last.getContenido(), 60);
                         }
@@ -456,16 +499,17 @@ public class ChatServiceImpl implements ChatService {
                     ? ((ChatIndividualDTO) b).getUltimaFecha()
                     : ((ChatGrupalDTO) b).getUltimaFecha();
 
-            if (fa == null && fb == null) return 0;
-            if (fa == null) return 1;
-            if (fb == null) return -1;
+            if (fa == null && fb == null)
+                return 0;
+            if (fa == null)
+                return 1;
+            if (fb == null)
+                return -1;
             return fb.compareTo(fa); // DESC
         });
 
         return resultado;
     }
-
-
 
     @Override
     public List<MensajeDTO> listarMensajesPorChatId(Long chatId) {
@@ -485,7 +529,8 @@ public class ChatServiceImpl implements ChatService {
                 .orElseThrow(() -> new RuntimeException("Chat grupal no encontrado con ID: " + chatId));
 
         // Si tienes un repo con este método, úsalo; si no, ordenamos en memoria:
-        // List<MensajeEntity> mensajes = mensajeRepository.findByChatIdOrderByFechaEnvioAsc(chatId);
+        // List<MensajeEntity> mensajes =
+        // mensajeRepository.findByChatIdOrderByFechaEnvioAsc(chatId);
         List<MensajeEntity> mensajes = chat.getMensajes().stream()
                 .sorted(java.util.Comparator.comparing(MensajeEntity::getFechaEnvio))
                 .collect(java.util.stream.Collectors.toList());
@@ -507,12 +552,45 @@ public class ChatServiceImpl implements ChatService {
                 .collect(java.util.stream.Collectors.toList());
     }
 
-    /** Trunca y normaliza espacios para previews. */
-    private String truncar(String s, int max) {
-        if (s == null) return "";
-        s = s.trim().replaceAll("\\s+", " ");
-        return (s.length() <= max) ? s : s.substring(0, Math.max(0, max - 1)) + "…";
+    @Override
+    public List<ChatResumenDTO> listarConversacionesDeUsuario(Long usuarioId) {
+        List<ChatResumenDTO> resumenes = new ArrayList<>();
+
+        // 1. Chats Individuales
+        List<ChatIndividualEntity> individuales = chatIndRepo.findAllByUsuario1IdOrUsuario2Id(usuarioId, usuarioId);
+        for (ChatIndividualEntity ci : individuales) {
+            ChatResumenDTO dto = new ChatResumenDTO();
+            dto.setId(ci.getId());
+            dto.setTipo("INDIVIDUAL");
+            dto.setNombreChat(ci.getUsuario1().getNombre() + " y " + ci.getUsuario2().getNombre());
+
+            long totalMensajes = mensajeRepository.countByChatIdAndActivoTrue(ci.getId());
+            dto.setTotalMensajes((int) totalMensajes);
+
+            mensajeRepository.findTopByChatIdAndActivoTrueOrderByFechaEnvioDesc(ci.getId())
+                    .ifPresent(m -> dto.setUltimoMensaje(m.getContenido()));
+
+            resumenes.add(dto);
+        }
+
+        // 2. Chats Grupales (temporal: sin contar mensajes hasta usar el repo correcto)
+        List<ChatGrupalEntity> grupales = chatGrupalRepo.findAllByUsuariosId(usuarioId);
+        for (ChatGrupalEntity cg : grupales) {
+            ChatResumenDTO dto = new ChatResumenDTO();
+            dto.setId(cg.getId());
+            dto.setTipo("GRUPAL");
+            dto.setNombreChat(cg.getNombreGrupo() + " (Grupo)");
+
+            // Temporal mientras conectamos el repo de mensajes grupales real
+            dto.setTotalMensajes(0);
+            dto.setUltimoMensaje("Sin datos");
+
+            resumenes.add(dto);
+        }
+
+        return resumenes;
     }
+
 
 
 }

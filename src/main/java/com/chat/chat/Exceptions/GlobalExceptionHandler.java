@@ -19,4 +19,10 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                 .body(new ApiError("PASSWORD_INCORRECTA", ex.getMessage()));
     }
+
+    @ExceptionHandler(UsuarioInactivoException.class)
+    public ResponseEntity<ApiError> handleInactivo(UsuarioInactivoException ex) {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                .body(new ApiError("USUARIO_INACTIVO", ex.getMessage()));
+    }
 }

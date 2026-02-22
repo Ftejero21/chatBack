@@ -1,9 +1,7 @@
 package com.chat.chat.Utils;
 
-
 import com.chat.chat.DTO.*;
 import com.chat.chat.Entity.*;
-
 
 import java.util.List;
 import java.util.stream.Collectors;
@@ -12,12 +10,13 @@ public class MappingUtils {
 
     private static String safeFotoUrl(String url) {
         return (url == null || url.isBlank())
-                ? null                  // o pon aquí un placeholder, p. ej. "/uploads/avatars/default.png"
+                ? null // o pon aquí un placeholder, p. ej. "/uploads/avatars/default.png"
                 : url;
     }
 
     public static NotificationDTO notificationEntityADto(NotificationEntity e) {
-        if (e == null) return null;
+        if (e == null)
+            return null;
         NotificationDTO dto = new NotificationDTO();
         dto.setId(e.getId());
         dto.setUserId(e.getUserId());
@@ -29,11 +28,9 @@ public class MappingUtils {
         return dto;
     }
 
-    
-
     public static List<NotificationDTO> notificationEntityListADto(List<NotificationEntity> list) {
-        return list == null ? List.of() :
-                list.stream().map(MappingUtils::notificationEntityADto).collect(Collectors.toList());
+        return list == null ? List.of()
+                : list.stream().map(MappingUtils::notificationEntityADto).collect(Collectors.toList());
     }
 
     public static UsuarioEntity usuarioDtoAEntity(UsuarioDTO dto) {
@@ -42,6 +39,7 @@ public class MappingUtils {
         e.setNombre(dto.getNombre());
         e.setApellido(dto.getApellido());
         e.setEmail(dto.getEmail());
+        e.setPublicKey(dto.getPublicKey());
         // Si ya viene una URL (no base64), la mapeamos
         if (dto.getFoto() != null &&
                 (dto.getFoto().startsWith("/uploads/") || dto.getFoto().startsWith("http"))) {
@@ -57,13 +55,28 @@ public class MappingUtils {
         dto.setApellido(e.getApellido());
         dto.setEmail(e.getEmail());
         dto.setActivo(e.isActivo());
+        dto.setPublicKey(e.getPublicKey());
         dto.setFoto(safeFotoUrl(e.getFotoUrl())); // 👈 URL pública (o null si no hay)
+        dto.setRoles(e.getRoles()); // Asignar los roles para el Frontend
+
+        if (e.getBloqueados() != null) {
+            dto.setBloqueadosIds(e.getBloqueados().stream()
+                    .map(UsuarioEntity::getId)
+                    .collect(Collectors.toSet()));
+        }
+
+        if (e.getMeHanBloqueado() != null) {
+            dto.setMeHanBloqueadoIds(e.getMeHanBloqueado().stream()
+                    .map(UsuarioEntity::getId)
+                    .collect(Collectors.toSet()));
+        }
+
         return dto;
     }
 
     public static MensajeEntity mensajeDtoAEntity(MensajeDTO dto,
-                                                  UsuarioEntity emisor,
-                                                  UsuarioEntity receptor) {
+            UsuarioEntity emisor,
+            UsuarioEntity receptor) {
         MensajeEntity e = new MensajeEntity();
         e.setId(dto.getId());
         e.setEmisor(emisor);
@@ -72,16 +85,17 @@ public class MappingUtils {
 
         // tipo
         MessageType t = MessageType.TEXT;
-        if ("AUDIO".equalsIgnoreCase(dto.getTipo())) t = MessageType.AUDIO;
+        if ("AUDIO".equalsIgnoreCase(dto.getTipo()))
+            t = MessageType.AUDIO;
         e.setTipo(t);
 
         if (t == MessageType.AUDIO) {
-            e.setMediaUrl(dto.getAudioUrl());          // lo definimos en service si viene dataURL
+            e.setMediaUrl(dto.getAudioUrl()); // lo definimos en service si viene dataURL
             e.setMediaMime(dto.getAudioMime());
             e.setMediaDuracionMs(dto.getAudioDuracionMs());
         }
 
-        e.setActivo(dto.isActivo());   // boolean primitivo => usa isActivo()
+        e.setActivo(dto.isActivo()); // boolean primitivo => usa isActivo()
         e.setLeido(dto.isLeido());
         e.setFechaEnvio(dto.getFechaEnvio());
         return e;
@@ -96,7 +110,7 @@ public class MappingUtils {
         dto.setTipo(e.getTipo().name());
 
         if (e.getTipo() == MessageType.AUDIO) {
-            dto.setAudioUrl(e.getMediaUrl());      // devolvemos URL pública
+            dto.setAudioUrl(e.getMediaUrl()); // devolvemos URL pública
             dto.setAudioMime(e.getMediaMime());
             dto.setAudioDuracionMs(e.getMediaDuracionMs());
         }
@@ -112,14 +126,13 @@ public class MappingUtils {
             dto.setEmisorNombre(e.getEmisor().getNombre());
             dto.setEmisorFoto(
                     // si guardas foto como /uploads/, puedes convertir a dataURL si quieres
-                    e.getEmisor().getFotoUrl()
-            );
+                    e.getEmisor().getFotoUrl());
         }
         return dto;
     }
 
-
-    public static ChatIndividualDTO chatIndividualEntityADto(ChatIndividualEntity entity, UsuarioEntity usuarioLogueado) {
+    public static ChatIndividualDTO chatIndividualEntityADto(ChatIndividualEntity entity,
+            UsuarioEntity usuarioLogueado) {
         ChatIndividualDTO dto = new ChatIndividualDTO();
         dto.setId(entity.getId());
 
@@ -141,8 +154,6 @@ public class MappingUtils {
 
         return dto;
     }
-
-
 
     public static ChatGrupalEntity chatGrupalDtoAEntity(ChatGrupalDTO dto) {
         ChatGrupalEntity e = new ChatGrupalEntity();

@@ -8,6 +8,7 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
+import java.util.Optional;
 
 @Repository
 public interface MensajeRepository extends JpaRepository<MensajeEntity, Long> {
@@ -17,5 +18,14 @@ public interface MensajeRepository extends JpaRepository<MensajeEntity, Long> {
             "where m.receptor.id = :uid and m.leido = false and m.activo = true " +
             "group by m.chat.id")
     List<Object[]> countUnreadByUser(@Param("uid") Long uid);
+
     MensajeEntity findTopByChatIdOrderByFechaEnvioDesc(Long chatId);
+
+    long countByChatIdAndActivoTrue(Long chatId);
+
+    Optional<MensajeEntity> findTopByChatIdAndActivoTrueOrderByFechaEnvioDesc(Long chatId);
+
+    @Query("SELECT COUNT(m) FROM MensajeEntity m WHERE m.fechaEnvio >= :inicio AND m.fechaEnvio < :fin")
+    long countMensajesEntreFechas(@Param("inicio") java.time.LocalDateTime inicio,
+                                  @Param("fin") java.time.LocalDateTime fin);
 }

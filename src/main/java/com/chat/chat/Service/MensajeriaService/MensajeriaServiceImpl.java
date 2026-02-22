@@ -10,6 +10,7 @@ import com.chat.chat.Repository.ChatIndividualRepository;
 import com.chat.chat.Repository.MensajeRepository;
 import com.chat.chat.Repository.UsuarioRepository;
 import com.chat.chat.Utils.MappingUtils;
+import com.chat.chat.Utils.SecurityUtils;
 import com.chat.chat.Utils.Utils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -46,14 +47,26 @@ public class MensajeriaServiceImpl implements MensajeriaService {
     @Autowired
     private ChatGrupalRepository chatGrupalRepository;
 
+    @Autowired
+    private SecurityUtils securityUtils;
+
     @Override
+    @org.springframework.transaction.annotation.Transactional
     public MensajeDTO guardarMensajeIndividual(MensajeDTO dto) {
-        UsuarioEntity emisor = usuarioRepository.findById(dto.getEmisorId()).orElseThrow();
+        Long authenticatedUserId = securityUtils.getAuthenticatedUserId();
+        System.out.println(
+                "Guardando mensaje individual: emisor=" + authenticatedUserId + " receptor=" + dto.getReceptorId());
+
+        UsuarioEntity emisor = usuarioRepository.findById(authenticatedUserId).orElseThrow();
         UsuarioEntity receptor = usuarioRepository.findById(dto.getReceptorId()).orElseThrow();
 
         ChatIndividualEntity chat = chatIndividualRepository.findByUsuario1AndUsuario2(emisor, receptor)
                 .or(() -> chatIndividualRepository.findByUsuario1AndUsuario2(receptor, emisor))
                 .orElseThrow(() -> new RuntimeException("Chat individual no encontrado"));
+
+        if (emisor.getBloqueados().contains(receptor) || receptor.getBloqueados().contains(emisor)) {
+            throw new RuntimeException("No puedes enviar mensajes en esta conversación");
+        }
 
         // === AUDIO ===
         if (dto.getAudioDataUrl() != null && dto.getAudioDataUrl().startsWith("data:audio")) {
@@ -81,8 +94,12 @@ public class MensajeriaServiceImpl implements MensajeriaService {
         return MappingUtils.mensajeEntityADto(saved);
     }
 
+    @Override
+    @org.springframework.transaction.annotation.Transactional
     public MensajeDTO guardarMensajeGrupal(MensajeDTO dto) {
-        UsuarioEntity emisor = usuarioRepository.findById(dto.getEmisorId()).orElseThrow();
+        Long authenticatedUserId = securityUtils.getAuthenticatedUserId();
+        UsuarioEntity emisor = usuarioRepository.findById(authenticatedUserId).orElseThrow();
+
         // ⚠️ dto.receptorId llega con el id del chat grupal
         ChatGrupalEntity chatGrupal = chatGrupalRepository.findById(dto.getReceptorId())
                 .orElseThrow(() -> new RuntimeException("Chat grupal no encontrado"));
@@ -131,9 +148,10 @@ public class MensajeriaServiceImpl implements MensajeriaService {
 
         if (optMensaje.isPresent()) {
             MensajeEntity mensaje = optMensaje.get();
+            Long authenticatedUserId = securityUtils.getAuthenticatedUserId();
 
-            // Validar que el mensaje pertenece al emisor
-            if (!mensaje.getEmisor().getId().equals(mensajeDTO.getEmisorId())) {
+            // Validar que el mensaje pertenece al emisor autenticado
+            if (!mensaje.getEmisor().getId().equals(authenticatedUserId)) {
                 return false; // ❌ No autorizado
             }
 

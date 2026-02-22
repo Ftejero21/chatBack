@@ -8,7 +8,6 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
-
 @RestController
 @RequestMapping(Constantes.API_MENSAJERIA)
 @CrossOrigin("*")
@@ -17,8 +16,7 @@ public class MensajeriaController {
     @Autowired
     private MensajeriaService mensajeriaService;
 
-
-    @PostMapping("/mensajes/marcar-leidos")
+    @PostMapping(Constantes.MENSAJES_MARCAR_LEIDOS)
     public ResponseEntity<Void> marcarMensajesComoLeidos(@RequestBody List<Long> ids) {
         mensajeriaService.marcarMensajesComoLeidos(ids);
         return ResponseEntity.ok().build();

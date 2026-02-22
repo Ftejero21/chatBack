@@ -23,4 +23,6 @@ public interface ChatService {
     List<MensajeDTO> listarMensajesPorChatGrupal(Long chatId);
 
     AddUsuariosGrupoWSResponse anadirUsuariosAGrupo(AddUsuariosGrupoDTO dto);
+
+    List<ChatResumenDTO> listarConversacionesDeUsuario(Long usuarioId);
 }

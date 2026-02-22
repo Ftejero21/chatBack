@@ -59,6 +59,10 @@ public class WebSocketChatController {
 
     @MessageMapping("/chat.individual")
     public void enviarMensajeIndividual(@Payload MensajeDTO mensajeDTO) {
+        System.out.println("====== [BACKEND E2E LOG] RECEPTION ======");
+        System.out.println("Payload content received (Encrypted): " + mensajeDTO.getContenido());
+        System.out.println("=========================================");
+
         MensajeDTO guardado = mensajeriaService.guardarMensajeIndividual(mensajeDTO);
 
         System.out.println("[WS] send to receptor " + guardado.getReceptorId() +
@@ -71,9 +75,9 @@ public class WebSocketChatController {
 
     @MessageMapping("/chat.eliminar")
     public void eliminarMensaje(@Payload MensajeDTO mensajeDTO) {
-         boolean eliminado = mensajeriaService.eliminarMensajePropio(mensajeDTO);
+        boolean eliminado = mensajeriaService.eliminarMensajePropio(mensajeDTO);
         if (eliminado) {
-            mensajeDTO.setActivo(false);                     // 👈 asegúralo en el payload
+            mensajeDTO.setActivo(false); // 👈 asegúralo en el payload
             // (opcional) incluye chatId si tu front lo usa para preview
             // dto.setChatId(chatIdDelMensaje);
 
@@ -111,7 +115,6 @@ public class WebSocketChatController {
 
         messagingTemplate.convertAndSend("/topic/escribiendo.grupo." + dto.getChatId(), payload);
     }
-
 
     @MessageMapping("/estado")
     public void actualizarEstadoUsuario(@Payload EstadoDTO dto) {

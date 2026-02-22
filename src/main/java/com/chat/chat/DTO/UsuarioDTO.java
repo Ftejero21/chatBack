@@ -15,6 +15,17 @@ public class UsuarioDTO {
     @JsonProperty(access = JsonProperty.Access.WRITE_ONLY)
     private String password;
     private Set<String> roles;
+    private String publicKey;
+    private Set<Long> bloqueadosIds;
+    private Set<Long> meHanBloqueadoIds;
+
+    public Set<Long> getMeHanBloqueadoIds() {
+        return meHanBloqueadoIds;
+    }
+
+    public void setMeHanBloqueadoIds(Set<Long> meHanBloqueadoIds) {
+        this.meHanBloqueadoIds = meHanBloqueadoIds;
+    }
 
     public String getFoto() {
         return foto;
@@ -22,6 +33,14 @@ public class UsuarioDTO {
 
     public void setFoto(String foto) {
         this.foto = foto;
+    }
+
+    public String getPublicKey() {
+        return publicKey;
+    }
+
+    public void setPublicKey(String publicKey) {
+        this.publicKey = publicKey;
     }
 
     public Long getId() {
@@ -78,5 +97,13 @@ public class UsuarioDTO {
 
     public void setRoles(Set<String> roles) {
         this.roles = roles;
+    }
+
+    public Set<Long> getBloqueadosIds() {
+        return bloqueadosIds;
+    }
+
+    public void setBloqueadosIds(Set<Long> bloqueadosIds) {
+        this.bloqueadosIds = bloqueadosIds;
     }
 }

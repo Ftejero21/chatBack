@@ -13,6 +13,7 @@ import com.chat.chat.Repository.UsuarioRepository;
 import com.chat.chat.Utils.InviteStatus;
 import com.chat.chat.Utils.NotificationType;
 import com.chat.chat.Utils.Utils;
+import com.chat.chat.Utils.ExceptionConstants;
 import jakarta.transaction.Transactional;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
@@ -26,19 +27,25 @@ public class GroupInviteServiceImpl implements GroupInviteService {
 
     @Autowired
     private GroupInviteRepo inviteRepo;
-    @Autowired private ChatGrupalRepository chatRepo;
-    @Autowired private UsuarioRepository usuarioRepo;
-    @Autowired private NotificationRepo notificationRepo;
-    @Autowired private SimpMessagingTemplate messagingTemplate;
+    @Autowired
+    private ChatGrupalRepository chatRepo;
+    @Autowired
+    private UsuarioRepository usuarioRepo;
+    @Autowired
+    private NotificationRepo notificationRepo;
+    @Autowired
+    private SimpMessagingTemplate messagingTemplate;
 
     @Override
     @Transactional
     public void accept(Long inviteId, Long userId) {
         GroupInviteEntity inv = Utils.getByIdOrThrow(inviteRepo, inviteId, "Invitación");
-        if (!Objects.equals(inv.getInvitee().getId(), userId))
-            throw new IllegalArgumentException("Esta invitación no corresponde al usuario");
+        if (!Objects.equals(inv.getInvitee().getId(), userId)) {
+            throw new IllegalArgumentException(ExceptionConstants.ERROR_INVITE_NOT_FOR_USER);
+        }
 
-        if (inv.getStatus() != InviteStatus.PENDING) return;
+        if (inv.getStatus() != InviteStatus.PENDING)
+            return;
 
         inv.setStatus(InviteStatus.ACCEPTED);
         inv.setRespondedAt(LocalDateTime.now());
@@ -72,8 +79,10 @@ public class GroupInviteServiceImpl implements GroupInviteService {
 
         // marcar como vista la notificación de invitación del invitado (si existe)
         notificationRepo.findFirstByUserIdAndTypeAndPayloadJsonContaining(
-                userId, NotificationType.GROUP_INVITE, "\"inviteId\":" + inviteId
-        ).ifPresent(n -> { n.setSeen(true); notificationRepo.save(n); });
+                userId, NotificationType.GROUP_INVITE, "\"inviteId\":" + inviteId).ifPresent(n -> {
+                    n.setSeen(true);
+                    notificationRepo.save(n);
+                });
 
         // actualizar contador del invitado
         int unseenForInvitee = (int) notificationRepo.countByUserIdAndSeenFalse(userId);
@@ -84,10 +93,12 @@ public class GroupInviteServiceImpl implements GroupInviteService {
     @Transactional
     public void decline(Long inviteId, Long userId) {
         GroupInviteEntity inv = Utils.getByIdOrThrow(inviteRepo, inviteId, "Invitación");
-        if (!Objects.equals(inv.getInvitee().getId(), userId))
-            throw new IllegalArgumentException("Esta invitación no corresponde al usuario");
+        if (!Objects.equals(inv.getInvitee().getId(), userId)) {
+            throw new IllegalArgumentException(ExceptionConstants.ERROR_INVITE_NOT_FOR_USER);
+        }
 
-        if (inv.getStatus() != InviteStatus.PENDING) return;
+        if (inv.getStatus() != InviteStatus.PENDING)
+            return;
 
         inv.setStatus(InviteStatus.DECLINED);
         inv.setRespondedAt(LocalDateTime.now());
@@ -115,8 +126,10 @@ public class GroupInviteServiceImpl implements GroupInviteService {
 
         // marcar vista la notificación del invitado
         notificationRepo.findFirstByUserIdAndTypeAndPayloadJsonContaining(
-                userId, NotificationType.GROUP_INVITE, "\"inviteId\":" + inviteId
-        ).ifPresent(n -> { n.setSeen(true); notificationRepo.save(n); });
+                userId, NotificationType.GROUP_INVITE, "\"inviteId\":" + inviteId).ifPresent(n -> {
+                    n.setSeen(true);
+                    notificationRepo.save(n);
+                });
 
         int unseenForInvitee = (int) notificationRepo.countByUserIdAndSeenFalse(userId);
         Utils.sendNotif(messagingTemplate, userId, new UnseenCountWS(userId, unseenForInvitee));

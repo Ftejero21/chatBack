@@ -620,9 +620,6 @@ public class ChatServiceImpl implements ChatService {
                     usuarioId,
                     cg.getId(),
                     false);
-            if (requesterIsAdmin) {
-                dto.setUltimoMensajeDescifrado(Constantes.MSG_SIN_DATOS);
-            }
 
             resumenes.add(dto);
         }

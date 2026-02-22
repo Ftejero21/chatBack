@@ -59,17 +59,6 @@ public final class E2EPayloadUtils {
         } catch (JsonProcessingException ex) {
             return null;
         }
-        E2EMessagePayloadDTO payload = tryParse(payloadJson);
-        if (payload == null || isBlank(payload.getForAdmin())) {
-            return null;
-        }
-
-        String adminEnvelope = payload.getForAdmin();
-        if ("NO_AUDITABLE".equalsIgnoreCase(adminEnvelope)) {
-            return null;
-        }
-
-        return adminEnvelope;
     }
 
     private static E2EMessagePayloadDTO tryParse(String json) {

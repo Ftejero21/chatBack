@@ -583,9 +583,10 @@ public class ChatServiceImpl implements ChatService {
 
             mensajeRepository.findTopByChatIdAndActivoTrueOrderByFechaEnvioDesc(ci.getId())
                     .ifPresent(m -> {
-                        dto.setUltimoMensaje(E2EPayloadUtils.sanitizeForAdminAudit(m.getContenido()));
+                        String sanitizedPayload = E2EPayloadUtils.sanitizeForAdminAudit(m.getContenido());
+                        dto.setUltimoMensaje(sanitizedPayload);
                         dto.setFechaUltimoMensaje(m.getFechaEnvio());
-                        dto.setUltimoMensajeDescifrado(null);
+                        dto.setUltimoMensajeDescifrado(E2EPayloadUtils.getAdminEnvelope(sanitizedPayload));
                     });
 
             if (dto.getUltimoMensaje() == null) {

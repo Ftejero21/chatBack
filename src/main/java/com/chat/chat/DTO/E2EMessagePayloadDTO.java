@@ -10,6 +10,7 @@ public class E2EMessagePayloadDTO {
     private String forEmisor;
     private String forReceptor;
     private String forAdmin;
+    private String auditStatus;
 
     public String getType() {
         return type;
@@ -57,5 +58,13 @@ public class E2EMessagePayloadDTO {
 
     public void setForAdmin(String forAdmin) {
         this.forAdmin = forAdmin;
+    }
+
+    public String getAuditStatus() {
+        return auditStatus;
+    }
+
+    public void setAuditStatus(String auditStatus) {
+        this.auditStatus = auditStatus;
     }
 }

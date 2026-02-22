@@ -2,6 +2,7 @@ package com.chat.chat.Utils;
 
 import com.chat.chat.DTO.E2EMessagePayloadDTO;
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -42,6 +43,22 @@ public final class E2EPayloadUtils {
     }
 
     public static String getAdminEnvelope(String payloadJson) {
+        if (isBlank(payloadJson)) {
+            return null;
+        }
+
+        try {
+            JsonNode root = MAPPER.readTree(payloadJson);
+            JsonNode adminNode = root.get("forAdmin");
+            if (adminNode == null || adminNode.isNull()) {
+                return null;
+            }
+
+            String forAdmin = adminNode.asText();
+            return isBlank(forAdmin) ? null : forAdmin;
+        } catch (JsonProcessingException ex) {
+            return null;
+        }
         E2EMessagePayloadDTO payload = tryParse(payloadJson);
         if (payload == null || isBlank(payload.getForAdmin())) {
             return null;

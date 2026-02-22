@@ -1,5 +1,6 @@
 package com.chat.chat.Controller;
 
+import com.chat.chat.Configuracion.DTO.*;
 import com.chat.chat.DTO.*;
 
 import com.chat.chat.Service.ChatService.ChatService;

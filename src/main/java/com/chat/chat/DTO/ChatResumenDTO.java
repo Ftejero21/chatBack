@@ -1,9 +1,6 @@
 package com.chat.chat.DTO;
 
-<<<<<<< HEAD
-=======
 import java.time.LocalDateTime;
->>>>>>> b17c96f (subiendo cambios)
 
 public class ChatResumenDTO {
 
@@ -63,9 +60,6 @@ public class ChatResumenDTO {
         this.ultimoMensajeDescifrado = ultimoMensajeDescifrado;
     }
 
-<<<<<<< HEAD
-}
-=======
     public LocalDateTime getFechaUltimoMensaje() {
         return fechaUltimoMensaje;
     }
@@ -74,4 +68,3 @@ public class ChatResumenDTO {
         this.fechaUltimoMensaje = fechaUltimoMensaje;
     }
 }
->>>>>>> b17c96f (subiendo cambios)

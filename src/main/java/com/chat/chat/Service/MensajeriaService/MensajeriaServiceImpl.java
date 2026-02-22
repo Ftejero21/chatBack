@@ -14,6 +14,7 @@ import com.chat.chat.Utils.SecurityUtils;
 import com.chat.chat.Utils.Utils;
 import com.chat.chat.Utils.Constantes;
 import com.chat.chat.Utils.E2EPayloadUtils;
+import jakarta.transaction.Transactional;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
@@ -53,7 +54,7 @@ public class MensajeriaServiceImpl implements MensajeriaService {
     private SecurityUtils securityUtils;
 
     @Override
-    @org.springframework.transaction.annotation.Transactional
+    @Transactional
     public MensajeDTO guardarMensajeIndividual(MensajeDTO dto) {
         Long authenticatedUserId = securityUtils.getAuthenticatedUserId();
         System.out.println(
@@ -98,7 +99,7 @@ public class MensajeriaServiceImpl implements MensajeriaService {
     }
 
     @Override
-    @org.springframework.transaction.annotation.Transactional
+    @Transactional
     public MensajeDTO guardarMensajeGrupal(MensajeDTO dto) {
         Long authenticatedUserId = securityUtils.getAuthenticatedUserId();
         UsuarioEntity emisor = usuarioRepository.findById(authenticatedUserId).orElseThrow();

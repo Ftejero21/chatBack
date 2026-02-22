@@ -564,6 +564,9 @@ public class ChatServiceImpl implements ChatService {
         boolean requesterIsAdmin = usuarioRepo.findById(requesterId)
                 .map(this::esAdmin)
                 .orElse(false);
+        if (!requesterIsAdmin) {
+            throw new AccessDeniedException("Solo administradores pueden acceder a este endpoint");
+        }
 
         List<ChatResumenDTO> resumenes = new ArrayList<>();
 
@@ -580,11 +583,20 @@ public class ChatServiceImpl implements ChatService {
 
             mensajeRepository.findTopByChatIdAndActivoTrueOrderByFechaEnvioDesc(ci.getId())
                     .ifPresent(m -> {
-                        dto.setUltimoMensaje(m.getContenido());
-                        if (requesterIsAdmin) {
-                            dto.setUltimoMensajeDescifrado(m.getContenido());
-                        }
+                        dto.setUltimoMensaje(E2EPayloadUtils.sanitizeForAdminAudit(m.getContenido()));
+                        dto.setFechaUltimoMensaje(m.getFechaEnvio());
+                        dto.setUltimoMensajeDescifrado(null);
                     });
+
+            if (dto.getUltimoMensaje() == null) {
+                dto.setUltimoMensaje(Constantes.MSG_SIN_DATOS);
+            }
+
+            LOGGER.info("AUDIT admin_chat_preview requesterId={} targetUserId={} chatId={} hasForAdmin={}",
+                    requesterId,
+                    usuarioId,
+                    ci.getId(),
+                    E2EPayloadUtils.hasAdminEnvelope(dto.getUltimoMensaje()));
 
             resumenes.add(dto);
         }
@@ -600,6 +612,13 @@ public class ChatServiceImpl implements ChatService {
             // Temporal mientras conectamos el repo de mensajes grupales real
             dto.setTotalMensajes(0);
             dto.setUltimoMensaje(Constantes.MSG_SIN_DATOS);
+            dto.setUltimoMensajeDescifrado(null);
+
+            LOGGER.info("AUDIT admin_chat_preview requesterId={} targetUserId={} chatId={} hasForAdmin={}",
+                    requesterId,
+                    usuarioId,
+                    cg.getId(),
+                    false);
             if (requesterIsAdmin) {
                 dto.setUltimoMensajeDescifrado(Constantes.MSG_SIN_DATOS);
             }
@@ -619,6 +638,9 @@ public class ChatServiceImpl implements ChatService {
                 .map(String::trim)
                 .anyMatch(rol -> "ROLE_ADMIN".equalsIgnoreCase(rol) || "ADMIN".equalsIgnoreCase(rol));
     }
+
+
+
 
 
 

@@ -1,13 +1,19 @@
 package com.chat.chat.DTO;
 
+<<<<<<< HEAD
+=======
+import java.time.LocalDateTime;
+>>>>>>> b17c96f (subiendo cambios)
 
 public class ChatResumenDTO {
+
     private Long id;
-    private String tipo;
-    private String nombreChat;
+    private String tipo; // "INDIVIDUAL" o "GRUPAL"
+    private String nombreChat; // Nombre del grupo o nombre del "otro" usuario
     private Integer totalMensajes;
     private String ultimoMensaje;
     private String ultimoMensajeDescifrado;
+    private LocalDateTime fechaUltimoMensaje;
 
     public Long getId() {
         return id;
@@ -57,4 +63,15 @@ public class ChatResumenDTO {
         this.ultimoMensajeDescifrado = ultimoMensajeDescifrado;
     }
 
+<<<<<<< HEAD
 }
+=======
+    public LocalDateTime getFechaUltimoMensaje() {
+        return fechaUltimoMensaje;
+    }
+
+    public void setFechaUltimoMensaje(LocalDateTime fechaUltimoMensaje) {
+        this.fechaUltimoMensaje = fechaUltimoMensaje;
+    }
+}
+>>>>>>> b17c96f (subiendo cambios)

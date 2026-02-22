@@ -1,6 +1,6 @@
 package com.chat.chat.Utils;
 
-import com.chat.chat.Configuracion.DTO.*;
+import com.chat.chat.DTO.*;
 import com.chat.chat.DTO.*;
 import com.chat.chat.Entity.*;
 

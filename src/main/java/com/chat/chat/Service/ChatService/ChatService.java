@@ -1,7 +1,7 @@
 package com.chat.chat.Service.ChatService;
 
 
-import com.chat.chat.Configuracion.DTO.*;
+import com.chat.chat.DTO.*;
 import com.chat.chat.DTO.*;
 
 

@@ -46,7 +46,13 @@ public final class E2EPayloadUtils {
         if (payload == null || isBlank(payload.getForAdmin())) {
             return null;
         }
-        return payload.getForAdmin();
+
+        String adminEnvelope = payload.getForAdmin();
+        if ("NO_AUDITABLE".equalsIgnoreCase(adminEnvelope)) {
+            return null;
+        }
+
+        return adminEnvelope;
     }
 
     private static E2EMessagePayloadDTO tryParse(String json) {

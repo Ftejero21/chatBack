@@ -16,6 +16,7 @@ public class UsuarioDTO {
     private String password;
     private Set<String> roles;
     private String publicKey;
+    private Boolean hasPublicKey;
     private Set<Long> bloqueadosIds;
     private Set<Long> meHanBloqueadoIds;
 
@@ -41,6 +42,14 @@ public class UsuarioDTO {
 
     public void setPublicKey(String publicKey) {
         this.publicKey = publicKey;
+    }
+
+    public Boolean getHasPublicKey() {
+        return hasPublicKey;
+    }
+
+    public void setHasPublicKey(Boolean hasPublicKey) {
+        this.hasPublicKey = hasPublicKey;
     }
 
     public Long getId() {

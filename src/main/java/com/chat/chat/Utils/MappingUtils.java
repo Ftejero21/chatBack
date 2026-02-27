@@ -1,23 +1,33 @@
 package com.chat.chat.Utils;
 
-import com.chat.chat.DTO.*;
-import com.chat.chat.DTO.*;
-import com.chat.chat.Entity.*;
+import com.chat.chat.DTO.ChatGrupalDTO;
+import com.chat.chat.DTO.ChatIndividualDTO;
+import com.chat.chat.DTO.MensajeDTO;
+import com.chat.chat.DTO.NotificationDTO;
+import com.chat.chat.DTO.UsuarioDTO;
+import com.chat.chat.Entity.ChatGrupalEntity;
+import com.chat.chat.Entity.ChatIndividualEntity;
+import com.chat.chat.Entity.MensajeEntity;
+import com.chat.chat.Entity.NotificationEntity;
+import com.chat.chat.Entity.UsuarioEntity;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.util.List;
 import java.util.stream.Collectors;
 
 public class MappingUtils {
 
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+
     private static String safeFotoUrl(String url) {
-        return (url == null || url.isBlank())
-                ? null // o pon aquí un placeholder, p. ej. "/uploads/avatars/default.png"
-                : url;
+        return (url == null || url.isBlank()) ? null : url;
     }
 
     public static NotificationDTO notificationEntityADto(NotificationEntity e) {
-        if (e == null)
+        if (e == null) {
             return null;
+        }
         NotificationDTO dto = new NotificationDTO();
         dto.setId(e.getId());
         dto.setUserId(e.getUserId());
@@ -41,9 +51,7 @@ public class MappingUtils {
         e.setApellido(dto.getApellido());
         e.setEmail(dto.getEmail());
         e.setPublicKey(dto.getPublicKey());
-        // Si ya viene una URL (no base64), la mapeamos
-        if (dto.getFoto() != null &&
-                (dto.getFoto().startsWith("/uploads/") || dto.getFoto().startsWith("http"))) {
+        if (dto.getFoto() != null && (dto.getFoto().startsWith("/uploads/") || dto.getFoto().startsWith("http"))) {
             e.setFotoUrl(dto.getFoto());
         }
         return e;
@@ -57,8 +65,9 @@ public class MappingUtils {
         dto.setEmail(e.getEmail());
         dto.setActivo(e.isActivo());
         dto.setPublicKey(e.getPublicKey());
-        dto.setFoto(safeFotoUrl(e.getFotoUrl())); // 👈 URL pública (o null si no hay)
-        dto.setRoles(e.getRoles()); // Asignar los roles para el Frontend
+        dto.setHasPublicKey(e.getPublicKey() != null && !e.getPublicKey().isBlank());
+        dto.setFoto(safeFotoUrl(e.getFotoUrl()));
+        dto.setRoles(e.getRoles());
 
         if (e.getBloqueados() != null) {
             dto.setBloqueadosIds(e.getBloqueados().stream()
@@ -83,20 +92,39 @@ public class MappingUtils {
         e.setEmisor(emisor);
         e.setReceptor(receptor);
         e.setContenido(dto.getContenido());
+        e.setReenviado(dto.isReenviado());
+        e.setMensajeOriginalId(dto.getMensajeOriginalId());
+        e.setReplyToMessageId(dto.getReplyToMessageId());
+        e.setReplySnippet(dto.getReplySnippet());
+        e.setReplyAuthorName(dto.getReplyAuthorName());
 
-        // tipo
         MessageType t = MessageType.TEXT;
-        if ("AUDIO".equalsIgnoreCase(dto.getTipo()))
+        if (Constantes.TIPO_AUDIO.equalsIgnoreCase(dto.getTipo())) {
             t = MessageType.AUDIO;
+        } else if (Constantes.TIPO_IMAGE.equalsIgnoreCase(dto.getTipo())) {
+            t = MessageType.IMAGE;
+        } else if (Constantes.TIPO_VIDEO.equalsIgnoreCase(dto.getTipo())) {
+            t = MessageType.VIDEO;
+        } else if (Constantes.TIPO_FILE.equalsIgnoreCase(dto.getTipo())) {
+            t = MessageType.FILE;
+        } else if (Constantes.TIPO_SYSTEM.equalsIgnoreCase(dto.getTipo())) {
+            t = MessageType.SYSTEM;
+        }
         e.setTipo(t);
 
         if (t == MessageType.AUDIO) {
-            e.setMediaUrl(dto.getAudioUrl()); // lo definimos en service si viene dataURL
+            e.setMediaUrl(dto.getAudioUrl());
             e.setMediaMime(dto.getAudioMime());
             e.setMediaDuracionMs(dto.getAudioDuracionMs());
+        } else if (t == MessageType.IMAGE) {
+            String imageUrl = firstNonBlank(dto.getImageUrl(), jsonTextField(dto.getContenido(), "imageUrl"));
+            String imageMime = firstNonBlank(dto.getImageMime(), jsonTextField(dto.getContenido(), "imageMime"));
+            e.setMediaUrl(imageUrl);
+            e.setMediaMime(imageMime);
+            e.setMediaDuracionMs(null);
         }
 
-        e.setActivo(dto.isActivo()); // boolean primitivo => usa isActivo()
+        e.setActivo(dto.isActivo());
         e.setLeido(dto.isLeido());
         e.setFechaEnvio(dto.getFechaEnvio());
         return e;
@@ -111,9 +139,18 @@ public class MappingUtils {
         dto.setTipo(e.getTipo().name());
 
         if (e.getTipo() == MessageType.AUDIO) {
-            dto.setAudioUrl(e.getMediaUrl()); // devolvemos URL pública
+            dto.setAudioUrl(e.getMediaUrl());
             dto.setAudioMime(e.getMediaMime());
             dto.setAudioDuracionMs(e.getMediaDuracionMs());
+        } else if (e.getTipo() == MessageType.IMAGE) {
+            String imageUrl = firstNonBlank(e.getMediaUrl(), jsonTextField(e.getContenido(), "imageUrl"));
+            String imageMime = firstNonBlank(e.getMediaMime(), jsonTextField(e.getContenido(), "imageMime"));
+            String imageNombre = firstNonBlank(
+                    jsonTextField(e.getContenido(), "imageNombre"),
+                    extractFileNameFromUrl(imageUrl));
+            dto.setImageUrl(imageUrl);
+            dto.setImageMime(imageMime);
+            dto.setImageNombre(imageNombre);
         }
 
         dto.setChatId(e.getChat() != null ? e.getChat().getId() : null);
@@ -121,13 +158,23 @@ public class MappingUtils {
         dto.setActivo(e.isActivo());
         dto.setLeido(e.isLeido());
         dto.setFechaEnvio(e.getFechaEnvio());
+        dto.setReenviado(e.isReenviado());
+        dto.setMensajeOriginalId(e.getMensajeOriginalId());
+        dto.setReplyToMessageId(e.getReplyToMessageId());
+        dto.setReplySnippet(e.getReplySnippet());
+        dto.setReplyAuthorName(e.getReplyAuthorName());
 
-        // si ya envías nombre/foto del emisor:
         if (e.getEmisor() != null) {
             dto.setEmisorNombre(e.getEmisor().getNombre());
-            dto.setEmisorFoto(
-                    // si guardas foto como /uploads/, puedes convertir a dataURL si quieres
-                    e.getEmisor().getFotoUrl());
+            dto.setEmisorApellido(e.getEmisor().getApellido());
+            String nombre = e.getEmisor().getNombre();
+            String apellido = e.getEmisor().getApellido();
+            String fullName = ((nombre == null ? "" : nombre)
+                    + (apellido == null || apellido.trim().isEmpty() ? "" : " " + apellido)).trim();
+            if (!fullName.isEmpty()) {
+                dto.setEmisorNombreCompleto(fullName);
+            }
+            dto.setEmisorFoto(e.getEmisor().getFotoUrl());
         }
         return dto;
     }
@@ -149,10 +196,7 @@ public class MappingUtils {
     public static ChatIndividualDTO chatIndividualEntityADto(ChatIndividualEntity entity) {
         ChatIndividualDTO dto = new ChatIndividualDTO();
         dto.setId(entity.getId());
-
-        // Opcional: podrías devolver ambos usuarios si quieres
-        dto.setReceptor(null); // o usuario2 por defecto
-
+        dto.setReceptor(null);
         return dto;
     }
 
@@ -178,5 +222,42 @@ public class MappingUtils {
         dto.setUsuarios(usuarios);
         dto.setFotoGrupo(safeFotoUrl(entity.getFotoUrl()));
         return dto;
+    }
+
+    private static String jsonTextField(String json, String field) {
+        if (json == null || json.isBlank()) {
+            return null;
+        }
+        try {
+            JsonNode root = OBJECT_MAPPER.readTree(json);
+            JsonNode node = root == null ? null : root.get(field);
+            if (node == null || node.isNull() || !node.isTextual()) {
+                return null;
+            }
+            String value = node.asText();
+            return value == null || value.isBlank() ? null : value;
+        } catch (Exception ex) {
+            return null;
+        }
+    }
+
+    private static String extractFileNameFromUrl(String url) {
+        if (url == null || url.isBlank()) {
+            return null;
+        }
+        int slash = url.lastIndexOf('/');
+        return slash >= 0 && slash + 1 < url.length() ? url.substring(slash + 1) : url;
+    }
+
+    private static String firstNonBlank(String... values) {
+        if (values == null) {
+            return null;
+        }
+        for (String value : values) {
+            if (value != null && !value.isBlank()) {
+                return value;
+            }
+        }
+        return null;
     }
 }

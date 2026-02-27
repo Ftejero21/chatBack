@@ -1,7 +1,9 @@
 package com.chat.chat.Call;
 
+import com.chat.chat.Utils.Constantes;
+
 public class CallInviteWS {
-    private String event = "CALL_INVITE"; // para tu type-guard en TS
+    private String event = Constantes.CALL_EVENT_INVITE; // para tu type-guard en TS
     private String callId;
     private Long callerId;
     private String callerNombre;

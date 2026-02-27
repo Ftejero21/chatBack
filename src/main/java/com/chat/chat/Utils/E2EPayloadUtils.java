@@ -16,6 +16,9 @@ public final class E2EPayloadUtils {
     }
 
     public static String normalizeForStorage(String payloadJson) {
+        if (isGroupE2EPayload(payloadJson)) {
+            return payloadJson;
+        }
         E2EMessagePayloadDTO payload = tryParse(payloadJson);
         if (payload == null) {
             return payloadJson;
@@ -31,9 +34,12 @@ public final class E2EPayloadUtils {
     }
 
     public static String sanitizeForAdminAudit(String payloadJson) {
+        if (isGroupE2EPayload(payloadJson)) {
+            return payloadJson;
+        }
         E2EMessagePayloadDTO payload = tryParse(payloadJson);
         if (payload == null) {
-            return buildNoAuditablePayloadJson(payloadJson);
+            return isBlank(payloadJson) ? buildNoAuditablePayloadJson(payloadJson) : payloadJson;
         }
 
         if (isBlank(payload.getForAdmin())) {
@@ -74,24 +80,7 @@ public final class E2EPayloadUtils {
         return toJson(payload, fallback);
     }
 
-    public static String getAdminEnvelope(String payloadJson) {
-        if (isBlank(payloadJson)) {
-            return null;
-        }
 
-        try {
-            JsonNode root = MAPPER.readTree(payloadJson);
-            JsonNode adminNode = root.get("forAdmin");
-            if (adminNode == null || adminNode.isNull()) {
-                return null;
-            }
-
-            String forAdmin = adminNode.asText();
-            return isBlank(forAdmin) ? null : forAdmin;
-        } catch (JsonProcessingException ex) {
-            return null;
-        }
-    }
 
     private static E2EMessagePayloadDTO tryParse(String json) {
         if (isBlank(json)) {
@@ -118,5 +107,12 @@ public final class E2EPayloadUtils {
 
     private static boolean isBlank(String value) {
         return value == null || value.trim().isEmpty();
+    }
+
+    private static boolean isGroupE2EPayload(String payloadJson) {
+        if (isBlank(payloadJson)) {
+            return false;
+        }
+        return payloadJson.contains("\"type\":\"E2E_GROUP\"") || payloadJson.contains("\"forReceptores\"");
     }
 }

@@ -7,6 +7,16 @@ public class ChatIndividualDTO {
     private UsuarioDTO receptor;
 
     private String ultimaMensaje;
+    private Long ultimaMensajeId;
+    private String ultimaMensajeTipo;
+    private Long ultimaMensajeEmisorId;
+    private String ultimaMensajeRaw;
+    private String ultimaMensajeImageUrl;
+    private String ultimaMensajeImageMime;
+    private String ultimaMensajeImageNombre;
+    private String ultimaMensajeAudioUrl;
+    private String ultimaMensajeAudioMime;
+    private Integer ultimaMensajeAudioDuracionMs;
     private LocalDateTime ultimaFecha;
 
     private Long unreadCount;
@@ -21,6 +31,86 @@ public class ChatIndividualDTO {
 
     public void setUltimaMensaje(String ultimaMensaje) {
         this.ultimaMensaje = ultimaMensaje;
+    }
+
+    public Long getUltimaMensajeId() {
+        return ultimaMensajeId;
+    }
+
+    public void setUltimaMensajeId(Long ultimaMensajeId) {
+        this.ultimaMensajeId = ultimaMensajeId;
+    }
+
+    public String getUltimaMensajeTipo() {
+        return ultimaMensajeTipo;
+    }
+
+    public void setUltimaMensajeTipo(String ultimaMensajeTipo) {
+        this.ultimaMensajeTipo = ultimaMensajeTipo;
+    }
+
+    public Long getUltimaMensajeEmisorId() {
+        return ultimaMensajeEmisorId;
+    }
+
+    public void setUltimaMensajeEmisorId(Long ultimaMensajeEmisorId) {
+        this.ultimaMensajeEmisorId = ultimaMensajeEmisorId;
+    }
+
+    public String getUltimaMensajeRaw() {
+        return ultimaMensajeRaw;
+    }
+
+    public void setUltimaMensajeRaw(String ultimaMensajeRaw) {
+        this.ultimaMensajeRaw = ultimaMensajeRaw;
+    }
+
+    public String getUltimaMensajeImageUrl() {
+        return ultimaMensajeImageUrl;
+    }
+
+    public void setUltimaMensajeImageUrl(String ultimaMensajeImageUrl) {
+        this.ultimaMensajeImageUrl = ultimaMensajeImageUrl;
+    }
+
+    public String getUltimaMensajeImageMime() {
+        return ultimaMensajeImageMime;
+    }
+
+    public void setUltimaMensajeImageMime(String ultimaMensajeImageMime) {
+        this.ultimaMensajeImageMime = ultimaMensajeImageMime;
+    }
+
+    public String getUltimaMensajeImageNombre() {
+        return ultimaMensajeImageNombre;
+    }
+
+    public void setUltimaMensajeImageNombre(String ultimaMensajeImageNombre) {
+        this.ultimaMensajeImageNombre = ultimaMensajeImageNombre;
+    }
+
+    public String getUltimaMensajeAudioUrl() {
+        return ultimaMensajeAudioUrl;
+    }
+
+    public void setUltimaMensajeAudioUrl(String ultimaMensajeAudioUrl) {
+        this.ultimaMensajeAudioUrl = ultimaMensajeAudioUrl;
+    }
+
+    public String getUltimaMensajeAudioMime() {
+        return ultimaMensajeAudioMime;
+    }
+
+    public void setUltimaMensajeAudioMime(String ultimaMensajeAudioMime) {
+        this.ultimaMensajeAudioMime = ultimaMensajeAudioMime;
+    }
+
+    public Integer getUltimaMensajeAudioDuracionMs() {
+        return ultimaMensajeAudioDuracionMs;
+    }
+
+    public void setUltimaMensajeAudioDuracionMs(Integer ultimaMensajeAudioDuracionMs) {
+        this.ultimaMensajeAudioDuracionMs = ultimaMensajeAudioDuracionMs;
     }
 
     public LocalDateTime getUltimaFecha() {

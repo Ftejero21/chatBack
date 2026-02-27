@@ -27,6 +27,7 @@ public class UsuarioEntity {
     private String password;
 
     private LocalDateTime fechaCreacion;
+    private LocalDateTime publicKeyUpdatedAt;
     private boolean activo;
 
     @ElementCollection(fetch = FetchType.EAGER)
@@ -102,6 +103,14 @@ public class UsuarioEntity {
 
     public void setFechaCreacion(LocalDateTime fechaCreacion) {
         this.fechaCreacion = fechaCreacion;
+    }
+
+    public LocalDateTime getPublicKeyUpdatedAt() {
+        return publicKeyUpdatedAt;
+    }
+
+    public void setPublicKeyUpdatedAt(LocalDateTime publicKeyUpdatedAt) {
+        this.publicKeyUpdatedAt = publicKeyUpdatedAt;
     }
 
     public boolean isActivo() {

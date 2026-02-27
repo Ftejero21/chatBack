@@ -20,6 +20,55 @@ import java.util.UUID;
 
 public class Utils {
 
+    private static final String DATA_URL_PREFIX = "data:";
+    private static final String DATA_URL_BASE64 = ";base64,";
+    private static final String UPLOADS_REGEX_PREFIX = "^/uploads/?";
+    private static final String UPLOADS_PREFIX = "/uploads/";
+    private static final String HTTP_PREFIX = "http://";
+    private static final String HTTPS_PREFIX = "https://";
+    private static final String MIME_JPEG = "image/jpeg";
+    private static final String MIME_JPG = "image/jpg";
+    private static final String MIME_PNG = "image/png";
+    private static final String MIME_WEBP = "image/webp";
+    private static final String MIME_OCTET = "application/octet-stream";
+    private static final String EXT_JPG = ".jpg";
+    private static final String EXT_JPEG = ".jpeg";
+    private static final String EXT_PNG = ".png";
+    private static final String EXT_WEBP = ".webp";
+    private static final String EXT_WEBM = ".webm";
+    private static final String EXT_OGG = ".ogg";
+    private static final String EXT_MP3 = ".mp3";
+    private static final String EXT_M4A = ".m4a";
+    private static final String EXT_AAC = ".aac";
+    private static final String AUDIO_WEBM = "audio/webm";
+    private static final String AUDIO_WEBM_OPUS = "audio/webm;codecs=opus";
+    private static final String AUDIO_OGG = "audio/ogg";
+    private static final String AUDIO_OGG_OPUS = "audio/ogg;codecs=opus";
+    private static final String AUDIO_MPEG = "audio/mpeg";
+    private static final String AUDIO_MP4 = "audio/mp4";
+    private static final String AUDIO_AAC = "audio/aac";
+    private static final String EMPTY = "";
+    private static final String SPACE = " ";
+    private static final String COMMA = ",";
+    private static final String REGEX_SLASHES_START = "^/+";
+    private static final String REGEX_SLASHES_END = "/+$";
+    private static final String REGEX_DOT_DOT = "..";
+    private static final String SLASH = "/";
+    private static final String DOT = ".";
+    private static final String DEFAULT_TRUNCATE_SUFFIX = "...";
+    private static final String ERROR_DTO_NULL = "El DTO no puede ser null";
+    private static final String ERROR_ID_CREADOR = "idCreador es obligatorio";
+    private static final String ERROR_CREADOR_NO_EXISTE = "Creador no existe: ";
+    private static final String ERROR_USER_ID_REQUERIDO = "userId requerido";
+    private static final String ERROR_JSON = "Error serializando JSON";
+    private static final String ERROR_DATA_URL = "Data URL inválido";
+    private static final String ERROR_GUARDAR_IMAGEN = "No se pudo guardar la imagen";
+    private static final String ERROR_NO_EXISTE_SUFFIX = " no existe: ";
+    private static final String TIME_MMSS_FORMAT = "%02d:%02d";
+    private static final String EXT_JPG_NO_DOT = "jpg";
+    private static final String EXT_WEBP_NO_DOT = "webp";
+    private static final String EXT_PNG_NO_DOT = "png";
+
 
     // ObjectMapper thread-safe si lo reutilizas así
     private static final ObjectMapper MAPPER = new ObjectMapper()
@@ -35,7 +84,7 @@ public class Utils {
         try {
             if (publicUrl == null || publicUrl.isBlank()) return null;
 
-            String relative = publicUrl.replaceFirst("^/uploads/?", ""); // "avatars/xx.png"
+            String relative = publicUrl.replaceFirst(UPLOADS_REGEX_PREFIX, EMPTY); // "avatars/xx.png"
             Path file = Paths.get(uploadsRoot, relative).normalize().toAbsolutePath();
 
             byte[] bytes = Files.readAllBytes(file);
@@ -43,38 +92,38 @@ public class Utils {
             String mime = Files.probeContentType(file);
             if (mime == null) {
                 String name = file.getFileName().toString().toLowerCase();
-                if (name.endsWith(".jpg") || name.endsWith(".jpeg")) mime = "image/jpeg";
-                else if (name.endsWith(".png")) mime = "image/png";
-                else if (name.endsWith(".webp")) mime = "image/webp";
-                else mime = "application/octet-stream";
+                if (name.endsWith(EXT_JPG) || name.endsWith(EXT_JPEG)) mime = MIME_JPEG;
+                else if (name.endsWith(EXT_PNG)) mime = MIME_PNG;
+                else if (name.endsWith(EXT_WEBP)) mime = MIME_WEBP;
+                else mime = MIME_OCTET;
             }
 
             String base64 = Base64.getEncoder().encodeToString(bytes);
-            return "data:" + mime + ";base64," + base64;
+            return DATA_URL_PREFIX + mime + DATA_URL_BASE64 + base64;
         } catch (Exception e) {
             return null;
         }
     }
 
     public static UsuarioEntity getCreadorOrThrow(ChatGrupalDTO dto, UsuarioRepository usuarioRepo) {
-        if (dto == null) throw new IllegalArgumentException("El DTO no puede ser null");
+        if (dto == null) throw new IllegalArgumentException(ERROR_DTO_NULL);
         Long idCreador = dto.getIdCreador();
         if (idCreador == null) {
-            throw new IllegalArgumentException("idCreador es obligatorio");
+            throw new IllegalArgumentException(ERROR_ID_CREADOR);
         }
         return usuarioRepo.findById(idCreador)
-                .orElseThrow(() -> new IllegalArgumentException("Creador no existe: " + idCreador));
+                .orElseThrow(() -> new IllegalArgumentException(ERROR_CREADOR_NO_EXISTE + idCreador));
     }
 
     /** Carga una entidad por id o lanza IllegalArgumentException con mensaje claro. */
     public static <T, ID> T getByIdOrThrow(CrudRepository<T, ID> repo, ID id, String label) {
-        return optionalOrThrow(repo.findById(id), label + " no existe: " + id);
+        return optionalOrThrow(repo.findById(id), label + ERROR_NO_EXISTE_SUFFIX + id);
     }
 
     public static boolean isPublicUrl(String v) {
         if (v == null) return false;
         String s = v.trim();
-        return s.startsWith("/uploads/") || s.startsWith("http://") || s.startsWith("https://");
+        return s.startsWith(UPLOADS_PREFIX) || s.startsWith(HTTP_PREFIX) || s.startsWith(HTTPS_PREFIX);
     }
 
     public static <T> T optionalOrThrow(Optional<T> opt, String msg) {
@@ -82,13 +131,13 @@ public class Utils {
     }
 
     private static final Map<String,String> EXT_BY_MIME = Map.of(
-            "audio/webm", ".webm",
-            "audio/webm;codecs=opus", ".webm",
-            "audio/ogg", ".ogg",
-            "audio/ogg;codecs=opus", ".ogg",
-            "audio/mpeg", ".mp3",
-            "audio/mp4", ".m4a",
-            "audio/aac", ".aac"
+            AUDIO_WEBM, EXT_WEBM,
+            AUDIO_WEBM_OPUS, EXT_WEBM,
+            AUDIO_OGG, EXT_OGG,
+            AUDIO_OGG_OPUS, EXT_OGG,
+            AUDIO_MPEG, EXT_MP3,
+            AUDIO_MP4, EXT_M4A,
+            AUDIO_AAC, EXT_AAC
     );
 
     public static String extensionFor(String contentType, String defaultExt) {
@@ -98,35 +147,35 @@ public class Utils {
     }
 
     public static String extensionFor(String contentType) {
-        return extensionFor(contentType, ".webm");
+        return extensionFor(contentType, EXT_WEBM);
     }
 
     public static String mmss(Integer ms) {
-        if (ms == null || ms <= 0) return "";
+        if (ms == null || ms <= 0) return EMPTY;
         int total = ms / 1000;
         int m = total / 60;
         int s = total % 60;
-        return String.format("%02d:%02d", m, s);
+        return String.format(TIME_MMSS_FORMAT, m, s);
     }
 
     // evita NPE si contenido es null antes de truncar
     public static String truncarSafe(String s, int max) {
-        if (s == null) return "";
+        if (s == null) return EMPTY;
         if (s.length() <= max) return s;
-        return s.substring(0, Math.max(0, max)).trim() + "…";
+        return s.substring(0, Math.max(0, max)).trim() + DEFAULT_TRUNCATE_SUFFIX;
     }
 
     /** Envía a /topic/notifications.{userId} */
     public static void sendNotif(SimpMessagingTemplate messagingTemplate, Long userId, Object payload) {
-        if (userId == null) throw new IllegalArgumentException("userId requerido");
-        messagingTemplate.convertAndSend("/topic/notifications." + userId, payload);
+        if (userId == null) throw new IllegalArgumentException(ERROR_USER_ID_REQUERIDO);
+        messagingTemplate.convertAndSend(Constantes.WS_TOPIC_NOTIFICATIONS + userId, payload);
     }
 
     public static String writeJson(Object o) {
         try {
             return MAPPER.writeValueAsString(o);
         } catch (JsonProcessingException e) {
-            throw new RuntimeException("Error serializando JSON", e);
+            throw new RuntimeException(ERROR_JSON, e);
         }
     }
 
@@ -141,12 +190,12 @@ public class Utils {
      */
     public static String saveDataUrlToUploads(String dataUrl, String folder, String uploadsRoot, String uploadsBaseUrl) {
         try {
-            if (dataUrl == null || !dataUrl.startsWith("data:") || !dataUrl.contains(",")) {
-                throw new IllegalArgumentException("Data URL inválido");
+            if (dataUrl == null || !dataUrl.startsWith(DATA_URL_PREFIX) || !dataUrl.contains(COMMA)) {
+                throw new IllegalArgumentException(ERROR_DATA_URL);
             }
 
             // data:image/png;base64,xxxx
-            String[] parts = dataUrl.split(",", 2);
+            String[] parts = dataUrl.split(COMMA, 2);
             String meta = parts[0];   // "data:image/png;base64"
             String base64 = parts[1];
 
@@ -154,27 +203,27 @@ public class Utils {
             byte[] bytes = Base64.getDecoder().decode(base64);
 
             // evitar path traversal en folder
-            String safeFolder = folder.replace("\\", "/").replace("..", "").replaceAll("^/+", "").replaceAll("/+$", "");
+            String safeFolder = folder.replace("\\", "/").replace(REGEX_DOT_DOT, EMPTY).replaceAll(REGEX_SLASHES_START, EMPTY).replaceAll(REGEX_SLASHES_END, EMPTY);
 
             Path dir = Paths.get(uploadsRoot, safeFolder).normalize().toAbsolutePath();
             Files.createDirectories(dir);
 
-            String filename = UUID.randomUUID().toString() + "." + ext;
+            String filename = UUID.randomUUID().toString() + DOT + ext;
             Path file = dir.resolve(filename);
             Files.write(file, bytes);
 
-            String baseClean = uploadsBaseUrl.replaceAll("/+$", "");
-            return baseClean + "/" + safeFolder + "/" + filename;
+            String baseClean = uploadsBaseUrl.replaceAll(REGEX_SLASHES_END, EMPTY);
+            return baseClean + SLASH + safeFolder + SLASH + filename;
         } catch (Exception e) {
-            throw new RuntimeException("No se pudo guardar la imagen", e);
+            throw new RuntimeException(ERROR_GUARDAR_IMAGEN, e);
         }
     }
 
     private static String guessExtFromMeta(String meta) {
         String m = meta.toLowerCase();
-        if (m.contains("image/jpeg") || m.contains("image/jpg")) return "jpg";
-        if (m.contains("image/webp")) return "webp";
-        if (m.contains("image/png")) return "png";
-        return "png"; // por defecto
+        if (m.contains(MIME_JPEG) || m.contains(MIME_JPG)) return EXT_JPG_NO_DOT;
+        if (m.contains(MIME_WEBP)) return EXT_WEBP_NO_DOT;
+        if (m.contains(MIME_PNG)) return EXT_PNG_NO_DOT;
+        return EXT_PNG_NO_DOT; // por defecto
     }
 }

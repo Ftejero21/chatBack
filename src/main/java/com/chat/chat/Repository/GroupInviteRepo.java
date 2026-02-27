@@ -10,4 +10,5 @@ public interface GroupInviteRepo extends JpaRepository<GroupInviteEntity, Long> 
     long countByInviteeIdAndStatus(Long inviteeId, InviteStatus status);
     List<GroupInviteEntity> findAllByInviteeIdOrderByCreatedAtDesc(Long inviteeId);
     List<GroupInviteEntity> findAllByChatIdAndStatus(Long chatId, InviteStatus status);
+    boolean existsByChatIdAndInviteeIdAndStatus(Long chatId, Long inviteeId, InviteStatus status);
 }

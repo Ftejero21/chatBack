@@ -1,7 +1,9 @@
 package com.chat.chat.Call;
 
+import com.chat.chat.Utils.Constantes;
+
 public class CallEndWS {
-    private String event = "CALL_ENDED";
+    private String event = Constantes.CALL_EVENT_ENDED;
     private String callId;
     private Long byUserId; // quién colgó
     private Long notifyUserId; // a quién se notifica

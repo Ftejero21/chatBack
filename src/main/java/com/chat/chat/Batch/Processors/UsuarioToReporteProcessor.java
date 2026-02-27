@@ -8,8 +8,13 @@ import java.time.format.DateTimeFormatter;
 import java.util.stream.Collectors;
 
 public class UsuarioToReporteProcessor implements ItemProcessor<UsuarioEntity, UsuarioReporteCsvDTO> {
+    private static final String DATE_FORMAT = "yyyy-MM-dd HH:mm";
+    private static final String ACTIVE_YES = "SI";
+    private static final String ACTIVE_NO = "NO";
+    private static final String EMPTY = "";
+    private static final String ROLES_DELIMITER = ",";
 
-    private static final DateTimeFormatter FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
+    private static final DateTimeFormatter FMT = DateTimeFormatter.ofPattern(DATE_FORMAT);
     private boolean soloActivos;
 
     public void setSoloActivos(boolean soloActivos) { this.soloActivos = soloActivos; }
@@ -23,13 +28,13 @@ public class UsuarioToReporteProcessor implements ItemProcessor<UsuarioEntity, U
         dto.setNombre(safe(u.getNombre()));
         dto.setApellido(safe(u.getApellido()));
         dto.setEmail(lower(u.getEmail()));
-        dto.setActivo(u.isActivo() ? "SI" : "NO");
-        dto.setFechaCreacion(u.getFechaCreacion() != null ? u.getFechaCreacion().format(FMT) : "");
-        dto.setRoles(u.getRoles() == null ? "" : u.getRoles().stream().sorted().collect(Collectors.joining(",")));
+        dto.setActivo(u.isActivo() ? ACTIVE_YES : ACTIVE_NO);
+        dto.setFechaCreacion(u.getFechaCreacion() != null ? u.getFechaCreacion().format(FMT) : EMPTY);
+        dto.setRoles(u.getRoles() == null ? EMPTY : u.getRoles().stream().sorted().collect(Collectors.joining(ROLES_DELIMITER)));
         dto.setFotoUrl(safe(u.getFotoUrl()));
         return dto;
     }
 
-    private String safe(String s) { return s == null ? "" : s.trim(); }
-    private String lower(String s) { return s == null ? "" : s.trim().toLowerCase(); }
+    private String safe(String s) { return s == null ? EMPTY : s.trim(); }
+    private String lower(String s) { return s == null ? EMPTY : s.trim().toLowerCase(); }
 }

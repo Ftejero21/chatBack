@@ -1,5 +1,6 @@
 package com.chat.chat.Service.AuthService;
 
+import com.chat.chat.Utils.Constantes;
 import org.springframework.beans.factory.annotation.Autowired;
 
 import org.springframework.stereotype.Service;
@@ -28,9 +29,13 @@ public class PasswordResetService {
         // Usamos el nuevo servicio de email de forma limpia
         emailService.sendHtmlEmail(
             email, 
-            "Recuperación de Contraseña - TejeChat", 
-            "templates/password-reset.html", 
-            Map.of("code", code)
+            Constantes.EMAIL_SUBJECT_PASSWORD_RESET, 
+            Constantes.EMAIL_TEMPLATE_PASSWORD_RESET, 
+            Map.of(
+                Constantes.KEY_CODE, code,
+                Constantes.KEY_MINUTES, "5",
+                Constantes.KEY_TITLE, Constantes.TITLE_PASSWORD_RESET
+            )
         );
     }
 

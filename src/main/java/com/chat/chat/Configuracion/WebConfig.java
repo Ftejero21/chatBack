@@ -1,5 +1,6 @@
 package com.chat.chat.Configuracion;
 
+import com.chat.chat.Utils.Constantes;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -18,7 +19,7 @@ public class WebConfig implements WebMvcConfigurer {
     @Override
     public void addResourceHandlers(ResourceHandlerRegistry registry) {
         Path uploadsPath = Paths.get(uploadsRoot).toAbsolutePath().normalize();
-        registry.addResourceHandler("/uploads/**")
+        registry.addResourceHandler(Constantes.UPLOADS_PATTERN)
                 .addResourceLocations("file:" + uploadsPath.toString() + "/");
     }
 

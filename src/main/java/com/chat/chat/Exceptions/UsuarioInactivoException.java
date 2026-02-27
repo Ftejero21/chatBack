@@ -1,8 +1,9 @@
 package com.chat.chat.Exceptions;
 
+import com.chat.chat.Utils.Constantes;
 public class UsuarioInactivoException extends RuntimeException {
     public UsuarioInactivoException() {
-        super("Tu cuenta ha sido inhabilitada por un administrador.");
+        super(Constantes.MSG_CUENTA_INHABILITADA);
     }
 
     public UsuarioInactivoException(String message) {

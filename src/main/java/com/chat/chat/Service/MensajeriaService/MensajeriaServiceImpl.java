@@ -1,38 +1,63 @@
 package com.chat.chat.Service.MensajeriaService;
 
 import com.chat.chat.DTO.MensajeDTO;
+import com.chat.chat.DTO.MensajeReaccionWSDTO;
+import com.chat.chat.Entity.ChatEntity;
 import com.chat.chat.Entity.ChatGrupalEntity;
 import com.chat.chat.Entity.ChatIndividualEntity;
 import com.chat.chat.Entity.MensajeEntity;
+import com.chat.chat.Entity.MensajeReaccionEntity;
 import com.chat.chat.Entity.UsuarioEntity;
+import com.chat.chat.Exceptions.E2EGroupValidationException;
+import com.chat.chat.Exceptions.ReenvioInvalidoException;
+import com.chat.chat.Exceptions.ReenvioNoAutorizadoException;
+import com.chat.chat.Exceptions.RespuestaInvalidaException;
+import com.chat.chat.Exceptions.RespuestaNoAutorizadaException;
 import com.chat.chat.Repository.ChatGrupalRepository;
 import com.chat.chat.Repository.ChatIndividualRepository;
+import com.chat.chat.Repository.MensajeReaccionRepository;
 import com.chat.chat.Repository.MensajeRepository;
 import com.chat.chat.Repository.UsuarioRepository;
 import com.chat.chat.Utils.MappingUtils;
+import com.chat.chat.Utils.Constantes;
+import com.chat.chat.Utils.E2EDiagnosticUtils;
+import com.chat.chat.Utils.E2EGroupValidationUtils;
+import com.chat.chat.Utils.E2EPayloadUtils;
+import com.chat.chat.Utils.ExceptionConstants;
+import com.chat.chat.Utils.ReactionAction;
 import com.chat.chat.Utils.SecurityUtils;
 import com.chat.chat.Utils.Utils;
-import com.chat.chat.Utils.Constantes;
-import com.chat.chat.Utils.E2EPayloadUtils;
 import jakarta.transaction.Transactional;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 @Service
 public class MensajeriaServiceImpl implements MensajeriaService {
 
-    @Value("${app.uploads.root:uploads}")
+    private static final Logger LOGGER = LoggerFactory.getLogger(MensajeriaServiceImpl.class);
+
+    @Value(Constantes.PROP_UPLOADS_ROOT)
     private String uploadsRoot;
 
-    @Value("${app.uploads.base-url:/uploads}")
+    @Value(Constantes.PROP_UPLOADS_BASE_URL)
     private String uploadsBaseUrl;
 
     @Autowired
@@ -43,6 +68,9 @@ public class MensajeriaServiceImpl implements MensajeriaService {
 
     @Autowired
     private MensajeRepository mensajeRepository;
+
+    @Autowired
+    private MensajeReaccionRepository mensajeReaccionRepository;
 
     @Autowired
     private ChatIndividualRepository chatIndividualRepository;
@@ -58,7 +86,7 @@ public class MensajeriaServiceImpl implements MensajeriaService {
     public MensajeDTO guardarMensajeIndividual(MensajeDTO dto) {
         Long authenticatedUserId = securityUtils.getAuthenticatedUserId();
         System.out.println(
-                "Guardando mensaje individual: emisor=" + authenticatedUserId + " receptor=" + dto.getReceptorId());
+                Constantes.LOG_GUARDANDO_MSG_INDIVIDUAL + authenticatedUserId + Constantes.LOG_RECEPTOR + dto.getReceptorId());
 
         UsuarioEntity emisor = usuarioRepository.findById(authenticatedUserId).orElseThrow();
         UsuarioEntity receptor = usuarioRepository.findById(dto.getReceptorId()).orElseThrow();
@@ -66,6 +94,9 @@ public class MensajeriaServiceImpl implements MensajeriaService {
         ChatIndividualEntity chat = chatIndividualRepository.findByUsuario1AndUsuario2(emisor, receptor)
                 .or(() -> chatIndividualRepository.findByUsuario1AndUsuario2(receptor, emisor))
                 .orElseThrow(() -> new RuntimeException(Constantes.MSG_CHAT_INDIVIDUAL_NO_ENCONTRADO));
+
+        normalizeReenvio(dto, authenticatedUserId);
+        normalizeRespuesta(dto, authenticatedUserId, chat);
 
         if (emisor.getBloqueados().contains(receptor) || receptor.getBloqueados().contains(emisor)) {
             throw new RuntimeException(Constantes.MSG_NO_PUEDE_ENVIAR_MENSAJES);
@@ -79,16 +110,44 @@ public class MensajeriaServiceImpl implements MensajeriaService {
             // inferir mime del dataURL
             String mime = dto.getAudioDataUrl().substring(5, dto.getAudioDataUrl().indexOf(';')); // "audio/webm"
             dto.setAudioMime(mime);
-            dto.setTipo("AUDIO");
+            dto.setTipo(Constantes.TIPO_AUDIO);
         } else if (dto.getAudioUrl() != null && !dto.getAudioUrl().isBlank()) {
-            dto.setTipo("AUDIO");
-        } else {
-            // si no hay audio, asumimos texto
-            dto.setTipo("TEXT");
+            dto.setTipo(Constantes.TIPO_AUDIO);
+        } else if (dto.getTipo() == null || dto.getTipo().isBlank()) {
+            // si no hay indicios de audio ni tipo explicito, asumimos texto
+            dto.setTipo(Constantes.TIPO_TEXT);
+        }
+
+        boolean imageType = E2EGroupValidationUtils.isImageType(dto.getTipo());
+        E2EDiagnosticUtils.ContentDiagnostic inboundDiag = E2EDiagnosticUtils.analyze(dto.getContenido(), dto.getTipo());
+        boolean encryptedAudio = E2EGroupValidationUtils.isAudioType(dto.getTipo())
+                && E2EGroupValidationUtils.isE2EAudio(inboundDiag);
+        if (encryptedAudio && !E2EGroupValidationUtils.hasRequiredE2EAudioFields(dto.getContenido())) {
+            LOGGER.warn(
+                    Constantes.LOG_E2E_INBOUND_INDIVIDUAL_AUDIO_REJECT,
+                    Instant.now(),
+                    authenticatedUserId,
+                    dto.getReceptorId(),
+                    dto.getTipo(),
+                    inboundDiag.getClassification(),
+                    inboundDiag.getHash12(),
+                    Constantes.ERR_E2E_AUDIO_PAYLOAD_INVALID);
+            throw new E2EGroupValidationException(
+                    Constantes.ERR_E2E_AUDIO_PAYLOAD_INVALID,
+                    ExceptionConstants.ERROR_E2E_AUDIO_PAYLOAD_INVALID);
+        }
+        if (imageType && !E2EGroupValidationUtils.hasRequiredE2EImageFields(dto.getContenido())) {
+            throw new E2EGroupValidationException(
+                    Constantes.ERR_E2E_IMAGE_PAYLOAD_INVALID,
+                    ExceptionConstants.ERROR_E2E_IMAGE_PAYLOAD_INVALID);
         }
 
         MensajeEntity mensaje = MappingUtils.mensajeDtoAEntity(dto, emisor, receptor);
-        mensaje.setContenido(E2EPayloadUtils.normalizeForStorage(mensaje.getContenido()));
+        if (imageType) {
+            mensaje.setContenido(mensaje.getContenido());
+        } else {
+            mensaje.setContenido(E2EPayloadUtils.normalizeForStorage(mensaje.getContenido()));
+        }
         mensaje.setChat(chat);
         mensaje.setFechaEnvio(LocalDateTime.now());
         mensaje.setActivo(true);
@@ -101,68 +160,393 @@ public class MensajeriaServiceImpl implements MensajeriaService {
     @Override
     @Transactional
     public MensajeDTO guardarMensajeGrupal(MensajeDTO dto) {
-        Long authenticatedUserId = securityUtils.getAuthenticatedUserId();
-        UsuarioEntity emisor = usuarioRepository.findById(authenticatedUserId).orElseThrow();
-
-        // ⚠️ dto.receptorId llega con el id del chat grupal
-        ChatGrupalEntity chatGrupal = chatGrupalRepository.findById(dto.getReceptorId())
-                .orElseThrow(() -> new RuntimeException(Constantes.MSG_CHAT_GRUPAL_NO_ENCONTRADO));
-
-        MensajeEntity mensaje = MappingUtils.mensajeDtoAEntity(dto, emisor, null);
-        mensaje.setContenido(E2EPayloadUtils.normalizeForStorage(mensaje.getContenido()));
-        mensaje.setChat(chatGrupal);
-        mensaje.setFechaEnvio(LocalDateTime.now());
-        mensaje.setActivo(true);
-        mensaje.setLeido(false);
-
-        MensajeEntity saved = mensajeRepository.save(mensaje);
-        MensajeDTO out = MappingUtils.mensajeEntityADto(saved);
-
-        // Enriquecer con datos del emisor para que el front no tenga que resolver nada
-        out.setEmisorNombre(emisor.getNombre());
-        out.setEmisorApellido(emisor.getApellido());
-        if (emisor.getFotoUrl() != null) {
-            out.setEmisorFoto(Utils.toDataUrlFromUrl(emisor.getFotoUrl(), uploadsRoot)); // o devuelve URL si prefieres
+        String traceId = E2EDiagnosticUtils.currentTraceId();
+        boolean createdTraceId = false;
+        if (traceId == null) {
+            traceId = E2EDiagnosticUtils.newTraceId();
+            MDC.put(E2EDiagnosticUtils.TRACE_ID_MDC_KEY, traceId);
+            createdTraceId = true;
         }
-        return out;
+
+        Long chatId = dto.getChatId() != null ? dto.getChatId() : dto.getReceptorId();
+        E2EDiagnosticUtils.ContentDiagnostic inboundDiag = E2EDiagnosticUtils.analyze(dto.getContenido(), dto.getTipo());
+
+        Long authenticatedUserId = securityUtils.getAuthenticatedUserId();
+        try {
+            UsuarioEntity emisor = usuarioRepository.findById(authenticatedUserId).orElseThrow();
+
+            // dto.receptorId llega con el id del chat grupal
+            ChatGrupalEntity chatGrupal = chatGrupalRepository.findById(chatId)
+                    .orElseThrow(() -> new RuntimeException(Constantes.MSG_CHAT_GRUPAL_NO_ENCONTRADO));
+
+            List<Long> memberIdsAtSend = E2EGroupValidationUtils.activeMemberIds(chatGrupal);
+            List<Long> expectedRecipientIds = E2EGroupValidationUtils.expectedActiveRecipientIds(chatGrupal, authenticatedUserId);
+            Set<String> forReceptoresKeysInPayload = E2EDiagnosticUtils.extractForReceptoresKeys(dto.getContenido());
+            Set<String> expectedRecipientKeys = expectedRecipientIds.stream()
+                    .map(String::valueOf)
+                    .collect(Collectors.toCollection(LinkedHashSet::new));
+            Map<Long, String> recipientPublicKeyFp = new LinkedHashMap<>();
+            boolean senderKeyPresent = E2EGroupValidationUtils.hasPublicKey(emisor.getPublicKey());
+            boolean textType = E2EGroupValidationUtils.isTextType(dto == null ? null : dto.getTipo());
+            boolean audioType = E2EGroupValidationUtils.isAudioType(dto == null ? null : dto.getTipo());
+            boolean imageType = E2EGroupValidationUtils.isImageType(dto == null ? null : dto.getTipo());
+            boolean encryptedGroupAudio = audioType && E2EGroupValidationUtils.isE2EGroupAudio(inboundDiag);
+            for (Long recipientId : expectedRecipientIds) {
+                String recipientKey = usuarioRepository.findFreshById(recipientId)
+                        .map(UsuarioEntity::getPublicKey)
+                        .orElse(null);
+                recipientPublicKeyFp.put(recipientId, E2EDiagnosticUtils.fingerprint12(recipientKey));
+            }
+            LOGGER.info(
+                    Constantes.LOG_E2E_GROUP_RECIPIENTS_BUILD,
+                    Instant.now(),
+                    traceId,
+                    dto.getId(),
+                    chatId,
+                    authenticatedUserId,
+                    memberIdsAtSend,
+                    expectedRecipientIds,
+                    forReceptoresKeysInPayload,
+                    E2EDiagnosticUtils.fingerprint12(emisor.getPublicKey()),
+                    recipientPublicKeyFp);
+
+            boolean recipientKeysMatch = expectedRecipientKeys.equals(forReceptoresKeysInPayload);
+            boolean groupAudioPayloadValid = !encryptedGroupAudio
+                    || E2EGroupValidationUtils.hasRequiredE2EGroupAudioFields(dto.getContenido());
+            boolean groupImagePayloadValid = !imageType
+                    || E2EGroupValidationUtils.hasRequiredE2EGroupImageFields(dto.getContenido());
+            boolean groupValidateOk = true;
+            String inboundValidateRejectReason = "-";
+            if (textType && !recipientKeysMatch) {
+                groupValidateOk = false;
+                inboundValidateRejectReason = Constantes.ERR_E2E_RECIPIENT_KEYS_MISMATCH;
+            }
+            if (encryptedGroupAudio && !groupAudioPayloadValid) {
+                groupValidateOk = false;
+                inboundValidateRejectReason = Constantes.ERR_E2E_GROUP_AUDIO_PAYLOAD_INVALID;
+            } else if (encryptedGroupAudio && !recipientKeysMatch) {
+                groupValidateOk = false;
+                inboundValidateRejectReason = Constantes.ERR_E2E_AUDIO_RECIPIENT_KEYS_MISMATCH;
+            }
+            if (imageType && !groupImagePayloadValid) {
+                groupValidateOk = false;
+                inboundValidateRejectReason = Constantes.ERR_E2E_GROUP_IMAGE_PAYLOAD_INVALID;
+            } else if (imageType && !recipientKeysMatch) {
+                groupValidateOk = false;
+                inboundValidateRejectReason = Constantes.ERR_E2E_RECIPIENT_KEYS_MISMATCH;
+            }
+            LOGGER.info(Constantes.LOG_E2E_INBOUND_GROUP_VALIDATE,
+                    Instant.now(),
+                    traceId,
+                    chatId,
+                    authenticatedUserId,
+                    expectedRecipientIds,
+                    forReceptoresKeysInPayload,
+                    groupValidateOk,
+                    inboundValidateRejectReason);
+            if (audioType) {
+                LOGGER.info(Constantes.LOG_E2E_INBOUND_GROUP_AUDIO_VALIDATE,
+                        Instant.now(),
+                        traceId,
+                        chatId,
+                        dto.getId(),
+                        authenticatedUserId,
+                        dto.getTipo(),
+                        inboundDiag.getClassification(),
+                        inboundDiag.getHash12(),
+                        inboundDiag.getForReceptoresKeys(),
+                        expectedRecipientIds,
+                        forReceptoresKeysInPayload,
+                        !encryptedGroupAudio || groupValidateOk,
+                        encryptedGroupAudio ? inboundValidateRejectReason : "-");
+            }
+            if (encryptedGroupAudio && !groupAudioPayloadValid) {
+                throw new E2EGroupValidationException(
+                        Constantes.ERR_E2E_GROUP_AUDIO_PAYLOAD_INVALID,
+                        ExceptionConstants.ERROR_E2E_GROUP_AUDIO_PAYLOAD_INVALID);
+            }
+            if (textType && !recipientKeysMatch) {
+                throw new E2EGroupValidationException(
+                        Constantes.ERR_E2E_RECIPIENT_KEYS_MISMATCH,
+                        ExceptionConstants.ERROR_E2E_RECIPIENTS_MISMATCH);
+            }
+            if (encryptedGroupAudio && !recipientKeysMatch) {
+                throw new E2EGroupValidationException(
+                        Constantes.ERR_E2E_AUDIO_RECIPIENT_KEYS_MISMATCH,
+                        ExceptionConstants.ERROR_E2E_GROUP_AUDIO_RECIPIENTS_MISMATCH);
+            }
+            if (imageType && !groupImagePayloadValid) {
+                throw new E2EGroupValidationException(
+                        Constantes.ERR_E2E_GROUP_IMAGE_PAYLOAD_INVALID,
+                        ExceptionConstants.ERROR_E2E_GROUP_IMAGE_PAYLOAD_INVALID);
+            }
+            if (imageType && !recipientKeysMatch) {
+                throw new E2EGroupValidationException(
+                        Constantes.ERR_E2E_RECIPIENT_KEYS_MISMATCH,
+                        ExceptionConstants.ERROR_E2E_RECIPIENTS_MISMATCH);
+            }
+
+            normalizeReenvio(dto, authenticatedUserId);
+            normalizeRespuesta(dto, authenticatedUserId, chatGrupal);
+
+            MensajeEntity mensaje = MappingUtils.mensajeDtoAEntity(dto, emisor, null);
+            String rawContent = mensaje.getContenido();
+            String normalizedContent = imageType ? rawContent : E2EPayloadUtils.normalizeForStorage(rawContent);
+            boolean transformed = !Objects.equals(rawContent, normalizedContent);
+            E2EDiagnosticUtils.ContentDiagnostic prePersistDiag = E2EDiagnosticUtils.analyze(
+                    normalizedContent,
+                    String.valueOf(mensaje.getTipo()));
+
+            if (!senderKeyPresent) {
+                LOGGER.warn(
+                        Constantes.LOG_E2E_PRE_PERSIST_REJECT,
+                        Instant.now(),
+                        traceId,
+                        chatId,
+                        authenticatedUserId,
+                        dto.getReceptorId(),
+                        mensaje.getTipo(),
+                        inboundDiag.getClassification(),
+                        inboundDiag.getLength(),
+                        inboundDiag.getHash12(),
+                        prePersistDiag.getClassification(),
+                        prePersistDiag.getLength(),
+                        prePersistDiag.getHash12(),
+                        transformed,
+                        false,
+                        expectedRecipientIds,
+                        forReceptoresKeysInPayload,
+                        Constantes.ERR_E2E_SENDER_KEY_MISSING);
+                throw new E2EGroupValidationException(Constantes.ERR_E2E_SENDER_KEY_MISSING, ExceptionConstants.ERROR_E2E_SENDER_PUBLIC_KEY_MISSING);
+            }
+
+            LOGGER.info(
+                    Constantes.LOG_E2E_PRE_PERSIST,
+                    Instant.now(),
+                    traceId,
+                    chatId,
+                    authenticatedUserId,
+                    dto.getReceptorId(),
+                    mensaje.getTipo(),
+                    inboundDiag.getClassification(),
+                    inboundDiag.getLength(),
+                    inboundDiag.getHash12(),
+                    prePersistDiag.getClassification(),
+                    prePersistDiag.getLength(),
+                    prePersistDiag.getHash12(),
+                    transformed,
+                    prePersistDiag.hasIv(),
+                    prePersistDiag.hasCiphertext(),
+                    prePersistDiag.hasForEmisor(),
+                    prePersistDiag.hasForReceptores(),
+                    prePersistDiag.hasForAdmin(),
+                    prePersistDiag.getForReceptoresKeys(),
+                    senderKeyPresent,
+                    expectedRecipientIds,
+                    forReceptoresKeysInPayload,
+                    "-");
+            if ("INVALID_JSON".equals(inboundDiag.getClassification())) {
+                LOGGER.warn(Constantes.LOG_E2E_PRE_PERSIST_PARSE_WARN,
+                        Instant.now(), traceId, chatId, dto.getId(), inboundDiag.getParseErrorClass());
+            }
+            if ("INVALID_JSON".equals(prePersistDiag.getClassification())) {
+                LOGGER.warn(Constantes.LOG_E2E_PRE_PERSIST_NORMALIZED_PARSE_WARN,
+                        Instant.now(), traceId, chatId, dto.getId(), prePersistDiag.getParseErrorClass());
+            }
+
+            mensaje.setContenido(normalizedContent);
+            mensaje.setChat(chatGrupal);
+            mensaje.setFechaEnvio(LocalDateTime.now());
+            mensaje.setActivo(true);
+            mensaje.setLeido(false);
+
+            MensajeEntity saved = mensajeRepository.save(mensaje);
+            E2EDiagnosticUtils.ContentDiagnostic postPersistDiag = E2EDiagnosticUtils.analyze(
+                    saved.getContenido(),
+                    String.valueOf(saved.getTipo()));
+            LOGGER.info(
+                    Constantes.LOG_E2E_POST_PERSIST,
+                    Instant.now(),
+                    traceId,
+                    chatId,
+                    saved.getId(),
+                    authenticatedUserId,
+                    saved.getTipo(),
+                    postPersistDiag.getClassification(),
+                    postPersistDiag.getLength(),
+                    postPersistDiag.getHash12(),
+                    postPersistDiag.hasIv(),
+                    postPersistDiag.hasCiphertext(),
+                    postPersistDiag.hasForEmisor(),
+                    postPersistDiag.hasForReceptores(),
+                    postPersistDiag.hasForAdmin(),
+                    postPersistDiag.getForReceptoresKeys(),
+                    senderKeyPresent,
+                    expectedRecipientIds,
+                    forReceptoresKeysInPayload,
+                    recipientPublicKeyFp);
+            if ("INVALID_JSON".equals(postPersistDiag.getClassification())) {
+                LOGGER.warn(Constantes.LOG_E2E_POST_PERSIST_PARSE_WARN,
+                        Instant.now(), traceId, chatId, saved.getId(), postPersistDiag.getParseErrorClass());
+            }
+
+            MensajeDTO out = MappingUtils.mensajeEntityADto(saved);
+
+            // Enriquecer con datos del emisor para que el front no tenga que resolver nada
+            out.setEmisorNombre(emisor.getNombre());
+            out.setEmisorApellido(emisor.getApellido());
+            if (emisor.getFotoUrl() != null) {
+                out.setEmisorFoto(Utils.toDataUrlFromUrl(emisor.getFotoUrl(), uploadsRoot)); // o devuelve URL si prefieres
+            }
+            return out;
+        } catch (RuntimeException ex) {
+            String rejectReason = ex instanceof E2EGroupValidationException
+                    ? ((E2EGroupValidationException) ex).getCode()
+                    : "-";
+            LOGGER.error(Constantes.LOG_E2E_PERSIST_ERROR,
+                    Instant.now(), traceId, chatId, dto.getId(), ex.getClass().getSimpleName(), rejectReason);
+            throw ex;
+        } finally {
+            if (createdTraceId) {
+                MDC.remove(E2EDiagnosticUtils.TRACE_ID_MDC_KEY);
+            }
+        }
     }
 
     @Override
+    public ReactionDispatchResult procesarReaccion(MensajeReaccionWSDTO request) {
+        return null;
+    }
+
+    @Override
+    @Transactional
     public void marcarMensajesComoLeidos(List<Long> ids) {
-        List<MensajeEntity> mensajes = mensajeRepository.findAllById(ids);
+        if (ids == null || ids.isEmpty()) {
+            LOGGER.info(Constantes.LOG_WS_MARK_READ_NO_MSG, ids);
+            return;
+        }
 
-        mensajes.forEach(mensaje -> {
-            mensaje.setLeido(true);
-        });
+        List<Long> uniqueIds = new java.util.ArrayList<>(new LinkedHashSet<>(ids));
+        int updated = mensajeRepository.markLeidoByIds(uniqueIds);
+        if (updated <= 0) {
+            LOGGER.info(Constantes.LOG_WS_MARK_READ_NO_MSG, uniqueIds);
+            return;
+        }
 
-        mensajeRepository.saveAll(mensajes);
+        List<MensajeEntity> mensajes = mensajeRepository.findAllById(uniqueIds);
+        if (mensajes == null || mensajes.isEmpty()) {
+            LOGGER.info(Constantes.LOG_WS_MARK_READ_NO_MSG, uniqueIds);
+            return;
+        }
 
         // Notificar por WebSocket al emisor de cada mensaje
         mensajes.forEach(mensaje -> {
+            if (mensaje.getEmisor() == null || mensaje.getEmisor().getId() == null) {
+                LOGGER.warn(Constantes.LOG_WS_MARK_READ_NO_EMISOR, mensaje.getId());
+                return;
+            }
             Long emisorId = mensaje.getEmisor().getId();
             Map<String, Long> payload = new HashMap<>();
             payload.put(Constantes.KEY_MENSAJE_ID, mensaje.getId());
 
             messagingTemplate.convertAndSend(Constantes.WS_TOPIC_LEIDO + emisorId, payload);
+            LOGGER.info(Constantes.LOG_WS_SEND_LEIDO, emisorId, mensaje.getId());
         });
     }
 
     @Override
+    @Transactional
     public boolean eliminarMensajePropio(MensajeDTO mensajeDTO) {
-        Optional<MensajeEntity> optMensaje = mensajeRepository.findById(mensajeDTO.getId());
+        if (mensajeDTO == null || mensajeDTO.getId() == null) {
+            LOGGER.warn(Constantes.LOG_WS_DELETE_INVALID);
+            return false;
+        }
+        Long authenticatedUserId = securityUtils.getAuthenticatedUserId();
+        LOGGER.info(Constantes.LOG_WS_DELETE, authenticatedUserId, mensajeDTO);
+        Optional<Long> emisorIdOpt = mensajeRepository.findEmisorIdById(mensajeDTO.getId());
 
-        if (optMensaje.isPresent()) {
-            MensajeEntity mensaje = optMensaje.get();
-            Long authenticatedUserId = securityUtils.getAuthenticatedUserId();
+        if (emisorIdOpt.isPresent()) {
+            Long emisorId = emisorIdOpt.get();
+            LOGGER.info(Constantes.LOG_DELETE_MSG_STATE, mensajeDTO.getId(), emisorId, false);
 
             // Validar que el mensaje pertenece al emisor autenticado
-            if (!mensaje.getEmisor().getId().equals(authenticatedUserId)) {
-                return false; // ❌ No autorizado
+            if (!emisorId.equals(authenticatedUserId)) {
+                LOGGER.warn(Constantes.LOG_DELETE_MSG_NOT_OWNER, mensajeDTO.getId(), emisorId, authenticatedUserId);
+                return false;
             }
 
-            mensaje.setActivo(false);
-            mensajeRepository.save(mensaje);
-            return true;
+            int updated = mensajeRepository.markInactivoById(mensajeDTO.getId());
+            return updated > 0;
+        }
+        LOGGER.warn(Constantes.LOG_DELETE_MSG_NOT_FOUND, mensajeDTO.getId());
+        return false;
+    }
+
+    private void normalizeReenvio(MensajeDTO dto, Long authenticatedUserId) {
+        if (dto == null) {
+            return;
+        }
+        if (dto.isReenviado()) {
+            Long originalId = dto.getMensajeOriginalId();
+            if (originalId == null) {
+                throw new ReenvioInvalidoException(ExceptionConstants.ERROR_REENVIO_ID_REQUERIDO);
+            }
+            MensajeEntity original = mensajeRepository.findById(originalId)
+                    .orElseThrow(() -> new ReenvioInvalidoException(
+                            ExceptionConstants.ERROR_REENVIO_ORIGINAL_NO_EXISTE + originalId));
+            UsuarioEntity usuario = usuarioRepository.findById(authenticatedUserId).orElseThrow();
+            if (!canAccessChat(usuario, original.getChat())) {
+                throw new ReenvioNoAutorizadoException(ExceptionConstants.ERROR_REENVIO_NO_AUTORIZADO);
+            }
+        } else {
+            dto.setMensajeOriginalId(null);
+        }
+    }
+
+    private void normalizeRespuesta(MensajeDTO dto, Long authenticatedUserId, ChatEntity chatDestino) {
+        if (dto == null) {
+            return;
+        }
+        Long replyId = dto.getReplyToMessageId();
+        if (replyId == null) {
+            dto.setReplySnippet(null);
+            dto.setReplyAuthorName(null);
+            return;
+        }
+
+        MensajeEntity original = mensajeRepository.findById(replyId)
+                .orElseThrow(() -> new RespuestaInvalidaException(ExceptionConstants.ERROR_RESPUESTA_INVALIDA));
+
+        if (!original.isActivo()) {
+            throw new RespuestaInvalidaException(ExceptionConstants.ERROR_RESPUESTA_INVALIDA);
+        }
+
+        UsuarioEntity usuario = usuarioRepository.findById(authenticatedUserId).orElseThrow();
+        if (!canAccessChat(usuario, original.getChat())) {
+            throw new RespuestaNoAutorizadaException(ExceptionConstants.ERROR_RESPUESTA_NO_AUTORIZADA);
+        }
+
+        if (original.getChat() == null || chatDestino == null
+                || !Objects.equals(original.getChat().getId(), chatDestino.getId())) {
+            throw new RespuestaInvalidaException(ExceptionConstants.ERROR_RESPUESTA_INVALIDA);
+        }
+
+    }
+
+    private boolean canAccessChat(UsuarioEntity usuario, ChatEntity chat) {
+        if (usuario == null || chat == null || usuario.getId() == null) {
+            return false;
+        }
+        if (chat instanceof ChatIndividualEntity) {
+            ChatIndividualEntity ci = (ChatIndividualEntity) chat;
+            Long userId = usuario.getId();
+            return (ci.getUsuario1() != null && Objects.equals(ci.getUsuario1().getId(), userId))
+                    || (ci.getUsuario2() != null && Objects.equals(ci.getUsuario2().getId(), userId));
+        }
+        if (chat instanceof ChatGrupalEntity) {
+            ChatGrupalEntity cg = (ChatGrupalEntity) chat;
+            return cg.getUsuarios() != null
+                    && cg.getUsuarios().stream().anyMatch(u -> Objects.equals(u.getId(), usuario.getId()));
         }
         return false;
     }

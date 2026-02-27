@@ -43,6 +43,21 @@ public class MensajeEntity {
     @Column(nullable = false)
     private boolean activo = true;
 
+    @Column(nullable = false)
+    private boolean reenviado = false;
+
+    @Column(name = "mensaje_original_id")
+    private Long mensajeOriginalId;
+
+    @Column(name = "reply_to_message_id")
+    private Long replyToMessageId;
+
+    @Column(name = "reply_snippet", length = 255)
+    private String replySnippet;
+
+    @Column(name = "reply_author_name", length = 120)
+    private String replyAuthorName;
+
     public MessageType getTipo() {
         return tipo;
     }
@@ -140,6 +155,46 @@ public class MensajeEntity {
 
     public void setActivo(boolean activo) {
         this.activo = activo;
+    }
+
+    public boolean isReenviado() {
+        return reenviado;
+    }
+
+    public void setReenviado(boolean reenviado) {
+        this.reenviado = reenviado;
+    }
+
+    public Long getMensajeOriginalId() {
+        return mensajeOriginalId;
+    }
+
+    public void setMensajeOriginalId(Long mensajeOriginalId) {
+        this.mensajeOriginalId = mensajeOriginalId;
+    }
+
+    public Long getReplyToMessageId() {
+        return replyToMessageId;
+    }
+
+    public void setReplyToMessageId(Long replyToMessageId) {
+        this.replyToMessageId = replyToMessageId;
+    }
+
+    public String getReplySnippet() {
+        return replySnippet;
+    }
+
+    public void setReplySnippet(String replySnippet) {
+        this.replySnippet = replySnippet;
+    }
+
+    public String getReplyAuthorName() {
+        return replyAuthorName;
+    }
+
+    public void setReplyAuthorName(String replyAuthorName) {
+        this.replyAuthorName = replyAuthorName;
     }
 
 

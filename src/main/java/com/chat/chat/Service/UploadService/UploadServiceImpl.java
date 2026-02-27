@@ -1,93 +1,152 @@
 package com.chat.chat.Service.UploadService;
 
 import com.chat.chat.DTO.AudioUploadResponseDTO;
-import com.chat.chat.Utils.Utils;
+import com.chat.chat.DTO.FileUploadResponseDTO;
 import com.chat.chat.Utils.Constantes;
+import com.chat.chat.Utils.ExceptionConstants;
+import com.chat.chat.Utils.Utils;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
-import com.chat.chat.Utils.ExceptionConstants;
 
 import java.io.IOException;
 import java.io.InputStream;
-import java.nio.file.*;
-import java.util.Arrays;
-import java.util.List;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
 import java.util.UUID;
 
 @Service
 public class UploadServiceImpl implements UploadService {
 
-    // Lista blanca de tipos MIME permitidos
-    private static final List<String> ALLOWED_AUDIO_TYPES = Arrays.asList(
-            "audio/mpeg", "audio/mp3", "audio/ogg", "audio/wav", "audio/webm", "audio/m4a");
+    private static final long MAX_UPLOAD_BYTES = 25L * 1024L * 1024L;
 
     private final String uploadsRoot;
     private final String uploadsBaseUrl;
 
-    // Inyección por constructor (Mejor testabilidad)
-    public UploadServiceImpl(@Value("${app.uploads.root:uploads}") String uploadsRoot,
-            @Value("${app.uploads.base-url:/uploads}") String uploadsBaseUrl) {
+    public UploadServiceImpl(@Value(Constantes.PROP_UPLOADS_ROOT) String uploadsRoot,
+                             @Value(Constantes.PROP_UPLOADS_BASE_URL) String uploadsBaseUrl) {
         this.uploadsRoot = uploadsRoot;
         this.uploadsBaseUrl = uploadsBaseUrl;
     }
 
     @Override
     public AudioUploadResponseDTO uploadAudio(MultipartFile file, Integer durMs) {
-        // 1. Validaciones
-        validateFile(file);
+        validateAudioFile(file);
 
         try {
-            // 2. Preparar rutas y nombres
-            String subDirectory = Constantes.DIR_VOICE;
-            Path destinationDir = prepareDirectory(subDirectory);
-
-            // Generar nombre seguro
-            String originalExtension = Utils.extensionFor(file.getContentType());
-            // Nota: Asegúrate de que Utils.extensionFor maneje nulos o tipos desconocidos
-
-            String fileName = generateUniqueFileName(originalExtension);
-            Path destinationPath = destinationDir.resolve(fileName);
-
-            // 3. Guardar el archivo (Try-with-resources para seguridad de memoria)
-            try (InputStream inputStream = file.getInputStream()) {
-                Files.copy(inputStream, destinationPath, StandardCopyOption.REPLACE_EXISTING);
-            }
-
-            // 4. Construir respuesta
-            String publicUrl = buildPublicUrl(subDirectory, fileName);
+            String mime = normalizeMime(file.getContentType());
+            String originalExtension = Utils.extensionFor(mime);
+            StoredFile stored = storeRawFile(file, Constantes.DIR_VOICE, originalExtension);
 
             AudioUploadResponseDTO dto = new AudioUploadResponseDTO();
-            dto.setUrl(publicUrl);
-            dto.setMime(file.getContentType());
+            dto.setUrl(stored.url());
+            dto.setMime(stored.mime());
             dto.setDurMs(durMs);
-
             return dto;
 
         } catch (IOException e) {
-            // Loguear el error real es importante (usando slf4j por ejemplo)
             throw new RuntimeException(ExceptionConstants.ERROR_AUDIO_SAVE_FAILED, e);
         }
     }
 
-    // --- Métodos Auxiliares (Clean Code) ---
+    @Override
+    public FileUploadResponseDTO uploadEncryptedFile(MultipartFile file) {
+        validateEncryptedFile(file);
 
-    private void validateFile(MultipartFile file) {
+        try {
+            StoredFile stored = storeRawFile(file, Constantes.DIR_MEDIA, ".bin");
+            FileUploadResponseDTO dto = new FileUploadResponseDTO();
+            dto.setUrl(stored.url());
+            dto.setMime(stored.mime());
+            dto.setFileName(stored.fileName());
+            dto.setSizeBytes(stored.sizeBytes());
+            return dto;
+        } catch (IOException e) {
+            throw new RuntimeException(ExceptionConstants.ERROR_FILE_SAVE_FAILED, e);
+        }
+    }
+
+    private void validateAudioFile(MultipartFile file) {
         if (file == null || file.isEmpty()) {
             throw new IllegalArgumentException(ExceptionConstants.ERROR_AUDIO_EMPTY);
         }
 
-        // Validación de seguridad básica por Content-Type
-        String contentType = file.getContentType();
-        if (contentType == null || !ALLOWED_AUDIO_TYPES.contains(contentType.toLowerCase())) {
-            throw new IllegalArgumentException(ExceptionConstants.ERROR_FILE_TYPE_NOT_ALLOWED + contentType);
+        String normalizedType = normalizeMime(file.getContentType()).toLowerCase();
+        boolean allowed = normalizedType.startsWith("audio/")
+                || Constantes.MIME_APPLICATION_OCTET_STREAM.equals(normalizedType);
+        if (!allowed) {
+            throw new IllegalArgumentException(ExceptionConstants.ERROR_FILE_TYPE_NOT_ALLOWED + file.getContentType());
         }
 
-        // Validación extra opcional: Tamaño máximo (si no se maneja en
-        // application.properties)
-        if (file.getSize() > 10 * 1024 * 1024) { // 10MB
+        validateSize(file.getSize());
+    }
+
+    private void validateEncryptedFile(MultipartFile file) {
+        if (file == null || file.isEmpty()) {
+            throw new IllegalArgumentException(ExceptionConstants.ERROR_FILE_EMPTY);
+        }
+
+        String normalizedType = normalizeMime(file.getContentType()).toLowerCase();
+        boolean allowed = Constantes.MIME_APPLICATION_OCTET_STREAM.equals(normalizedType)
+                || normalizedType.startsWith("image/");
+        if (!allowed) {
+            throw new IllegalArgumentException(ExceptionConstants.ERROR_FILE_TYPE_NOT_ALLOWED + file.getContentType());
+        }
+
+        validateSize(file.getSize());
+    }
+
+    private void validateSize(long sizeBytes) {
+        if (sizeBytes > MAX_UPLOAD_BYTES) {
             throw new IllegalArgumentException(ExceptionConstants.ERROR_FILE_SIZE_EXCEEDED);
         }
+    }
+
+    private StoredFile storeRawFile(MultipartFile file, String subDir, String defaultExtension) throws IOException {
+        Path destinationDir = prepareDirectory(subDir);
+
+        String safeExtension = detectExtension(file, defaultExtension);
+        String storedFileName = generateUniqueFileName(safeExtension);
+        Path destinationPath = destinationDir.resolve(storedFileName);
+
+        // Importante para E2E: persistir bytes exactamente como llegan.
+        try (InputStream inputStream = file.getInputStream()) {
+            Files.copy(inputStream, destinationPath, StandardCopyOption.REPLACE_EXISTING);
+        }
+
+        String publicUrl = buildPublicUrl(subDir, storedFileName);
+        return new StoredFile(
+                publicUrl,
+                normalizeMime(file.getContentType()),
+                storedFileName,
+                file.getSize());
+    }
+
+    private String detectExtension(MultipartFile file, String fallback) {
+        String fromOriginal = extensionFromOriginalName(file.getOriginalFilename());
+        if (fromOriginal != null) {
+            return fromOriginal;
+        }
+        String fromMime = Utils.extensionFor(normalizeMime(file.getContentType()), fallback);
+        return fromMime == null || fromMime.isBlank() ? fallback : fromMime;
+    }
+
+    private String extensionFromOriginalName(String originalFilename) {
+        if (originalFilename == null || originalFilename.isBlank()) {
+            return null;
+        }
+        String cleaned = originalFilename.trim();
+        int dot = cleaned.lastIndexOf('.');
+        if (dot < 0 || dot == cleaned.length() - 1) {
+            return null;
+        }
+        String ext = cleaned.substring(dot).toLowerCase();
+        if (!ext.matches("\\.[a-z0-9]{1,10}")) {
+            return null;
+        }
+        return ext;
     }
 
     private Path prepareDirectory(String subDir) throws IOException {
@@ -99,12 +158,22 @@ public class UploadServiceImpl implements UploadService {
     }
 
     private String generateUniqueFileName(String extension) {
-        return UUID.randomUUID().toString() + extension;
+        String safeExt = (extension == null || extension.isBlank()) ? ".bin" : extension;
+        return UUID.randomUUID() + safeExt;
     }
 
     private String buildPublicUrl(String subDir, String fileName) {
-        // Asegura que no falten barras diagonales, pero evita duplicarlas
         String baseUrl = uploadsBaseUrl.endsWith("/") ? uploadsBaseUrl : uploadsBaseUrl + "/";
         return baseUrl + subDir + "/" + fileName;
+    }
+
+    private String normalizeMime(String mime) {
+        if (mime == null || mime.isBlank()) {
+            return Constantes.MIME_APPLICATION_OCTET_STREAM;
+        }
+        return mime.trim();
+    }
+
+    private record StoredFile(String url, String mime, String fileName, Long sizeBytes) {
     }
 }

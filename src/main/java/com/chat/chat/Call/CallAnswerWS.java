@@ -1,7 +1,9 @@
 package com.chat.chat.Call;
 
+import com.chat.chat.Utils.Constantes;
+
 public class CallAnswerWS {
-    private String event = "CALL_ANSWER";
+    private String event = Constantes.CALL_EVENT_ANSWER;
     private String callId;
     private boolean accepted;
     private Long fromUserId; // quién responde (normalmente el callee)

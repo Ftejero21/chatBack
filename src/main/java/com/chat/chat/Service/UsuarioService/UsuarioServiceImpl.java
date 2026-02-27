@@ -1,8 +1,12 @@
 package com.chat.chat.Service.UsuarioService;
 
 import com.chat.chat.DTO.UsuarioDTO;
+import com.chat.chat.DTO.ActualizarPerfilDTO;
+import com.chat.chat.DTO.E2ERekeyRequestDTO;
+import com.chat.chat.DTO.E2EStateDTO;
 import com.chat.chat.Entity.UsuarioEntity;
 import com.chat.chat.Exceptions.EmailNoRegistradoException;
+import com.chat.chat.Exceptions.E2ERekeyConflictException;
 import com.chat.chat.Exceptions.PasswordIncorrectaException;
 import com.chat.chat.Exceptions.UsuarioInactivoException;
 import com.chat.chat.Repository.UsuarioRepository;
@@ -10,9 +14,12 @@ import com.chat.chat.Utils.Constantes;
 import com.chat.chat.Utils.MappingUtils;
 import com.chat.chat.Utils.Utils;
 import com.chat.chat.Utils.ExceptionConstants;
+import com.chat.chat.Utils.AdminAuditCrypto;
+import com.chat.chat.Utils.E2EDiagnosticUtils;
 import com.chat.chat.Repository.MensajeRepository;
 import com.chat.chat.Repository.ChatRepository;
 import com.chat.chat.DTO.DashboardStatsDTO;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -21,23 +28,35 @@ import com.chat.chat.DTO.AuthRespuestaDTO;
 import com.chat.chat.Security.CustomUserDetailsService;
 import com.chat.chat.Security.JwtService;
 import com.chat.chat.Service.EmailService.EmailService;
+import com.chat.chat.Service.AuthService.PasswordChangeService;
 import com.chat.chat.Utils.SecurityUtils;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.transaction.annotation.Transactional;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 import static io.micrometer.core.instrument.util.StringEscapeUtils.escapeJson;
 
 @Service
 public class UsuarioServiceImpl implements UsuarioService {
+    private static final Logger LOGGER = LoggerFactory.getLogger(UsuarioServiceImpl.class);
 
     @Autowired
     private UsuarioRepository usuarioRepository;
@@ -60,6 +79,12 @@ public class UsuarioServiceImpl implements UsuarioService {
     @Value("${app.uploads.base-url:/uploads}") // prefijo público
     private String uploadsBaseUrl;
 
+    @Value("${app.audit.expose-private-key-on-login-local:false}")
+    private boolean exposeAuditPrivateKeyOnLoginLocal;
+
+    @Value("${spring.datasource.url:}")
+    private String datasourceUrl;
+
     @Autowired
     private SimpMessagingTemplate messagingTemplate;
 
@@ -71,6 +96,10 @@ public class UsuarioServiceImpl implements UsuarioService {
     private CustomUserDetailsService customUserDetailsService;
     @Autowired
     private SecurityUtils securityUtils;
+    @Autowired
+    private PasswordChangeService passwordChangeService;
+    @Autowired
+    private AdminAuditCrypto adminAuditCrypto;
 
     @Override
     public AuthRespuestaDTO crearUsuarioConToken(UsuarioDTO dto) {
@@ -85,6 +114,7 @@ public class UsuarioServiceImpl implements UsuarioService {
             String f = dto.getFoto();
             if (dto.getFoto() != null && dto.getFoto().startsWith(Constantes.DATA_IMAGE_PREFIX)) {
                 String url = Utils.saveDataUrlToUploads(dto.getFoto(), Constantes.DIR_AVATARS, uploadsRoot, uploadsBaseUrl);
+                fotoUrl = url;
                 dto.setFoto(url); // guarda URL pública en DTO
             } else if (f.startsWith(Constantes.UPLOADS_PREFIX) || f.startsWith(Constantes.HTTP_PREFIX)) {
                 fotoUrl = f; // ya es una URL válida
@@ -98,6 +128,9 @@ public class UsuarioServiceImpl implements UsuarioService {
         entity.setFechaCreacion(LocalDateTime.now());
         entity.setActivo(true);
         entity.setRoles(Collections.singleton(Constantes.USUARIO));
+        if (hasPublicKey(entity.getPublicKey())) {
+            entity.setPublicKeyUpdatedAt(LocalDateTime.now());
+        }
 
         String encryptedPassword = passwordEncoder.encode(dto.getPassword());
         entity.setPassword(encryptedPassword);
@@ -117,7 +150,7 @@ public class UsuarioServiceImpl implements UsuarioService {
         UserDetails userDetails = customUserDetailsService.loadUserByUsername(saved.getEmail());
         String jwtToken = jwtService.generateToken(userDetails);
 
-        return new AuthRespuestaDTO(jwtToken, savedDto);
+        return new AuthRespuestaDTO(jwtToken, savedDto, adminAuditCrypto.getAuditPublicKeySpkiBase64());
     }
 
     // Mantenemos este por compatibilidad interna si se necesita (aunque el de
@@ -130,9 +163,8 @@ public class UsuarioServiceImpl implements UsuarioService {
     @Override
     public List<UsuarioDTO> listarUsuariosActivos() {
         Long authenticatedUserId = securityUtils.getAuthenticatedUserId();
-        List<UsuarioDTO> list = usuarioRepository.findAll().stream()
-                .filter(UsuarioEntity::isActivo)
-                .filter(u -> !u.getId().equals(authenticatedUserId))
+        List<UsuarioDTO> list = usuarioRepository.findByActivoTrueAndIdNot(authenticatedUserId).stream()
+                .filter(u -> !isAdminUser(u.getRoles()))
                 .map(MappingUtils::usuarioEntityADto)
                 .collect(Collectors.toList());
 
@@ -148,6 +180,69 @@ public class UsuarioServiceImpl implements UsuarioService {
         }
 
         return list;
+    }
+
+    private boolean isAdminUser(Set<String> roles) {
+        if (roles == null || roles.isEmpty()) {
+            return false;
+        }
+        return roles.stream().anyMatch(role -> Constantes.ADMIN.equalsIgnoreCase(role) || Constantes.ROLE_ADMIN.equalsIgnoreCase(role));
+    }
+
+    private boolean shouldIncludeAuditPrivateKeyOnLogin(UsuarioEntity usuario) {
+        if (usuario == null || !isAdminUser(usuario.getRoles())) {
+            return false;
+        }
+        if (!exposeAuditPrivateKeyOnLoginLocal) {
+            return false;
+        }
+        if (datasourceUrl == null || datasourceUrl.isBlank()) {
+            return false;
+        }
+
+        String normalizedDatasourceUrl = datasourceUrl.toLowerCase(Locale.ROOT);
+        return normalizedDatasourceUrl.contains("localhost")
+                || normalizedDatasourceUrl.contains("127.0.0.1");
+    }
+
+    private void validateSelfOrAdmin(Long targetUserId) {
+        Long authenticatedUserId = securityUtils.getAuthenticatedUserId();
+        if (authenticatedUserId != null && targetUserId != null
+                && authenticatedUserId.longValue() == targetUserId.longValue()) {
+            return;
+        }
+        boolean requesterIsAdmin = securityUtils.hasRole(Constantes.ADMIN)
+                || securityUtils.hasRole(Constantes.ROLE_ADMIN)
+                || usuarioRepository.findById(authenticatedUserId)
+                .map(u -> isAdminUser(u.getRoles()))
+                .orElse(false);
+        if (!requesterIsAdmin) {
+            throw new AccessDeniedException(ExceptionConstants.ERROR_NOT_AUTHORIZED_PUBLIC_KEY);
+        }
+    }
+
+    private E2EStateDTO toE2EState(UsuarioEntity usuario) {
+        E2EStateDTO state = new E2EStateDTO();
+        boolean hasKey = hasPublicKey(usuario == null ? null : usuario.getPublicKey());
+        state.setHasPublicKey(hasKey);
+        state.setPublicKeyFingerprint(E2EDiagnosticUtils.fingerprint12(usuario == null ? null : usuario.getPublicKey()));
+        LocalDateTime updatedAt = null;
+        if (usuario != null) {
+            updatedAt = usuario.getPublicKeyUpdatedAt() != null ? usuario.getPublicKeyUpdatedAt() : usuario.getFechaCreacion();
+        }
+        state.setUpdatedAt(updatedAt);
+        return state;
+    }
+
+    private String normalizeFingerprint(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        return value.trim().toLowerCase(Locale.ROOT);
+    }
+
+    private boolean hasPublicKey(String key) {
+        return key != null && !key.isBlank();
     }
 
     // Nuevo método login que devuelve Token
@@ -170,19 +265,100 @@ public class UsuarioServiceImpl implements UsuarioService {
 
         UserDetails userDetails = customUserDetailsService.loadUserByUsername(usuario.getEmail());
         String jwtToken = jwtService.generateToken(userDetails);
+        AuthRespuestaDTO respuesta = new AuthRespuestaDTO(jwtToken, dto, adminAuditCrypto.getAuditPublicKeySpkiBase64());
+        if (shouldIncludeAuditPrivateKeyOnLogin(usuario)) {
+            String auditPrivateKey = adminAuditCrypto.getAuditPrivateKeyPkcs8PemIfMatchesPublicKey();
+            if (auditPrivateKey != null && !auditPrivateKey.isBlank()) {
+                respuesta.setAuditPrivateKey(auditPrivateKey);
+                // Alias de compatibilidad para clientes que esperan otros nombres.
+                respuesta.setPrivateKey_admin_audit(auditPrivateKey);
+                respuesta.setForAdminPrivateKey(auditPrivateKey);
+            }
+        }
 
-        return new AuthRespuestaDTO(jwtToken, dto);
+        return respuesta;
     }
 
     @Override
     public void updatePublicKey(Long id, String publicKey) {
-        UsuarioEntity usuario = usuarioRepository.findById(id).orElseThrow();
+        if (!hasPublicKey(publicKey)) {
+            throw new IllegalArgumentException("publicKey es obligatoria");
+        }
+        UsuarioEntity usuario = usuarioRepository.findFreshById(id)
+                .or(() -> usuarioRepository.findById(id))
+                .orElseThrow(() -> new RuntimeException(Constantes.MSG_USUARIO_NO_ENCONTRADO));
         // Solo el propio usuario autenticado debería poder actualizar su propia llave
         if (!usuario.getId().equals(securityUtils.getAuthenticatedUserId())) {
             throw new RuntimeException(ExceptionConstants.ERROR_NOT_AUTHORIZED_PUBLIC_KEY);
         }
+        String oldFp = E2EDiagnosticUtils.fingerprint12(usuario.getPublicKey());
+        String newFp = E2EDiagnosticUtils.fingerprint12(publicKey);
+        boolean replacingExistingDifferentKey = hasPublicKey(usuario.getPublicKey()) && !Objects.equals(oldFp, newFp);
+        if (replacingExistingDifferentKey) {
+            throw new E2ERekeyConflictException(
+                    "Ya existe una publicKey distinta. Usa /api/usuarios/{id}/e2e/rekey para rotarla de forma segura.");
+        }
         usuario.setPublicKey(publicKey);
+        if (!Objects.equals(oldFp, newFp) || usuario.getPublicKeyUpdatedAt() == null) {
+            usuario.setPublicKeyUpdatedAt(LocalDateTime.now());
+        }
         usuarioRepository.save(usuario);
+        LOGGER.info("[E2E_DIAG] stage=PUBLIC_KEY_UPDATE ts={} userId={} oldKeyFp={} newKeyFp={} changed={}",
+                Instant.now(), usuario.getId(), oldFp, newFp, !oldFp.equals(newFp));
+    }
+
+    @Override
+    public E2EStateDTO getE2EState(Long id) {
+        validateSelfOrAdmin(id);
+        UsuarioEntity usuario = usuarioRepository.findFreshById(id)
+                .or(() -> usuarioRepository.findById(id))
+                .orElseThrow(() -> new RuntimeException(Constantes.MSG_USUARIO_NO_ENCONTRADO));
+        return toE2EState(usuario);
+    }
+
+    @Override
+    @Transactional
+    public E2EStateDTO rekeyE2E(Long id, E2ERekeyRequestDTO request) {
+        validateSelfOrAdmin(id);
+        if (request == null || !hasPublicKey(request.getNewPublicKey())) {
+            throw new IllegalArgumentException("newPublicKey es obligatoria");
+        }
+        if (request.getCurrentPassword() == null || request.getCurrentPassword().isBlank()) {
+            throw new IllegalArgumentException("currentPassword es obligatoria");
+        }
+
+        Long requesterId = securityUtils.getAuthenticatedUserId();
+        UsuarioEntity requester = usuarioRepository.findById(requesterId)
+                .orElseThrow(() -> new RuntimeException(Constantes.MSG_USUARIO_NO_ENCONTRADO));
+        if (!passwordEncoder.matches(request.getCurrentPassword(), requester.getPassword())) {
+            throw new PasswordIncorrectaException();
+        }
+
+        UsuarioEntity usuario = usuarioRepository.findFreshById(id)
+                .or(() -> usuarioRepository.findById(id))
+                .orElseThrow(() -> new RuntimeException(Constantes.MSG_USUARIO_NO_ENCONTRADO));
+
+        String oldFp = E2EDiagnosticUtils.fingerprint12(usuario.getPublicKey());
+        String newFp = E2EDiagnosticUtils.fingerprint12(request.getNewPublicKey());
+        String expectedOldFingerprint = normalizeFingerprint(request.getExpectedOldFingerprint());
+        if (expectedOldFingerprint != null && !Objects.equals(expectedOldFingerprint, oldFp)) {
+            throw new E2ERekeyConflictException("expectedOldFingerprint no coincide con el estado actual");
+        }
+
+        usuario.setPublicKey(request.getNewPublicKey());
+        usuario.setPublicKeyUpdatedAt(LocalDateTime.now());
+        usuarioRepository.save(usuario);
+
+        String traceId = Optional.ofNullable(E2EDiagnosticUtils.currentTraceId()).orElse(E2EDiagnosticUtils.newTraceId());
+        MDC.put(E2EDiagnosticUtils.TRACE_ID_MDC_KEY, traceId);
+        try {
+            LOGGER.info("[E2E_DIAG] stage=E2E_REKEY ts={} traceId={} userId={} oldFp={} newFp={}",
+                    Instant.now(), traceId, id, oldFp, newFp);
+        } finally {
+            MDC.remove(E2EDiagnosticUtils.TRACE_ID_MDC_KEY);
+        }
+
+        return toE2EState(usuario);
     }
 
     @Override
@@ -192,8 +368,10 @@ public class UsuarioServiceImpl implements UsuarioService {
 
     @Override
     public UsuarioDTO getById(Long id) {
-        UsuarioEntity u = usuarioRepository.findById(id)
+        UsuarioEntity u = usuarioRepository.findFreshById(id)
                 .orElseThrow(() -> new RuntimeException(Constantes.MSG_USUARIO_NO_ENCONTRADO));
+        LOGGER.info("[E2E_DIAG] stage=USER_GET_BY_ID ts={} userId={} publicKeyFp={} publicKeyLen={}",
+                Instant.now(), id, E2EDiagnosticUtils.fingerprint12(u.getPublicKey()), u.getPublicKey() == null ? 0 : u.getPublicKey().length());
         UsuarioDTO dto = MappingUtils.usuarioEntityADto(u);
         // 👉 Si la foto es una URL pública (/uploads/...), la convertimos a Base64 para
         // el front
@@ -235,7 +413,7 @@ public class UsuarioServiceImpl implements UsuarioService {
     @Transactional
     public void bloquearUsuario(Long bloqueadoId) {
         Long authenticatedUserId = securityUtils.getAuthenticatedUserId();
-        System.out.println("INTENTO DE BLOQUEO: blocker=" + authenticatedUserId + " bloqueado=" + bloqueadoId);
+        System.out.println(Constantes.LOG_BLOCK_ATTEMPT + authenticatedUserId + " bloqueado=" + bloqueadoId);
         if (authenticatedUserId.equals(bloqueadoId)) {
             throw new RuntimeException(ExceptionConstants.ERROR_CANT_BLOCK_SELF);
         }
@@ -244,13 +422,13 @@ public class UsuarioServiceImpl implements UsuarioService {
         UsuarioEntity blocked = usuarioRepository.findById(bloqueadoId).orElseThrow();
 
         if (user.getBloqueados().add(blocked)) {
-            System.out.println("USUARIO BLOQUEADO CON ÉXITO EN BD");
+            System.out.println(Constantes.LOG_BLOCK_SUCCESS);
             usuarioRepository.save(user);
             // Notify the blocked user via STOMP that their status changed
             messagingTemplate.convertAndSend(Constantes.WS_TOPIC_USER_BLOQUEOS_PREFIX + bloqueadoId + Constantes.WS_TOPIC_USER_BLOQUEOS_SUFFIX,
-                    "{\"blockerId\":" + authenticatedUserId + ",\"type\":\"" + Constantes.WS_TYPE_BLOCKED + "\"}");
+                    String.format(Constantes.WS_BLOCK_STATUS_PAYLOAD_TEMPLATE, authenticatedUserId, Constantes.WS_TYPE_BLOCKED));
         } else {
-            System.out.println("USUARIO YA ESTABA BLOQUEADO EN BD");
+            System.out.println(Constantes.LOG_BLOCK_ALREADY);
         }
     }
 
@@ -266,7 +444,7 @@ public class UsuarioServiceImpl implements UsuarioService {
             usuarioRepository.save(user);
             // Notify the unblocked user via STOMP
             messagingTemplate.convertAndSend(Constantes.WS_TOPIC_USER_BLOQUEOS_PREFIX + bloqueadoId + Constantes.WS_TOPIC_USER_BLOQUEOS_SUFFIX,
-                    "{\"blockerId\":" + authenticatedUserId + ",\"type\":\"" + Constantes.WS_TYPE_UNBLOCKED + "\"}");
+                    String.format(Constantes.WS_BLOCK_STATUS_PAYLOAD_TEMPLATE, authenticatedUserId, Constantes.WS_TYPE_UNBLOCKED));
         }
     }
 
@@ -329,14 +507,75 @@ public class UsuarioServiceImpl implements UsuarioService {
     }
 
     @Override
-    public List<UsuarioDTO> listarRecientes() {
-        Pageable top10 = PageRequest.of(0, 50); // Traemos más para poder filtrar en memoria
-        List<UsuarioEntity> entidades = usuarioRepository.findTop10Recientes(top10);
-        return entidades.stream()
-                .filter(u -> u.getRoles() == null || !u.getRoles().contains(Constantes.ADMIN))
-                .limit(10)
-                .map(MappingUtils::usuarioEntityADto)
-                .collect(Collectors.toList());
+    public Page<UsuarioDTO> listarRecientes(int page, int size) {
+        int safePage = Math.max(0, page);
+        int safeSize = Math.max(1, size);
+        Pageable pageable = PageRequest.of(safePage, safeSize);
+        Page<UsuarioEntity> entidades = usuarioRepository.findRecientesSinRol(pageable, Constantes.ADMIN);
+        return entidades.map(MappingUtils::usuarioEntityADto);
+    }
+
+    @Override
+    @Transactional
+    public UsuarioDTO actualizarPerfil(ActualizarPerfilDTO dto) {
+        Long authenticatedUserId = securityUtils.getAuthenticatedUserId();
+        UsuarioEntity usuario = usuarioRepository.findById(authenticatedUserId)
+                .orElseThrow(() -> new RuntimeException(Constantes.MSG_USUARIO_NO_ENCONTRADO));
+
+        if (dto.getNombre() != null && !dto.getNombre().isBlank()) {
+            usuario.setNombre(dto.getNombre().trim());
+        }
+        if (dto.getApellido() != null && !dto.getApellido().isBlank()) {
+            usuario.setApellido(dto.getApellido().trim());
+        }
+        if (dto.getFoto() != null) {
+            String f = dto.getFoto().trim();
+            if (!f.isEmpty()) {
+                if (f.startsWith(Constantes.DATA_IMAGE_PREFIX)) {
+                    String url = Utils.saveDataUrlToUploads(f, Constantes.DIR_AVATARS, uploadsRoot, uploadsBaseUrl);
+                    usuario.setFotoUrl(url);
+                } else if (f.startsWith(Constantes.UPLOADS_PREFIX) || f.startsWith(Constantes.HTTP_PREFIX)) {
+                    usuario.setFotoUrl(f);
+                }
+            }
+        }
+
+        UsuarioEntity saved = usuarioRepository.save(usuario);
+        UsuarioDTO out = MappingUtils.usuarioEntityADto(saved);
+        if (out.getFoto() != null && out.getFoto().startsWith(Constantes.UPLOADS_PREFIX)) {
+            out.setFoto(Utils.toDataUrlFromUrl(out.getFoto(), uploadsRoot));
+        }
+        return out;
+    }
+
+    @Override
+    public void solicitarCodigoCambioPassword() {
+        Long authenticatedUserId = securityUtils.getAuthenticatedUserId();
+        UsuarioEntity usuario = usuarioRepository.findById(authenticatedUserId)
+                .orElseThrow(() -> new RuntimeException(Constantes.MSG_USUARIO_NO_ENCONTRADO));
+        passwordChangeService.generateAndSendChangeCode(usuario.getEmail(), usuario.getNombre());
+    }
+
+    @Override
+    @Transactional
+    public void cambiarPasswordConCodigo(String code, String newPassword) {
+        Long authenticatedUserId = securityUtils.getAuthenticatedUserId();
+        UsuarioEntity usuario = usuarioRepository.findById(authenticatedUserId)
+                .orElseThrow(() -> new RuntimeException(Constantes.MSG_USUARIO_NO_ENCONTRADO));
+
+        if (code == null || code.isBlank() || newPassword == null || newPassword.isBlank()) {
+            throw new RuntimeException(Constantes.MSG_FALTAN_DATOS_REQUERIDOS);
+        }
+
+        boolean isValid = passwordChangeService.isCodeValid(usuario.getEmail(), code);
+        if (!isValid) {
+            throw new RuntimeException(Constantes.MSG_CODIGO_INVALIDO_O_EXPIRADO);
+        }
+
+        String encryptedPassword = passwordEncoder.encode(newPassword);
+        usuario.setPassword(encryptedPassword);
+        usuarioRepository.save(usuario);
+        passwordChangeService.invalidateCode(usuario.getEmail());
     }
 
     @Override
@@ -356,11 +595,11 @@ public class UsuarioServiceImpl implements UsuarioService {
         messagingTemplate.convertAndSendToUser(
                 bloqueado.getEmail(),
                 Constantes.WS_QUEUE_BANEOS,
-                "{\"banned\": true, \"motivo\": \"" + escapeJson(motivoFinal) + "\"}"
+                String.format(Constantes.WS_BAN_PAYLOAD_TEMPLATE, escapeJson(motivoFinal))
         );
 
         // 2. Enviar Email con el motivo final
-        Map<String, String> vars = new java.util.HashMap<>();
+        Map<String, String> vars = new HashMap<>();
         vars.put(Constantes.EMAIL_VAR_NOMBRE, bloqueado.getNombre());
         vars.put(Constantes.EMAIL_VAR_MOTIVO, motivoFinal);
 
@@ -381,7 +620,7 @@ public class UsuarioServiceImpl implements UsuarioService {
         usuarioRepository.save(vetado);
 
         // 3. Enviar Email de Desbaneo
-        Map<String, String> vars = new java.util.HashMap<>();
+        Map<String, String> vars = new HashMap<>();
         vars.put(Constantes.EMAIL_VAR_NOMBRE, vetado.getNombre());
 
         emailService.sendHtmlEmail(

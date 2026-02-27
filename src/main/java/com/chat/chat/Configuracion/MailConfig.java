@@ -10,17 +10,26 @@ import java.util.Properties;
 
 @Configuration
 public class MailConfig {
+    private static final String MAIL_HOST_PROP = "${spring.mail.host:smtp.gmail.com}";
+    private static final String MAIL_PORT_PROP = "${spring.mail.port:587}";
+    private static final String MAIL_USERNAME_PROP = "${spring.mail.username:}";
+    private static final String MAIL_PASSWORD_PROP = "${spring.mail.password:}";
+    private static final String PROP_TRANSPORT = "mail.transport.protocol";
+    private static final String PROP_SMTP_AUTH = "mail.smtp.auth";
+    private static final String PROP_SMTP_STARTTLS = "mail.smtp.starttls.enable";
+    private static final String SMTP = "smtp";
+    private static final String TRUE = "true";
 
-    @Value("${spring.mail.host:smtp.gmail.com}")
+    @Value(MAIL_HOST_PROP)
     private String host;
 
-    @Value("${spring.mail.port:587}")
+    @Value(MAIL_PORT_PROP)
     private int port;
 
-    @Value("${spring.mail.username:}")
+    @Value(MAIL_USERNAME_PROP)
     private String username;
 
-    @Value("${spring.mail.password:}")
+    @Value(MAIL_PASSWORD_PROP)
     private String password;
 
     @Bean
@@ -32,9 +41,9 @@ public class MailConfig {
         mailSender.setPassword(password);
 
         Properties props = mailSender.getJavaMailProperties();
-        props.put("mail.transport.protocol", "smtp");
-        props.put("mail.smtp.auth", "true");
-        props.put("mail.smtp.starttls.enable", "true");
+        props.put(PROP_TRANSPORT, SMTP);
+        props.put(PROP_SMTP_AUTH, TRUE);
+        props.put(PROP_SMTP_STARTTLS, TRUE);
 
         return mailSender;
     }

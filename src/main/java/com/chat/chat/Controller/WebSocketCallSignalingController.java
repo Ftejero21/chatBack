@@ -17,21 +17,21 @@ public class WebSocketCallSignalingController {
     private SimpMessagingTemplate messagingTemplate;
 
     // Caller -> Offer -> Callee
-    @MessageMapping("/call.sdp.offer")
+    @MessageMapping(Constantes.WS_APP_CALL_SDP_OFFER)
     public void sdpOffer(@Payload SdpOfferDTO dto) {
         if (dto == null || dto.getToUserId() == null) return;
         messagingTemplate.convertAndSend(Constantes.TOPIC_CALL_SDP_OFFER + dto.getToUserId(), dto);
     }
 
     // Callee -> Answer -> Caller
-    @MessageMapping("/call.sdp.answer")
+    @MessageMapping(Constantes.WS_APP_CALL_SDP_ANSWER)
     public void sdpAnswer(@Payload SdpAnswerDTO dto) {
         if (dto == null || dto.getToUserId() == null) return;
         messagingTemplate.convertAndSend(Constantes.TOPIC_CALL_SDP_ANSWER + dto.getToUserId(), dto);
     }
 
     // ICE candidates (ambos sentidos)
-    @MessageMapping("/call.ice")
+    @MessageMapping(Constantes.WS_APP_CALL_ICE)
     public void ice(@Payload IceCandidateDTO dto) {
         if (dto == null || dto.getToUserId() == null) return;
         messagingTemplate.convertAndSend(Constantes.TOPIC_CALL_ICE + dto.getToUserId(), dto);

@@ -21,14 +21,23 @@ import java.time.format.DateTimeFormatter;
 public class UsuariosReporteScheduler {
 
     private static final Logger log = LoggerFactory.getLogger(UsuariosReporteScheduler.class);
+    private static final String PROP_EXPORT_DIR = "${app.exports.dir:./exports}";
+    private static final String PROP_FILENAME_PREFIX = "${app.exports.filenamePrefix:USUARIOS}";
+    private static final String CRON_SEMANAL = "0 45 2 ? * MON";
+    private static final String ZONE_MADRID = "Europe/Madrid";
+    private static final String PARAM_OUTPUT_PREFIX = "outputPrefix";
+    private static final String PARAM_SOLO_ACTIVOS = "soloActivos";
+    private static final String PARAM_TIMESTAMP = "timestamp";
+    private static final String UNDERSCORE = "_";
+    private static final String LOG_LANZANDO = "Lanzando exportUsuariosJob -> prefix: {}";
 
     private final JobLauncher jobLauncher;
     private final Job exportUsuariosJob;
 
-    @Value("${app.exports.dir:./exports}")
+    @Value(PROP_EXPORT_DIR)
     private String exportDir;
 
-    @Value("${app.exports.filenamePrefix:USUARIOS}")
+    @Value(PROP_FILENAME_PREFIX)
     private String filenamePrefix;
 
     public UsuariosReporteScheduler(JobLauncher jobLauncher, Job exportUsuariosJob) {
@@ -37,7 +46,7 @@ public class UsuariosReporteScheduler {
     }
 
     // Lunes a las 02:45 (menos 15 de las 3), hora de Madrid
-    @Scheduled(cron = "0 45 2 ? * MON", zone = "Europe/Madrid")
+    @Scheduled(cron = CRON_SEMANAL, zone = ZONE_MADRID)
     public void semanal() throws Exception {
         lanzar(false); // por defecto: todos
     }
@@ -47,15 +56,15 @@ public class UsuariosReporteScheduler {
 
         String fecha = LocalDate.now().format(DateTimeFormatter.BASIC_ISO_DATE); // yyyyMMdd
         // Prefijo SIN extensión; MultiResourceItemWriter añadirá _PARTE_001.csv, etc.
-        String outputPrefix = Path.of(exportDir, filenamePrefix + "_" + fecha).toString();
+        String outputPrefix = Path.of(exportDir, filenamePrefix + UNDERSCORE + fecha).toString();
 
         JobParameters params = new JobParametersBuilder()
-                .addString("outputPrefix", outputPrefix)                   // <- importante
-                .addString("soloActivos", Boolean.toString(soloActivos))
-                .addLong("timestamp", System.currentTimeMillis())          // para que sea una ejecución nueva
+                .addString(PARAM_OUTPUT_PREFIX, outputPrefix)                   // <- importante
+                .addString(PARAM_SOLO_ACTIVOS, Boolean.toString(soloActivos))
+                .addLong(PARAM_TIMESTAMP, System.currentTimeMillis())          // para que sea una ejecución nueva
                 .toJobParameters();
 
-        log.info("⏱️  Lanzando exportUsuariosJob → prefix: {}", outputPrefix);
+
         jobLauncher.run(exportUsuariosJob, params);
     }
 }

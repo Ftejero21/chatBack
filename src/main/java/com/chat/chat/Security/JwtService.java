@@ -16,13 +16,15 @@ import java.util.function.Function;
 
 @Service
 public class JwtService {
+    private static final String JWT_SECRET_PROP = "${app.jwt.secret:404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970}";
+    private static final String JWT_EXPIRATION_PROP = "${app.jwt.expiration:86400000}";
 
     // Ideally, this should be in application.properties and be at least 256 bits
     // long
-    @Value("${app.jwt.secret:404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970}")
+    @Value(JWT_SECRET_PROP)
     private String secretKey;
 
-    @Value("${app.jwt.expiration:86400000}") // 1 day in milliseconds
+    @Value(JWT_EXPIRATION_PROP) // 1 day in milliseconds
     private long jwtExpiration;
 
     public String extractUsername(String token) {

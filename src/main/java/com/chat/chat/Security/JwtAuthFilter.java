@@ -1,5 +1,6 @@
 package com.chat.chat.Security;
 
+import com.chat.chat.Utils.Constantes;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -17,6 +18,13 @@ import java.io.IOException;
 
 @Component
 public class JwtAuthFilter extends OncePerRequestFilter {
+    private static final String LOG_JWT_FILTER_REQUEST = "JwtAuthFilter - Filtro Request: [";
+    private static final String LOG_JWT_FILTER_SEPARATOR = "] ";
+    private static final String LOG_JWT_NO_BEARER = "JwtAuthFilter - No Authorization Header found or doesn't start with Bearer";
+    private static final String LOG_JWT_VALID = "JWT Validado exitosamente para usuario: ";
+    private static final String LOG_JWT_INVALID = "JWT Token Invalido para usuario: ";
+    private static final String LOG_JWT_PROCESS_ERROR = "Error procesando JWT: ";
+
 
     @Autowired
     private JwtService jwtService;
@@ -30,21 +38,21 @@ public class JwtAuthFilter extends OncePerRequestFilter {
             @NonNull HttpServletResponse response,
             @NonNull FilterChain filterChain) throws ServletException, IOException {
 
-        final String authHeader = request.getHeader("Authorization");
+        final String authHeader = request.getHeader(Constantes.HEADER_AUTHORIZATION);
         final String jwt;
         final String userEmail;
 
-        System.out.println("JwtAuthFilter - Filtro Request: [" + request.getMethod() + "] " + request.getRequestURI());
+        System.out.println(LOG_JWT_FILTER_REQUEST + request.getMethod() + LOG_JWT_FILTER_SEPARATOR + request.getRequestURI());
 
         // Si no hay cabecera Authorization o no empieza con Bearer, continuamos
         // filtrando sin autenticar
-        if (authHeader == null || !authHeader.startsWith("Bearer ")) {
-            System.out.println("JwtAuthFilter - No Autorization Header found or doesn't start with Bearer");
+        if (authHeader == null || !authHeader.startsWith(Constantes.BEARER_PREFIX)) {
+            System.out.println(LOG_JWT_NO_BEARER);
             filterChain.doFilter(request, response);
             return;
         }
 
-        jwt = authHeader.substring(7); // "Bearer " son 7 caracteres
+        jwt = authHeader.substring(Constantes.BEARER_PREFIX.length());
 
         try {
             userEmail = jwtService.extractUsername(jwt);
@@ -62,13 +70,13 @@ public class JwtAuthFilter extends OncePerRequestFilter {
 
                     // Asignamos el usuario autenticado al contexto de Spring Security
                     SecurityContextHolder.getContext().setAuthentication(authToken);
-                    System.out.println("JWT Validado exitosamente para usuario: " + userEmail);
+                    System.out.println(LOG_JWT_VALID + userEmail);
                 } else {
-                    System.err.println("JWT Token Invalido para usuario: " + userEmail);
+                    System.err.println(LOG_JWT_INVALID + userEmail);
                 }
             }
         } catch (Exception e) {
-            System.err.println("Error procesando JWT: " + e.getMessage());
+            System.err.println(LOG_JWT_PROCESS_ERROR + e.getMessage());
             e.printStackTrace();
         }
 

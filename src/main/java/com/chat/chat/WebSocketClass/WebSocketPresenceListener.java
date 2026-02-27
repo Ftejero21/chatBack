@@ -1,5 +1,6 @@
 package com.chat.chat.WebSocketClass;
 
+import com.chat.chat.Utils.Constantes;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.event.EventListener;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
@@ -13,6 +14,12 @@ import java.util.concurrent.ConcurrentHashMap;
 
 @Component
 public class WebSocketPresenceListener {
+    private static final String LOG_WS_USER_CONNECT = "El usuario con ID ";
+    private static final String LOG_WS_CONNECT_SUFFIX = " se ha conectado.";
+    private static final String LOG_WS_SIN_USUARIO = "Conexión sin usuarioId.";
+    private static final String LOG_WS_USER_DISCONNECT = "El usuario con ID ";
+    private static final String LOG_WS_DISCONNECT_SUFFIX = " se ha desconectado.";
+    private static final String LOG_WS_SESION_DESCONOCIDA = "Desconexión de sesión desconocida: ";
 
     @Autowired
     private SimpMessagingTemplate messagingTemplate;
@@ -22,14 +29,12 @@ public class WebSocketPresenceListener {
     @EventListener
     public void handleWebSocketConnectListener(SessionConnectEvent event) {
         StompHeaderAccessor sha = StompHeaderAccessor.wrap(event.getMessage());
-        String userId = sha.getFirstNativeHeader("usuarioId");
+        String userId = sha.getFirstNativeHeader(Constantes.HEADER_USUARIO_ID);
 
         if (userId != null) {
             sesionesUsuario.put(sha.getSessionId(), userId);
-            System.out.println("✅ El usuario con ID " + userId + " se ha conectado.");
-            messagingTemplate.convertAndSend("/topic/estado." + userId, "Conectado");
+            messagingTemplate.convertAndSend(Constantes.TOPIC_ESTADO + userId, Constantes.ESTADO_CONECTADO);
         } else {
-            System.out.println("⚠️ Conexión sin usuarioId.");
         }
     }
 
@@ -39,11 +44,8 @@ public class WebSocketPresenceListener {
         String userId = sesionesUsuario.remove(sessionId);
 
         if (userId != null) {
-            System.out.println("🔌 El usuario con ID " + userId + " se ha desconectado.");
-            messagingTemplate.convertAndSend("/topic/estado." + userId, "Desconectado");
+            messagingTemplate.convertAndSend(Constantes.TOPIC_ESTADO + userId, Constantes.ESTADO_DESCONECTADO);
         } else {
-            System.out.println("⚠️ Desconexión de sesión desconocida: " + sessionId);
         }
     }
 }
-

@@ -10,6 +10,13 @@ public class ChatResumenDTO {
     private String ultimoMensaje;
     private LocalDateTime fechaUltimoMensaje;
     private String ultimoMensajeDescifrado;
+    private String ultimoMensajeTexto;
+    private String ultimoMensajeEmisorNombre;
+    private String ultimoMensajeEmisorApellido;
+    private String ultimoMensajeEmisorNombreCompleto;
+    private String ultimoMensajePreview;
+    private LocalDateTime ultimoMensajeFecha;
+    private String ultimoMensajeTipo;
 
     public Long getId() {
         return id;
@@ -65,5 +72,61 @@ public class ChatResumenDTO {
 
     public void setUltimoMensajeDescifrado(String ultimoMensajeDescifrado) {
         this.ultimoMensajeDescifrado = ultimoMensajeDescifrado;
+    }
+
+    public String getUltimoMensajeTexto() {
+        return ultimoMensajeTexto;
+    }
+
+    public void setUltimoMensajeTexto(String ultimoMensajeTexto) {
+        this.ultimoMensajeTexto = ultimoMensajeTexto;
+    }
+
+    public String getUltimoMensajeEmisorNombre() {
+        return ultimoMensajeEmisorNombre;
+    }
+
+    public void setUltimoMensajeEmisorNombre(String ultimoMensajeEmisorNombre) {
+        this.ultimoMensajeEmisorNombre = ultimoMensajeEmisorNombre;
+    }
+
+    public String getUltimoMensajeEmisorApellido() {
+        return ultimoMensajeEmisorApellido;
+    }
+
+    public void setUltimoMensajeEmisorApellido(String ultimoMensajeEmisorApellido) {
+        this.ultimoMensajeEmisorApellido = ultimoMensajeEmisorApellido;
+    }
+
+    public String getUltimoMensajeEmisorNombreCompleto() {
+        return ultimoMensajeEmisorNombreCompleto;
+    }
+
+    public void setUltimoMensajeEmisorNombreCompleto(String ultimoMensajeEmisorNombreCompleto) {
+        this.ultimoMensajeEmisorNombreCompleto = ultimoMensajeEmisorNombreCompleto;
+    }
+
+    public String getUltimoMensajePreview() {
+        return ultimoMensajePreview;
+    }
+
+    public void setUltimoMensajePreview(String ultimoMensajePreview) {
+        this.ultimoMensajePreview = ultimoMensajePreview;
+    }
+
+    public LocalDateTime getUltimoMensajeFecha() {
+        return ultimoMensajeFecha;
+    }
+
+    public void setUltimoMensajeFecha(LocalDateTime ultimoMensajeFecha) {
+        this.ultimoMensajeFecha = ultimoMensajeFecha;
+    }
+
+    public String getUltimoMensajeTipo() {
+        return ultimoMensajeTipo;
+    }
+
+    public void setUltimoMensajeTipo(String ultimoMensajeTipo) {
+        this.ultimoMensajeTipo = ultimoMensajeTipo;
     }
 }

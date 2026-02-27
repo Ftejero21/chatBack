@@ -4,16 +4,26 @@ import com.chat.chat.Entity.UsuarioEntity;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.jpa.repository.QueryHints;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Page;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
 import java.util.Optional;
+import jakarta.persistence.QueryHint;
 
 @Repository
 public interface UsuarioRepository extends JpaRepository<UsuarioEntity, Long> {
 
     Optional<UsuarioEntity> findByEmail(String email);
+
+    List<UsuarioEntity> findByActivoTrueAndIdNot(Long id);
+
+    @Query("SELECT u FROM UsuarioEntity u WHERE u.id = :id")
+    @QueryHints(@QueryHint(name = "org.hibernate.cacheable", value = "false"))
+    Optional<UsuarioEntity> findFreshById(@Param("id") Long id);
 
     @Query("SELECT u " +
             "FROM UsuarioEntity u " +
@@ -36,6 +46,9 @@ public interface UsuarioRepository extends JpaRepository<UsuarioEntity, Long> {
     long countUsuariosTotalesHasta(@Param("hasta") java.time.LocalDateTime hasta);
 
     @Query("SELECT u FROM UsuarioEntity u ORDER BY u.fechaCreacion DESC")
-    List<UsuarioEntity> findTop10Recientes(org.springframework.data.domain.Pageable pageable);
+    List<UsuarioEntity> findTop10Recientes(Pageable pageable);
+
+    @Query("SELECT u FROM UsuarioEntity u WHERE :role NOT MEMBER OF u.roles ORDER BY u.fechaCreacion DESC")
+    Page<UsuarioEntity> findRecientesSinRol(Pageable pageable, @Param("role") String role);
 
 }

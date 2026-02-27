@@ -1,6 +1,8 @@
 package com.chat.chat.Service.ChatService;
 
 import com.chat.chat.DTO.ChatResumenDTO;
+import com.chat.chat.Entity.ChatEntity;
+import com.chat.chat.Entity.ChatGrupalEntity;
 import com.chat.chat.Entity.ChatIndividualEntity;
 import com.chat.chat.Entity.MensajeEntity;
 import com.chat.chat.Entity.UsuarioEntity;
@@ -8,6 +10,7 @@ import com.chat.chat.Repository.ChatGrupalRepository;
 import com.chat.chat.Repository.ChatIndividualRepository;
 import com.chat.chat.Repository.MensajeRepository;
 import com.chat.chat.Repository.UsuarioRepository;
+import com.chat.chat.Utils.MessageType;
 import com.chat.chat.Utils.SecurityUtils;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -22,6 +25,7 @@ import java.util.Optional;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -42,7 +46,7 @@ class ChatServiceImplAdminPreviewTest {
     private ChatServiceImpl chatService;
 
     @Test
-    void adminRecibePayloadConForAdminYSinTextoPlano() {
+    void adminRecibeUltimoMensajeRawEnChatIndividual() {
         Long usuarioObjetivoId = 11L;
         Long adminId = 1L;
 
@@ -53,18 +57,54 @@ class ChatServiceImplAdminPreviewTest {
         ChatIndividualEntity chat = chatIndividual(100L, "Ana", "Luis");
         when(chatIndRepo.findAllByUsuario1IdOrUsuario2Id(usuarioObjetivoId, usuarioObjetivoId)).thenReturn(List.of(chat));
         when(chatGrupalRepo.findAllByUsuariosId(usuarioObjetivoId)).thenReturn(List.of());
-        when(mensajeRepository.countByChatIdAndActivoTrue(100L)).thenReturn(1L);
-
-        MensajeEntity ultimo = new MensajeEntity();
-        ultimo.setContenido("{\"type\":\"E2E\",\"iv\":\"abc\",\"ciphertext\":\"xyz\",\"forEmisor\":\"e\",\"forReceptor\":\"r\",\"forAdmin\":\"ADMIN_RSA_B64\"}");
-        ultimo.setFechaEnvio(LocalDateTime.now());
-        when(mensajeRepository.findTopByChatIdAndActivoTrueOrderByFechaEnvioDesc(100L)).thenReturn(Optional.of(ultimo));
-
+        MensajeEntity ultimo = mensaje(chat, usuario("Ana", "Perez"),
+                "{\"type\":\"E2E\",\"iv\":\"abc\",\"ciphertext\":\"xyz\",\"forEmisor\":\"e\",\"forReceptor\":\"r\",\"forAdmin\":\"ADMIN_RSA_B64\"}");
+        when(mensajeRepository.countActivosByChatIds(anyList())).thenReturn(List.of(new Object[]{100L, 1L}));
+        when(mensajeRepository.findLatestByChatIds(anyList())).thenReturn(List.of(ultimo));
         List<ChatResumenDTO> resultado = chatService.listarConversacionesDeUsuario(usuarioObjetivoId);
 
         assertEquals(1, resultado.size());
-        assertTrue(resultado.get(0).getUltimoMensaje().contains("\"forAdmin\":\"ADMIN_RSA_B64\""));
+        assertEquals("{\"type\":\"E2E\",\"iv\":\"abc\",\"ciphertext\":\"xyz\",\"forEmisor\":\"e\",\"forReceptor\":\"r\",\"forAdmin\":\"ADMIN_RSA_B64\"}",
+                resultado.get(0).getUltimoMensaje());
+        assertNull(resultado.get(0).getUltimoMensajeTexto());
+        assertNull(resultado.get(0).getUltimoMensajePreview());
         assertNull(resultado.get(0).getUltimoMensajeDescifrado());
+        assertEquals("TEXT", resultado.get(0).getUltimoMensajeTipo());
+        assertEquals(1, resultado.get(0).getTotalMensajes());
+    }
+
+    @Test
+    void adminRecibeUltimoMensajeRawEnChatGrupalConMetadatos() {
+        Long usuarioObjetivoId = 11L;
+        Long adminId = 1L;
+
+        UsuarioEntity admin = usuarioConRoles(adminId, Set.of("ROLE_ADMIN"));
+        when(securityUtils.getAuthenticatedUserId()).thenReturn(adminId);
+        when(usuarioRepo.findById(adminId)).thenReturn(Optional.of(admin));
+
+        when(chatIndRepo.findAllByUsuario1IdOrUsuario2Id(usuarioObjetivoId, usuarioObjetivoId)).thenReturn(List.of());
+
+        ChatGrupalEntity grupal = new ChatGrupalEntity();
+        grupal.setId(200L);
+        grupal.setNombreGrupo("Equipo");
+        when(chatGrupalRepo.findAllByUsuariosId(usuarioObjetivoId)).thenReturn(List.of(grupal));
+
+        UsuarioEntity emisor = usuario("Irene", "Diaz");
+        MensajeEntity ultimo = mensaje(grupal, emisor,
+                "{\"type\":\"E2E\",\"iv\":\"abc\",\"ciphertext\":\"xyz\",\"forEmisor\":\"e\",\"forReceptor\":\"r\",\"forAdmin\":\"ADMIN_RSA_B64\"}");
+        when(mensajeRepository.countActivosByChatIds(anyList())).thenReturn(List.of(new Object[]{200L, 1L}));
+        when(mensajeRepository.findLatestByChatIds(anyList())).thenReturn(List.of(ultimo));
+        List<ChatResumenDTO> resultado = chatService.listarConversacionesDeUsuario(usuarioObjetivoId);
+
+        assertEquals(1, resultado.size());
+        assertEquals("{\"type\":\"E2E\",\"iv\":\"abc\",\"ciphertext\":\"xyz\",\"forEmisor\":\"e\",\"forReceptor\":\"r\",\"forAdmin\":\"ADMIN_RSA_B64\"}",
+                resultado.get(0).getUltimoMensaje());
+        assertNull(resultado.get(0).getUltimoMensajeTexto());
+        assertNull(resultado.get(0).getUltimoMensajePreview());
+        assertNull(resultado.get(0).getUltimoMensajeDescifrado());
+        assertEquals("Irene", resultado.get(0).getUltimoMensajeEmisorNombre());
+        assertEquals("Diaz", resultado.get(0).getUltimoMensajeEmisorApellido());
+        assertEquals("Irene Diaz", resultado.get(0).getUltimoMensajeEmisorNombreCompleto());
     }
 
     @Test
@@ -80,7 +120,7 @@ class ChatServiceImplAdminPreviewTest {
     }
 
     @Test
-    void legacySinForAdminDevuelveAuditStatusNoAuditable() {
+    void e2eSinForAdminSeDevuelveRawSinDescifrar() {
         Long usuarioObjetivoId = 11L;
         Long adminId = 1L;
 
@@ -91,17 +131,18 @@ class ChatServiceImplAdminPreviewTest {
         ChatIndividualEntity chat = chatIndividual(100L, "Ana", "Luis");
         when(chatIndRepo.findAllByUsuario1IdOrUsuario2Id(usuarioObjetivoId, usuarioObjetivoId)).thenReturn(List.of(chat));
         when(chatGrupalRepo.findAllByUsuariosId(usuarioObjetivoId)).thenReturn(List.of());
-        when(mensajeRepository.countByChatIdAndActivoTrue(100L)).thenReturn(1L);
-
-        MensajeEntity ultimo = new MensajeEntity();
-        ultimo.setContenido("{\"type\":\"E2E\",\"iv\":\"abc\",\"ciphertext\":\"xyz\",\"forEmisor\":\"e\",\"forReceptor\":\"r\"}");
-        when(mensajeRepository.findTopByChatIdAndActivoTrueOrderByFechaEnvioDesc(100L)).thenReturn(Optional.of(ultimo));
+        MensajeEntity ultimo = mensaje(chat, usuario("Ana", "Perez"),
+                "{\"type\":\"E2E\",\"iv\":\"abc\",\"ciphertext\":\"xyz\",\"forEmisor\":\"e\",\"forReceptor\":\"r\"}");
+        when(mensajeRepository.countActivosByChatIds(anyList())).thenReturn(List.of(new Object[]{100L, 1L}));
+        when(mensajeRepository.findLatestByChatIds(anyList())).thenReturn(List.of(ultimo));
 
         List<ChatResumenDTO> resultado = chatService.listarConversacionesDeUsuario(usuarioObjetivoId);
 
         assertEquals(1, resultado.size());
-        assertTrue(resultado.get(0).getUltimoMensaje().contains("\"auditStatus\":\"NO_AUDITABLE\""));
-        assertFalse(resultado.get(0).getUltimoMensaje().contains("hola en claro"));
+        assertEquals("{\"type\":\"E2E\",\"iv\":\"abc\",\"ciphertext\":\"xyz\",\"forEmisor\":\"e\",\"forReceptor\":\"r\"}",
+                resultado.get(0).getUltimoMensaje());
+        assertNull(resultado.get(0).getUltimoMensajeTexto());
+        assertNull(resultado.get(0).getUltimoMensajePreview());
         assertNull(resultado.get(0).getUltimoMensajeDescifrado());
     }
 
@@ -124,5 +165,23 @@ class ChatServiceImplAdminPreviewTest {
         chat.setUsuario1(u1);
         chat.setUsuario2(u2);
         return chat;
+    }
+
+    private static UsuarioEntity usuario(String nombre, String apellido) {
+        UsuarioEntity u = new UsuarioEntity();
+        u.setNombre(nombre);
+        u.setApellido(apellido);
+        return u;
+    }
+
+    private static MensajeEntity mensaje(ChatEntity chat, UsuarioEntity emisor, String contenido) {
+        MensajeEntity m = new MensajeEntity();
+        m.setChat(chat);
+        m.setEmisor(emisor);
+        m.setContenido(contenido);
+        m.setTipo(MessageType.TEXT);
+        m.setActivo(true);
+        m.setFechaEnvio(LocalDateTime.now());
+        return m;
     }
 }

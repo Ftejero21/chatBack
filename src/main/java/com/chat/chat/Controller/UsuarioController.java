@@ -10,6 +10,7 @@ import com.chat.chat.DTO.PasswordChangeConfirmDTO;
 import com.chat.chat.DTO.UsuarioDTO;
 import com.chat.chat.Exceptions.ApiError;
 import com.chat.chat.Service.AuthService.PasswordResetService;
+import com.chat.chat.Security.HttpRateLimitService;
 import com.chat.chat.Service.UsuarioService.UsuarioService;
 import com.chat.chat.Utils.Constantes;
 import io.swagger.v3.oas.annotations.Operation;
@@ -34,6 +35,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
 import java.util.Map;
+import jakarta.servlet.http.HttpServletRequest;
 
 @RestController
 @RequestMapping(Constantes.USUARIO_API)
@@ -47,6 +49,9 @@ public class UsuarioController {
     @Autowired
     private PasswordResetService passwordResetService;
 
+    @Autowired
+    private HttpRateLimitService httpRateLimitService;
+
     @PostMapping(Constantes.LOGIN)
     @Operation(summary = "Iniciar sesion", description = "Autentica por email y password y devuelve token JWT y datos del usuario.", security = {})
     @ApiResponses(value = {
@@ -55,7 +60,8 @@ public class UsuarioController {
             @ApiResponse(responseCode = "401", description = "Credenciales incorrectas", content = @Content(schema = @Schema(implementation = ApiError.class))),
             @ApiResponse(responseCode = "403", description = "Usuario inactivo", content = @Content(schema = @Schema(implementation = ApiError.class)))
     })
-    public AuthRespuestaDTO login(@RequestBody LoginRequestDTO dto) {
+    public AuthRespuestaDTO login(@RequestBody LoginRequestDTO dto, HttpServletRequest request) {
+        httpRateLimitService.checkLogin(request, dto == null ? null : dto.getEmail());
         return usuarioService.loginConToken(dto.getEmail(), dto.getPassword());
     }
 
@@ -155,8 +161,9 @@ public class UsuarioController {
             @ApiResponse(responseCode = "400", description = "Email invalido o no registrado", content = @Content(schema = @Schema(implementation = Map.class))),
             @ApiResponse(responseCode = "500", description = "Error enviando correo", content = @Content(schema = @Schema(implementation = Map.class)))
     })
-    public ResponseEntity<Map<String, String>> solicitarRecuperacion(@RequestBody Map<String, String> payload) {
+    public ResponseEntity<Map<String, String>> solicitarRecuperacion(@RequestBody Map<String, String> payload, HttpServletRequest request) {
         String email = payload.get(Constantes.KEY_EMAIL);
+        httpRateLimitService.checkPasswordRecoveryRequest(request, email);
         if (email == null || email.isBlank()) {
             return ResponseEntity.badRequest().body(Map.of(Constantes.KEY_MENSAJE, Constantes.MSG_EMAIL_REQUERIDO));
         }
@@ -179,10 +186,11 @@ public class UsuarioController {
             @ApiResponse(responseCode = "200", description = "Password actualizada", content = @Content(schema = @Schema(implementation = Map.class))),
             @ApiResponse(responseCode = "400", description = "Codigo invalido o payload incompleto", content = @Content(schema = @Schema(implementation = Map.class)))
     })
-    public ResponseEntity<Map<String, String>> verificarYCambiarPassword(@RequestBody Map<String, String> payload) {
+    public ResponseEntity<Map<String, String>> verificarYCambiarPassword(@RequestBody Map<String, String> payload, HttpServletRequest request) {
         String email = payload.get(Constantes.KEY_EMAIL);
         String code = payload.get(Constantes.KEY_CODE);
         String newPassword = payload.get(Constantes.KEY_NEW_PASSWORD);
+        httpRateLimitService.checkPasswordRecoveryVerify(request, email);
 
         if (email == null || code == null || newPassword == null) {
             return ResponseEntity.badRequest().body(Map.of(Constantes.KEY_MENSAJE, Constantes.MSG_FALTAN_DATOS_REQUERIDOS));
@@ -208,8 +216,10 @@ public class UsuarioController {
             @ApiResponse(responseCode = "200", description = "Metricas obtenidas", content = @Content(schema = @Schema(implementation = DashboardStatsDTO.class))),
             @ApiResponse(responseCode = "403", description = "Solo administradores", content = @Content(schema = @Schema(implementation = ApiError.class)))
     })
-    public DashboardStatsDTO getDashboardStats() {
-        return usuarioService.getDashboardStats();
+    public DashboardStatsDTO getDashboardStats(
+            @Parameter(description = "Zona horaria IANA opcional, por ejemplo America/Bogota")
+            @RequestParam(value = "tz", required = false) String tz) {
+        return usuarioService.getDashboardStats(tz);
     }
 
     @GetMapping(Constantes.ADMIN_RECIENTES)

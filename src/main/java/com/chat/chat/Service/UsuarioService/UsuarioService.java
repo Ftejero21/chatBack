@@ -39,6 +39,7 @@ public interface UsuarioService {
     void actualizarPasswordPorEmail(String email, String newPassword);
 
     DashboardStatsDTO getDashboardStats();
+    DashboardStatsDTO getDashboardStats(String tz);
 
     Page<UsuarioDTO> listarRecientes(int page, int size);
     UsuarioDTO actualizarPerfil(ActualizarPerfilDTO dto);
@@ -48,4 +49,5 @@ public interface UsuarioService {
     void banearUsuario(Long id, String motivo);
 
     void desbanearAdministrativamente(Long id);
+    void desbanearAdministrativamente(Long id, String motivo);
 }

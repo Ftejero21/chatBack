@@ -46,6 +46,7 @@ public class Constantes {
     public static final String USUARIO_PERFIL = "/perfil";
     public static final String USUARIO_PERFIL_PASSWORD_CODE = "/perfil/password/solicitar-codigo";
     public static final String USUARIO_PERFIL_PASSWORD_CHANGE = "/perfil/password/cambiar";
+    public static final String SOLICITUD_DESBANEO_CREATE = "/solicitudes-desbaneo";
 
     // Rutas Recuperación Contraseña
     public static final String RECUPERAR_PASSWORD_SOLICITAR = "/recuperar-password/solicitar";
@@ -80,6 +81,10 @@ public class Constantes {
     public static final String ADMIN_CHAT_MENSAJES = "/admin/chat/{chatId}/mensajes";
     public static final String ADMIN_USUARIO_BAN = "/admin/{id}/ban";
     public static final String ADMIN_USUARIO_UNBAN = "/admin/{id}/unban";
+    public static final String ADMIN_SOLICITUD_DESBANEO_LIST = "/admin/solicitudes-desbaneo";
+    public static final String ADMIN_SOLICITUD_DESBANEO_BY_ID = "/admin/solicitudes-desbaneo/{id}";
+    public static final String ADMIN_SOLICITUD_DESBANEO_ESTADO = "/admin/solicitudes-desbaneo/{id}/estado";
+    public static final String ADMIN_SOLICITUD_DESBANEO_STATS = "/admin/solicitudes-desbaneo/stats";
     public static final String USUARIO_BLOQUEAR = "/{bloqueadoId}/bloquear";
     public static final String USUARIO_DESBLOQUEAR = "/{bloqueadoId}/desbloquear";
 
@@ -140,6 +145,7 @@ public class Constantes {
 
     public static final String WS_TOPIC_NOTIFICATIONS = "/topic/notifications.";
     public static final String WS_TOPIC_LEIDO = "/topic/leido.";
+    public static final String TOPIC_ADMIN_SOLICITUDES_DESBANEO = "/topic/admin.solicitudes-desbaneo";
     public static final String WS_TOPIC_USER_BLOQUEOS_PREFIX = "/topic/user/";
     public static final String WS_TOPIC_USER_BLOQUEOS_SUFFIX = "/bloqueos";
     public static final String WS_QUEUE_BANEOS = "/queue/baneos";
@@ -193,10 +199,19 @@ public class Constantes {
     public static final String KEY_MENSAJE_ID = "mensajeId";
 
     public static final String MSG_USUARIO_NO_ENCONTRADO = "Usuario no encontrado";
+    public static final String MSG_SOLICITUD_DESBANEO_CREADA = "Solicitud de desbaneo creada correctamente.";
+    public static final String MSG_SOLICITUD_DESBANEO_EMAIL_NO_EXISTE = "No existe una cuenta asociada al email indicado.";
+    public static final String MSG_SOLICITUD_DESBANEO_USUARIO_NO_BANEADO = "La cuenta indicada no se encuentra baneada.";
+    public static final String MSG_SOLICITUD_DESBANEO_YA_ABIERTA = "Ya existe una solicitud de desbaneo en curso para este email.";
+    public static final String MSG_SOLICITUD_DESBANEO_NO_ENCONTRADA = "Solicitud de desbaneo no encontrada.";
+    public static final String MSG_SOLICITUD_DESBANEO_ESTADO_ACTUALIZADO = "Estado de solicitud actualizado correctamente.";
+    public static final String MSG_SOLICITUD_DESBANEO_APROBADA_DEFAULT = "Tu solicitud de desbaneo ha sido aprobada tras revision administrativa.";
+    public static final String MSG_SOLICITUD_DESBANEO_RECHAZADA_DEFAULT = "Por ahora no se aprueba tu desbaneo. Puedes volver a solicitar revision mas adelante.";
     public static final String MSG_CUENTA_INHABILITADA = "Esta cuenta ha sido inhabilitada por un administrador.";
     public static final String WS_TYPE_BLOCKED = "BLOCKED";
     public static final String WS_TYPE_UNBLOCKED = "UNBLOCKED";
     public static final String BAN_MOTIVO_DEFAULT = "Tu cuenta ha sido suspendida temporalmente por incumplimiento de las normas de uso de TejeChat.";
+    public static final String UNBAN_MOTIVO_DEFAULT = "Tu cuenta ha sido reactivada tras la revisión administrativa.";
     public static final String LOG_GUARDANDO_MSG_INDIVIDUAL = "Guardando mensaje individual: emisor=";
     public static final String LOG_RECEPTOR = " receptor=";
     public static final String LOG_AUDIT_ADMIN_CHAT_PREVIEW = "AUDIT admin_chat_preview requesterId={} targetUserId={} chatId={} hasForAdmin={}";
@@ -249,12 +264,16 @@ public class Constantes {
     public static final String LOG_BLOCK_ATTEMPT = "INTENTO DE BLOQUEO: blocker=";
     public static final String LOG_BLOCK_SUCCESS = "USUARIO BLOQUEADO CON EXITO EN BD";
     public static final String LOG_BLOCK_ALREADY = "USUARIO YA ESTABA BLOQUEADO EN BD";
+    public static final String LOG_UNBAN_APPEAL_CREATED = "[UNBAN_APPEAL] created id={} usuarioId={} email={} estado={} createdByPublicEndpoint=true";
+    public static final String LOG_UNBAN_APPEAL_STATUS_UPDATED = "[UNBAN_APPEAL] status_update id={} oldEstado={} newEstado={} reviewedByAdminId={} at={}";
     public static final String EMAIL_VAR_NOMBRE = "nombre";
     public static final String EMAIL_VAR_MOTIVO = "motivo";
     public static final String EMAIL_SUBJECT_BAN = "Aviso de suspensión de cuenta - TejeChat";
     public static final String EMAIL_TEMPLATE_BAN = "templates/user-banned.html";
     public static final String EMAIL_SUBJECT_UNBAN = "¡Cuenta reactivada! Bienvenido de nuevo - TejeChat";
     public static final String EMAIL_TEMPLATE_UNBAN = "templates/user-unbanned.html";
+    public static final String EMAIL_SUBJECT_UNBAN_REJECTED = "Resultado de tu solicitud de desbaneo - TejeChat";
+    public static final String EMAIL_TEMPLATE_UNBAN_REJECTED = "templates/user-unban-rejected.html";
     public static final String EMAIL_SUBJECT_PASSWORD_RESET = "Recuperación de Contraseña - TejeChat";
     public static final String EMAIL_TEMPLATE_PASSWORD_RESET = "templates/password-reset.html";
     public static final String EMAIL_SUBJECT_PASSWORD_CHANGE = "Código de verificación para cambiar contraseña - TejeChat";
@@ -319,6 +338,8 @@ public class Constantes {
     public static final String ERR_REENVIO_INVALIDO = "REENVIO_INVALIDO";
     public static final String ERR_REENVIO_NO_AUTORIZADO = "REENVIO_NO_AUTORIZADO";
     public static final String ERR_RESPUESTA_INVALIDA = "RESPUESTA_INVALIDA";
+    public static final String ERR_SQL_INJECTION = "SQL_INJECTION_DETECTADA";
+    public static final String ERR_RATE_LIMIT = "RATE_LIMIT_EXCEEDED";
     public static final String ERR_RESPUESTA_NO_AUTORIZADA = "RESPUESTA_NO_AUTORIZADA";
     public static final String ERR_NO_AUTORIZADO = "NO_AUTORIZADO";
     public static final String ERR_NO_ENCONTRADO = "NO_ENCONTRADO";
@@ -333,6 +354,7 @@ public class Constantes {
     public static final String ERR_E2E_AUDIO_PAYLOAD_INVALID = "E2E_AUDIO_PAYLOAD_INVALID";
     public static final String ERR_E2E_IMAGE_PAYLOAD_INVALID = "E2E_IMAGE_PAYLOAD_INVALID";
     public static final String ERR_E2E_GROUP_IMAGE_PAYLOAD_INVALID = "E2E_GROUP_IMAGE_PAYLOAD_INVALID";
+    public static final String ERR_SOLICITUD_DESBANEO_INVALIDA = "SOLICITUD_DESBANEO_INVALIDA";
 
     // Payload keys
     public static final String KEY_PUBLIC_KEY = "publicKey";

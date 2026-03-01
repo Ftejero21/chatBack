@@ -1,5 +1,6 @@
 package com.chat.chat.Configuracion;
 
+import com.chat.chat.Utils.Constantes;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.annotation.web.messaging.MessageSecurityMetadataSourceRegistry;
 import org.springframework.security.config.annotation.web.socket.AbstractSecurityWebSocketMessageBrokerConfigurer;
@@ -15,7 +16,9 @@ public class WebSocketSecurityConfig extends AbstractSecurityWebSocketMessageBro
         // de CSRF,
         // bloqueará los envíos cruzados de messagingTemplate.convertAndSend resultando
         // en Error 403.
-        messages.anyMessage().permitAll();
+        messages
+                .simpSubscribeDestMatchers(Constantes.TOPIC_ADMIN_SOLICITUDES_DESBANEO).hasRole(Constantes.ADMIN)
+                .anyMessage().permitAll();
     }
 
     @Override

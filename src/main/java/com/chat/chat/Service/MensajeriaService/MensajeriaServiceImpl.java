@@ -1,7 +1,7 @@
 package com.chat.chat.Service.MensajeriaService;
 
 import com.chat.chat.DTO.MensajeDTO;
-import com.chat.chat.DTO.MensajeReaccionWSDTO;
+import com.chat.chat.DTO.MensajeReaccionDTO;
 import com.chat.chat.Entity.ChatEntity;
 import com.chat.chat.Entity.ChatGrupalEntity;
 import com.chat.chat.Entity.ChatIndividualEntity;
@@ -39,6 +39,7 @@ import org.slf4j.MDC;
 
 import java.time.Instant;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -414,8 +415,141 @@ public class MensajeriaServiceImpl implements MensajeriaService {
     }
 
     @Override
-    public ReactionDispatchResult procesarReaccion(MensajeReaccionWSDTO request) {
-        return null;
+    @Transactional
+    public ReactionDispatchResult procesarReaccion(MensajeReaccionDTO request) {
+        validateReaccionRequest(request);
+
+        Long authUserId = securityUtils.getAuthenticatedUserId();
+        if (!Objects.equals(authUserId, request.getReactorUserId())) {
+            throw new AccessDeniedException("reactorUserId no coincide con el usuario autenticado");
+        }
+
+        MensajeEntity mensaje = mensajeRepository.findById(request.getMessageId())
+                .orElseThrow(() -> new IllegalArgumentException("messageId no existe"));
+        if (!mensaje.isActivo()) {
+            throw new IllegalArgumentException("No se puede reaccionar a un mensaje inactivo");
+        }
+        if (mensaje.getChat() == null || !Objects.equals(mensaje.getChat().getId(), request.getChatId())) {
+            throw new IllegalArgumentException("chatId no coincide con el mensaje");
+        }
+
+        UsuarioEntity reactor = usuarioRepository.findById(authUserId)
+                .orElseThrow(() -> new IllegalArgumentException("reactorUserId no existe"));
+        ReactionAction action = request.actionAsEnumOrNull();
+        if (action == null) {
+            throw new IllegalArgumentException("action debe ser SET o REMOVE");
+        }
+        String emojiNormalized = MensajeReaccionDTO.normalizeEmoji(request.getEmoji());
+
+        ChatEntity chat = mensaje.getChat();
+        Set<Long> recipients = new LinkedHashSet<>();
+        Long targetUserId = null;
+        boolean groupChat;
+
+        if (chat instanceof ChatIndividualEntity) {
+            ChatIndividualEntity chatIndividual = chatIndividualRepository.findById(chat.getId())
+                    .orElseThrow(() -> new IllegalArgumentException("chat individual no existe"));
+            Long user1 = chatIndividual.getUsuario1() == null ? null : chatIndividual.getUsuario1().getId();
+            Long user2 = chatIndividual.getUsuario2() == null ? null : chatIndividual.getUsuario2().getId();
+
+            boolean reactorBelongs = Objects.equals(user1, authUserId) || Objects.equals(user2, authUserId);
+            if (!reactorBelongs) {
+                throw new AccessDeniedException("reactor no pertenece al chat individual");
+            }
+
+            Long derivedTarget = Objects.equals(authUserId, user1) ? user2 : user1;
+            if (request.getTargetUserId() != null && !Objects.equals(request.getTargetUserId(), derivedTarget)) {
+                throw new IllegalArgumentException("targetUserId no pertenece al chat individual");
+            }
+            if (user1 != null) {
+                recipients.add(user1);
+            }
+            if (user2 != null) {
+                recipients.add(user2);
+            }
+            targetUserId = derivedTarget;
+            groupChat = false;
+        } else if (chat instanceof ChatGrupalEntity) {
+            ChatGrupalEntity chatGrupal = chatGrupalRepository.findByIdWithUsuarios(chat.getId())
+                    .orElseThrow(() -> new IllegalArgumentException("chat grupal no existe"));
+            if (!chatGrupal.isActivo()) {
+                throw new IllegalArgumentException("chat grupal inactivo");
+            }
+            if (request.getTargetUserId() != null) {
+                throw new IllegalArgumentException("targetUserId debe ser null en chat grupal");
+            }
+
+            boolean reactorBelongs = chatGrupal.getUsuarios() != null && chatGrupal.getUsuarios().stream()
+                    .filter(Objects::nonNull)
+                    .anyMatch(u -> Objects.equals(u.getId(), authUserId) && u.isActivo());
+            if (!reactorBelongs) {
+                throw new AccessDeniedException("reactor no pertenece al grupo");
+            }
+
+            if (chatGrupal.getUsuarios() != null) {
+                chatGrupal.getUsuarios().stream()
+                        .filter(Objects::nonNull)
+                        .filter(UsuarioEntity::isActivo)
+                        .map(UsuarioEntity::getId)
+                        .filter(Objects::nonNull)
+                        .forEach(recipients::add);
+            }
+            targetUserId = null;
+            groupChat = true;
+        } else {
+            throw new IllegalArgumentException("Tipo de chat no soportado para reaccion");
+        }
+
+        Optional<MensajeReaccionEntity> existingOpt = mensajeReaccionRepository
+                .findByMensajeIdAndUsuarioId(mensaje.getId(), authUserId);
+
+        String normalizedAction = action.name();
+        String normalizedEmojiOut = null;
+        LocalDateTime createdAt = null;
+
+        if (action == ReactionAction.SET) {
+            if (emojiNormalized == null) {
+                throw new IllegalArgumentException("emoji es obligatorio para action=SET");
+            }
+            if (existingOpt.isPresent()) {
+                MensajeReaccionEntity existing = existingOpt.get();
+                if (Objects.equals(existing.getEmoji(), emojiNormalized)) {
+                    normalizedEmojiOut = existing.getEmoji();
+                    createdAt = existing.getUpdatedAt() != null ? existing.getUpdatedAt() : existing.getCreatedAt();
+                } else {
+                    existing.setEmoji(emojiNormalized);
+                    MensajeReaccionEntity saved = mensajeReaccionRepository.save(existing);
+                    normalizedEmojiOut = saved.getEmoji();
+                    createdAt = saved.getUpdatedAt() != null ? saved.getUpdatedAt() : saved.getCreatedAt();
+                }
+            } else {
+                MensajeReaccionEntity entity = new MensajeReaccionEntity();
+                entity.setMensaje(mensaje);
+                entity.setUsuario(reactor);
+                entity.setEmoji(emojiNormalized);
+                MensajeReaccionEntity saved = mensajeReaccionRepository.save(entity);
+                normalizedEmojiOut = saved.getEmoji();
+                createdAt = saved.getUpdatedAt() != null ? saved.getUpdatedAt() : saved.getCreatedAt();
+            }
+        } else {
+            existingOpt.ifPresent(mensajeReaccionRepository::delete);
+            normalizedAction = ReactionAction.REMOVE.name();
+            normalizedEmojiOut = null;
+            createdAt = null;
+        }
+
+        MensajeReaccionDTO event = new MensajeReaccionDTO();
+        event.setEvent(MensajeReaccionDTO.EVENT_MESSAGE_REACTION);
+        event.setMessageId(mensaje.getId());
+        event.setChatId(chat.getId());
+        event.setEsGrupo(groupChat);
+        event.setReactorUserId(authUserId);
+        event.setTargetUserId(targetUserId);
+        event.setEmoji(normalizedEmojiOut);
+        event.setAction(normalizedAction);
+        event.setCreatedAt(createdAt);
+
+        return new ReactionDispatchResult(event, recipients, chat.getId(), groupChat);
     }
 
     @Override
@@ -480,6 +614,16 @@ public class MensajeriaServiceImpl implements MensajeriaService {
         }
         LOGGER.warn(Constantes.LOG_DELETE_MSG_NOT_FOUND, mensajeDTO.getId());
         return false;
+    }
+
+    private void validateReaccionRequest(MensajeReaccionDTO request) {
+        if (request == null) {
+            throw new IllegalArgumentException("payload de reaccion vacio");
+        }
+        List<String> errors = new ArrayList<>(request.validarEntrada());
+        if (!errors.isEmpty()) {
+            throw new IllegalArgumentException("Payload de reaccion invalido: " + String.join("; ", errors));
+        }
     }
 
     private void normalizeReenvio(MensajeDTO dto, Long authenticatedUserId) {

@@ -4,12 +4,14 @@ import com.chat.chat.DTO.UsuarioDTO;
 import com.chat.chat.DTO.ActualizarPerfilDTO;
 import com.chat.chat.DTO.E2ERekeyRequestDTO;
 import com.chat.chat.DTO.E2EStateDTO;
+import com.chat.chat.Entity.SolicitudDesbaneoEntity;
 import com.chat.chat.Entity.UsuarioEntity;
 import com.chat.chat.Exceptions.EmailNoRegistradoException;
 import com.chat.chat.Exceptions.E2ERekeyConflictException;
 import com.chat.chat.Exceptions.PasswordIncorrectaException;
 import com.chat.chat.Exceptions.UsuarioInactivoException;
 import com.chat.chat.Repository.UsuarioRepository;
+import com.chat.chat.Repository.SolicitudDesbaneoRepository;
 import com.chat.chat.Utils.Constantes;
 import com.chat.chat.Utils.MappingUtils;
 import com.chat.chat.Utils.Utils;
@@ -42,7 +44,10 @@ import org.slf4j.MDC;
 
 import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -73,10 +78,13 @@ public class UsuarioServiceImpl implements UsuarioService {
     @Autowired
     private MensajeRepository mensajeRepository;
 
+    @Autowired
+    private SolicitudDesbaneoRepository solicitudDesbaneoRepository;
+
     @Value("${app.uploads.root:uploads}") // carpeta base
     private String uploadsRoot;
 
-    @Value("${app.uploads.base-url:/uploads}") // prefijo público
+    @Value("${app.uploads.base-url:/uploads}") // prefijo pÃºblico
     private String uploadsBaseUrl;
 
     @Value("${app.audit.expose-private-key-on-login-local:false}")
@@ -88,7 +96,7 @@ public class UsuarioServiceImpl implements UsuarioService {
     @Autowired
     private SimpMessagingTemplate messagingTemplate;
 
-    // repos, encoder, etc. inyectados…
+    // repos, encoder, etc. inyectadosâ€¦
 
     @Autowired
     private JwtService jwtService;
@@ -115,9 +123,9 @@ public class UsuarioServiceImpl implements UsuarioService {
             if (dto.getFoto() != null && dto.getFoto().startsWith(Constantes.DATA_IMAGE_PREFIX)) {
                 String url = Utils.saveDataUrlToUploads(dto.getFoto(), Constantes.DIR_AVATARS, uploadsRoot, uploadsBaseUrl);
                 fotoUrl = url;
-                dto.setFoto(url); // guarda URL pública en DTO
+                dto.setFoto(url); // guarda URL pÃºblica en DTO
             } else if (f.startsWith(Constantes.UPLOADS_PREFIX) || f.startsWith(Constantes.HTTP_PREFIX)) {
-                fotoUrl = f; // ya es una URL válida
+                fotoUrl = f; // ya es una URL vÃ¡lida
             }
             // si quieres, limpia dto para no guardar base64 por error
             dto.setFoto(fotoUrl);
@@ -168,7 +176,7 @@ public class UsuarioServiceImpl implements UsuarioService {
                 .map(MappingUtils::usuarioEntityADto)
                 .collect(Collectors.toList());
 
-        // 🔄 Convertir /uploads/... a dataURL Base64 (igual que getById)
+        // ðŸ”„ Convertir /uploads/... a dataURL Base64 (igual que getById)
         for (UsuarioDTO dto : list) {
             String foto = dto.getFoto();
             if (foto != null && foto.startsWith(Constantes.UPLOADS_PREFIX)) {
@@ -245,7 +253,7 @@ public class UsuarioServiceImpl implements UsuarioService {
         return key != null && !key.isBlank();
     }
 
-    // Nuevo método login que devuelve Token
+    // Nuevo mÃ©todo login que devuelve Token
     public AuthRespuestaDTO loginConToken(String email, String password) {
         UsuarioEntity usuario = usuarioRepository.findByEmail(email)
                 .orElseThrow(EmailNoRegistradoException::new);
@@ -287,7 +295,7 @@ public class UsuarioServiceImpl implements UsuarioService {
         UsuarioEntity usuario = usuarioRepository.findFreshById(id)
                 .or(() -> usuarioRepository.findById(id))
                 .orElseThrow(() -> new RuntimeException(Constantes.MSG_USUARIO_NO_ENCONTRADO));
-        // Solo el propio usuario autenticado debería poder actualizar su propia llave
+        // Solo el propio usuario autenticado deberÃ­a poder actualizar su propia llave
         if (!usuario.getId().equals(securityUtils.getAuthenticatedUserId())) {
             throw new RuntimeException(ExceptionConstants.ERROR_NOT_AUTHORIZED_PUBLIC_KEY);
         }
@@ -373,7 +381,7 @@ public class UsuarioServiceImpl implements UsuarioService {
         LOGGER.info("[E2E_DIAG] stage=USER_GET_BY_ID ts={} userId={} publicKeyFp={} publicKeyLen={}",
                 Instant.now(), id, E2EDiagnosticUtils.fingerprint12(u.getPublicKey()), u.getPublicKey() == null ? 0 : u.getPublicKey().length());
         UsuarioDTO dto = MappingUtils.usuarioEntityADto(u);
-        // 👉 Si la foto es una URL pública (/uploads/...), la convertimos a Base64 para
+        // ðŸ‘‰ Si la foto es una URL pÃºblica (/uploads/...), la convertimos a Base64 para
         // el front
         if (dto.getFoto() != null && dto.getFoto().startsWith(Constantes.UPLOADS_PREFIX)) {
             dto.setFoto(Utils.toDataUrlFromUrl(dto.getFoto(), uploadsRoot));
@@ -395,7 +403,7 @@ public class UsuarioServiceImpl implements UsuarioService {
                 .map(MappingUtils::usuarioEntityADto)
                 .collect(Collectors.toList());
 
-        // Convertir /uploads/... a dataURL Base64 (igual que en otros métodos)
+        // Convertir /uploads/... a dataURL Base64 (igual que en otros mÃ©todos)
         for (UsuarioDTO dto : list) {
             String foto = dto.getFoto();
             if (foto != null && foto.startsWith(Constantes.UPLOADS_PREFIX)) {
@@ -465,45 +473,114 @@ public class UsuarioServiceImpl implements UsuarioService {
 
     @Override
     public DashboardStatsDTO getDashboardStats() {
-        java.time.LocalDateTime now = java.time.LocalDateTime.now();
-        java.time.LocalDateTime startOfToday = now.toLocalDate().atStartOfDay();
-        java.time.LocalDateTime startOfYesterday = startOfToday.minusDays(1);
-
-        // Usuarios
-        long usuariosTotalesAyer = usuarioRepository.countUsuariosTotalesHasta(startOfToday);
-        long usuariosTotalesHoy = usuarioRepository.countUsuariosTotalesHasta(now);
-        long usuariosHoyNuevos = usuarioRepository.countUsuariosRegistradosEntreFechas(startOfToday, now);
-        long usuariosAyerNuevos = usuarioRepository.countUsuariosRegistradosEntreFechas(startOfYesterday, startOfToday);
-        double pctUsuarios = calcularPorcentaje(usuariosTotalesAyer, usuariosTotalesHoy);
-
-        // Chats Activos (Totales históricos) - No tenemos baja lógica de chats así que
-        // nos basamos en creación
-        long chatsTotalesAyer = chatRepository.countChatsEntreFechas(java.time.LocalDateTime.MIN, startOfToday);
-        long chatsTotalesHoy = chatRepository.countChatsEntreFechas(java.time.LocalDateTime.MIN, now);
-        double pctChats = calcularPorcentaje(chatsTotalesAyer, chatsTotalesHoy);
-
-        // Reportes (Mockeado a 0 como se especificó en el plan porque no hay Entidad
-        // Reporte)
-        long reportes = 0;
-        double pctReportes = 0.0;
-
-        // Mensajes
-        long mensajesHoy = mensajeRepository.countMensajesEntreFechas(startOfToday, now);
-        long mensajesAyer = mensajeRepository.countMensajesEntreFechas(startOfYesterday, startOfToday);
-        double pctMensajes = calcularPorcentaje(mensajesAyer, mensajesHoy);
-
-        return new DashboardStatsDTO(
-                usuariosTotalesHoy, pctUsuarios,
-                chatsTotalesHoy, pctChats,
-                reportes, pctReportes,
-                mensajesHoy, pctMensajes);
+        return getDashboardStats(null);
     }
 
-    private double calcularPorcentaje(long viejo, long nuevo) {
-        if (viejo == 0) {
-            return nuevo > 0 ? 100.0 : 0.0;
+    @Override
+    public DashboardStatsDTO getDashboardStats(String tz) {
+        ZoneId queryZone = resolveZoneId(tz);
+        ZoneId serverZone = ZoneId.systemDefault();
+
+        ZonedDateTime nowInQueryZone = ZonedDateTime.now(queryZone);
+        ZonedDateTime startOfTodayInQueryZone = nowInQueryZone.toLocalDate().atStartOfDay(queryZone);
+        ZonedDateTime startOfYesterdayInQueryZone = startOfTodayInQueryZone.minusDays(1);
+        ZonedDateTime endOfTodayInQueryZone = startOfTodayInQueryZone.plusDays(1);
+
+        LocalDateTime inicioDia = startOfTodayInQueryZone.withZoneSameInstant(serverZone).toLocalDateTime();
+        LocalDateTime finDia = endOfTodayInQueryZone.withZoneSameInstant(serverZone).toLocalDateTime();
+        LocalDateTime inicioAyer = startOfYesterdayInQueryZone.withZoneSameInstant(serverZone).toLocalDateTime();
+
+        long totalUsuarios = usuarioRepository.count();
+        long usuariosHoy = usuarioRepository.countUsuariosRegistradosEntreFechas(inicioDia, finDia);
+        long usuariosAyer = usuarioRepository.countUsuariosRegistradosEntreFechas(inicioAyer, inicioDia);
+        double porcentajeUsuariosHoy = calcularPorcentajeHoyVsAyer(usuariosHoy, usuariosAyer);
+
+        long chatsActivos = chatRepository.count();
+        long chatsCreadosHoy = chatRepository.countChatsEntreFechas(inicioDia, finDia);
+        long chatsAyer = chatRepository.countChatsEntreFechas(inicioAyer, inicioDia);
+        double porcentajeChatsHoy = calcularPorcentajeHoyVsAyer(chatsCreadosHoy, chatsAyer);
+
+        long reportesDiariosHoy = contarReportantesUnicos(inicioDia, finDia);
+        long reportesAyer = contarReportantesUnicos(inicioAyer, inicioDia);
+        double porcentajeReportesHoy = calcularPorcentajeHoyVsAyer(reportesDiariosHoy, reportesAyer);
+
+        long mensajesHoy = mensajeRepository.countMensajesEntreFechas(inicioDia, finDia);
+        long mensajesAyer = mensajeRepository.countMensajesEntreFechas(inicioAyer, inicioDia);
+        double porcentajeMensajesHoy = calcularPorcentajeHoyVsAyer(mensajesHoy, mensajesAyer);
+
+        DashboardStatsDTO dto = new DashboardStatsDTO();
+        dto.setTotalUsuarios(totalUsuarios);
+        dto.setPorcentajeUsuarios(porcentajeUsuariosHoy);
+        dto.setPorcentajeUsuariosHoy(porcentajeUsuariosHoy);
+
+        dto.setChatsActivos(chatsActivos);
+        dto.setChatsCreadosHoy(chatsCreadosHoy);
+        dto.setPorcentajeChats(porcentajeChatsHoy);
+        dto.setPorcentajeChatsHoy(porcentajeChatsHoy);
+
+        // Compatibilidad: mantener reportes y porcentajeReportes con la misma regla hoy vs ayer.
+        dto.setReportes(reportesDiariosHoy);
+        dto.setReportesDiariosHoy(reportesDiariosHoy);
+        dto.setPorcentajeReportes(porcentajeReportesHoy);
+        dto.setPorcentajeReportesHoy(porcentajeReportesHoy);
+
+        dto.setMensajesHoy(mensajesHoy);
+        dto.setPorcentajeMensajes(porcentajeMensajesHoy);
+        dto.setPorcentajeMensajesHoy(porcentajeMensajesHoy);
+        return dto;
+    }
+
+    private long contarReportantesUnicos(LocalDateTime from, LocalDateTime to) {
+        List<SolicitudDesbaneoEntity> rows = solicitudDesbaneoRepository
+                .findByCreatedAtGreaterThanEqualAndCreatedAtLessThan(from, to);
+        HashSet<String> uniqueReporters = new HashSet<>();
+        for (SolicitudDesbaneoEntity row : rows) {
+            if (row == null) {
+                continue;
+            }
+            if (row.getUsuarioId() != null) {
+                uniqueReporters.add("u:" + row.getUsuarioId());
+                continue;
+            }
+            String normalizedEmail = normalizeEmailNullable(row.getEmail());
+            if (normalizedEmail != null) {
+                uniqueReporters.add("e:" + normalizedEmail);
+            }
         }
-        return ((double) (nuevo - viejo) / viejo) * 100.0;
+        return uniqueReporters.size();
+    }
+
+    private ZoneId resolveZoneId(String tz) {
+        if (tz == null || tz.isBlank()) {
+            return ZoneId.systemDefault();
+        }
+        try {
+            return ZoneId.of(tz.trim());
+        } catch (Exception ex) {
+            throw new IllegalArgumentException("tz invalida: " + tz);
+        }
+    }
+
+    private String normalizeEmailNullable(String emailRaw) {
+        if (emailRaw == null) {
+            return null;
+        }
+        String normalized = emailRaw.trim().toLowerCase(Locale.ROOT);
+        return normalized.isBlank() ? null : normalized;
+    }
+
+    private double calcularPorcentajeHoyVsAyer(long hoy, long ayer) {
+        double value;
+        if (ayer > 0) {
+            value = ((double) (hoy - ayer) / (double) ayer) * 100.0;
+        } else if (hoy == 0) {
+            value = 0.0;
+        } else {
+            value = 100.0;
+        }
+
+        double rounded = Math.round(value * 10.0) / 10.0;
+        return rounded == -0.0d ? 0.0d : rounded;
     }
 
     @Override
@@ -583,7 +660,7 @@ public class UsuarioServiceImpl implements UsuarioService {
     public void banearUsuario(Long id, String motivo) {
         UsuarioEntity bloqueado = usuarioRepository.findById(id).orElseThrow();
 
-        // Motivo por defecto si viene null o vacío
+        // Motivo por defecto si viene null o vacÃ­o
         String motivoFinal = (motivo == null || motivo.trim().isEmpty())
                 ? Constantes.BAN_MOTIVO_DEFAULT
                 : motivo.trim();
@@ -614,7 +691,16 @@ public class UsuarioServiceImpl implements UsuarioService {
     @Override
     @Transactional
     public void desbanearAdministrativamente(Long id) {
+        desbanearAdministrativamente(id, null);
+    }
+
+    @Override
+    @Transactional
+    public void desbanearAdministrativamente(Long id, String motivo) {
         UsuarioEntity vetado = usuarioRepository.findById(id).orElseThrow();
+        String motivoFinal = (motivo == null || motivo.trim().isEmpty())
+                ? Constantes.UNBAN_MOTIVO_DEFAULT
+                : motivo.trim();
 
         vetado.setActivo(true);
         usuarioRepository.save(vetado);
@@ -622,6 +708,7 @@ public class UsuarioServiceImpl implements UsuarioService {
         // 3. Enviar Email de Desbaneo
         Map<String, String> vars = new HashMap<>();
         vars.put(Constantes.EMAIL_VAR_NOMBRE, vetado.getNombre());
+        vars.put(Constantes.EMAIL_VAR_MOTIVO, motivoFinal);
 
         emailService.sendHtmlEmail(
                 vetado.getEmail(),
@@ -630,3 +717,4 @@ public class UsuarioServiceImpl implements UsuarioService {
                 vars);
     }
 }
+

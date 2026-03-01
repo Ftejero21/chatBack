@@ -65,7 +65,8 @@ public class SecurityConfig {
                                                                                                          // globalmente
                         .requestMatchers(SWAGGER_UI, SWAGGER_UI_HTML, API_DOCS).permitAll()
                         .requestMatchers(Constantes.USUARIO_API + Constantes.LOGIN, Constantes.USUARIO_API + Constantes.REGISTRO, Constantes.USUARIO_API,
-                                Constantes.USUARIO_API + Constantes.RECUPERAR_PASSWORD_ALL)
+                                Constantes.USUARIO_API + Constantes.RECUPERAR_PASSWORD_ALL,
+                                Constantes.USUARIO_API + Constantes.SOLICITUD_DESBANEO_CREATE)
                         .permitAll() // Login, Registro y Recuperación de Password
                         // públicos
                         .requestMatchers(Constantes.WS_ENDPOINT_PATTERN).permitAll() // WebSocket endpoint inicial público (la

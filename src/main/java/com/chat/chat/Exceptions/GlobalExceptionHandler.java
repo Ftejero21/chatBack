@@ -1,6 +1,7 @@
 package com.chat.chat.Exceptions;
 
 import com.chat.chat.Utils.Constantes;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
@@ -86,5 +87,18 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiError> handleIllegalArgument(IllegalArgumentException ex) {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                 .body(new ApiError(Constantes.ERR_RESPUESTA_INVALIDA, ex.getMessage()));
+    }
+
+    @ExceptionHandler(SqlInjectionException.class)
+    public ResponseEntity<ApiError> handleSqlInjection(SqlInjectionException ex) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(new ApiError(Constantes.ERR_SQL_INJECTION, ex.getMessage()));
+    }
+
+    @ExceptionHandler(TooManyRequestsException.class)
+    public ResponseEntity<ApiError> handleTooManyRequests(TooManyRequestsException ex) {
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .header(HttpHeaders.RETRY_AFTER, String.valueOf(ex.getRetryAfterSeconds()))
+                .body(new ApiError(Constantes.ERR_RATE_LIMIT, ex.getMessage()));
     }
 }

@@ -8,14 +8,13 @@ import com.chat.chat.DTO.EscribiendoDTO;
 import com.chat.chat.DTO.EscribiendoGrupoDTO;
 import com.chat.chat.DTO.EstadoDTO;
 import com.chat.chat.DTO.MensajeDTO;
-import com.chat.chat.DTO.MensajeReaccionWSDTO;
+import com.chat.chat.DTO.MensajeReaccionDTO;
 import com.chat.chat.Entity.ChatGrupalEntity;
 import com.chat.chat.Entity.UsuarioEntity;
 import com.chat.chat.Exceptions.E2EGroupValidationException;
 import com.chat.chat.Repository.ChatGrupalRepository;
 import com.chat.chat.Repository.UsuarioRepository;
 import com.chat.chat.Service.CallService.CallService;
-import com.chat.chat.Service.MensajeReaccionService.MensajeReaccionService;
 import com.chat.chat.Service.MensajeriaService.MensajeriaService;
 import com.chat.chat.Utils.Constantes;
 import com.chat.chat.Utils.E2EDiagnosticUtils;
@@ -25,14 +24,18 @@ import com.chat.chat.Utils.SecurityUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.messaging.handler.annotation.MessageMapping;
+import org.springframework.messaging.handler.annotation.MessageExceptionHandler;
 import org.springframework.messaging.handler.annotation.Payload;
+import org.springframework.messaging.simp.annotation.SendToUser;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.bind.annotation.RestController;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 
 import java.time.Instant;
+import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -68,9 +71,6 @@ public class WebSocketChatController {
 
     @Autowired
     private SecurityUtils securityUtils;
-
-    @Autowired
-    private MensajeReaccionService mensajeReaccionService;
 
     @Value("${app.ws.reactions.legacy-broadcast:false}")
     private boolean legacyReactionBroadcastEnabled;
@@ -323,9 +323,9 @@ public class WebSocketChatController {
     }
 
     @MessageMapping(Constantes.WS_APP_CHAT_REACCION)
-    public void reaccionarMensaje(@Payload MensajeReaccionWSDTO payload) {
-        MensajeReaccionService.ReactionDispatchResult result = mensajeReaccionService.procesar(payload);
-        MensajeReaccionWSDTO event = result.event();
+    public void reaccionarMensaje(@Payload MensajeReaccionDTO payload) {
+        MensajeriaService.ReactionDispatchResult result = mensajeriaService.procesarReaccion(payload);
+        MensajeReaccionDTO event = result.event();
 
         for (Long userId : result.recipientUserIds()) {
             if (userId == null) {
@@ -474,5 +474,15 @@ public class WebSocketChatController {
             return mensajeDTO.getChatId();
         }
         return mensajeDTO.getReceptorId();
+    }
+
+    @MessageExceptionHandler({IllegalArgumentException.class, AccessDeniedException.class})
+    @SendToUser(Constantes.WS_QUEUE_ERRORS)
+    public Map<String, Object> handleWsSemanticError(Exception ex) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("code", ex instanceof AccessDeniedException ? Constantes.ERR_NO_AUTORIZADO : Constantes.ERR_RESPUESTA_INVALIDA);
+        payload.put("message", ex.getMessage());
+        payload.put("ts", LocalDateTime.now().toString());
+        return payload;
     }
 }

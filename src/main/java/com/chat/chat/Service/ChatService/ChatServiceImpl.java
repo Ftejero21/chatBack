@@ -705,30 +705,53 @@ public class ChatServiceImpl implements ChatService {
         dto.setUltimaMensajeAudioDuracionMs(null);
     }
 
-    private void applyLatestReaction(MensajeDTO dto, Long mensajeId) {
-        if (dto == null || mensajeId == null) {
+    private Map<Long, List<MensajeReaccionEntity>> loadReaccionesPorMensaje(List<MensajeEntity> mensajes) {
+        if (mensajes == null || mensajes.isEmpty()) {
+            return Map.of();
+        }
+        List<Long> messageIds = mensajes.stream()
+                .map(MensajeEntity::getId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toList());
+        if (messageIds.isEmpty()) {
+            return Map.of();
+        }
+        List<MensajeReaccionEntity> rows = mensajeReaccionRepository
+                .findByMensajeIdInOrderByMensajeIdAscUpdatedAtDescIdDesc(messageIds);
+        return rows.stream()
+                .filter(Objects::nonNull)
+                .filter(r -> r.getMensaje() != null && r.getMensaje().getId() != null)
+                .collect(Collectors.groupingBy(
+                        r -> r.getMensaje().getId(),
+                        LinkedHashMap::new,
+                        Collectors.toList()));
+    }
+
+    private void applyReacciones(MensajeDTO dto, List<MensajeReaccionEntity> reaccionesMensaje) {
+        if (dto == null) {
             return;
         }
-        Optional<MensajeReaccionEntity> latestOpt = mensajeReaccionRepository
-                .findTopByMensajeIdOrderByUpdatedAtDescIdDesc(mensajeId);
-        if (latestOpt.isEmpty()) {
+        if (reaccionesMensaje == null || reaccionesMensaje.isEmpty()) {
             dto.setReaccionEmoji(null);
             dto.setReaccionUsuarioId(null);
             dto.setReaccionFecha(null);
-            dto.setReacciones(null);
+            dto.setReacciones(List.of());
             return;
         }
-
-        MensajeReaccionEntity latest = latestOpt.get();
+        MensajeReaccionEntity latest = reaccionesMensaje.get(0);
         dto.setReaccionEmoji(latest.getEmoji());
         dto.setReaccionUsuarioId(latest.getUsuario() == null ? null : latest.getUsuario().getId());
         dto.setReaccionFecha(latest.getUpdatedAt() != null ? latest.getUpdatedAt() : latest.getCreatedAt());
-
-        MensajeReaccionResumenDTO resumen = new MensajeReaccionResumenDTO();
-        resumen.setUserId(dto.getReaccionUsuarioId());
-        resumen.setEmoji(dto.getReaccionEmoji());
-        resumen.setCreatedAt(dto.getReaccionFecha());
-        dto.setReacciones(List.of(resumen));
+        List<MensajeReaccionResumenDTO> resumenes = reaccionesMensaje.stream()
+                .map(reaccion -> {
+                    MensajeReaccionResumenDTO resumen = new MensajeReaccionResumenDTO();
+                    resumen.setUserId(reaccion.getUsuario() == null ? null : reaccion.getUsuario().getId());
+                    resumen.setEmoji(reaccion.getEmoji());
+                    resumen.setCreatedAt(reaccion.getUpdatedAt() != null ? reaccion.getUpdatedAt() : reaccion.getCreatedAt());
+                    return resumen;
+                })
+                .collect(Collectors.toList());
+        dto.setReacciones(resumenes);
     }
 
     @Override
@@ -739,12 +762,13 @@ public class ChatServiceImpl implements ChatService {
         boolean groupChat = chat instanceof ChatGrupalEntity;
 
         List<MensajeEntity> mensajes = fetchMessagesPageChronological(chatId, page, size);
+        Map<Long, List<MensajeReaccionEntity>> reaccionesPorMensaje = loadReaccionesPorMensaje(mensajes);
 
         return mensajes.stream()
                 .map(e -> {
                     try {
                         MensajeDTO dto = MappingUtils.mensajeEntityADto(e);
-                        applyLatestReaction(dto, e.getId());
+                        applyReacciones(dto, reaccionesPorMensaje.get(e.getId()));
                         if (groupChat) {
                             E2EDiagnosticUtils.ContentDiagnostic historyDiag = E2EDiagnosticUtils.analyze(
                                     dto.getContenido(),
@@ -797,6 +821,7 @@ public class ChatServiceImpl implements ChatService {
         // List<MensajeEntity> mensajes =
         // mensajeRepository.findByChatIdOrderByFechaEnvioAsc(chatId);
         List<MensajeEntity> mensajes = fetchMessagesPageChronological(chatId, page, size);
+        Map<Long, List<MensajeReaccionEntity>> reaccionesPorMensaje = loadReaccionesPorMensaje(mensajes);
         Map<Long, String> currentMemberKeyFp = new LinkedHashMap<>();
         if (chat.getUsuarios() != null) {
             chat.getUsuarios().forEach(u -> {
@@ -810,7 +835,7 @@ public class ChatServiceImpl implements ChatService {
                 .map(e -> {
                     try {
                         MensajeDTO dto = MappingUtils.mensajeEntityADto(e);
-                        applyLatestReaction(dto, e.getId());
+                        applyReacciones(dto, reaccionesPorMensaje.get(e.getId()));
                         UsuarioEntity emisor = e.getEmisor();
                         if (emisor != null) {
                             dto.setEmisorNombre(emisor.getNombre());
@@ -1030,10 +1055,11 @@ public class ChatServiceImpl implements ChatService {
                 .orElseThrow(() -> new RuntimeException(Constantes.MSG_CHAT_NO_ENCONTRADO_ID + chatId));
 
         List<MensajeEntity> mensajes = mensajeRepository.findByChatIdOrderByFechaEnvioAsc(chat.getId());
+        Map<Long, List<MensajeReaccionEntity>> reaccionesPorMensaje = loadReaccionesPorMensaje(mensajes);
         return mensajes.stream()
                 .map(e -> {
                     MensajeDTO dto = MappingUtils.mensajeEntityADto(e);
-                    applyLatestReaction(dto, e.getId());
+                    applyReacciones(dto, reaccionesPorMensaje.get(e.getId()));
                     LOGGER.info(Constantes.LOG_E2E_ADMIN_CHAT_MESSAGES_RAW,
                             chatId,
                             e.getId(),

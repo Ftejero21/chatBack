@@ -7,6 +7,4 @@ public class ChatConstants {
     public static final String MSG_MENSAJE_ELIMINADO = "Mensaje eliminado";
     public static final String MSG_SIN_MENSAJES = "Sin mensajes aún";
 
-    // Textos de API de Reportes
-    public static final String MSG_REPORTE_LANZADO = "Reporte de usuarios lanzado (soloActivos=%b).";
 }

@@ -60,7 +60,6 @@ public class Constantes {
     public static final String GRUPAL_ADD_USUARIOS = "/{groupId}/usuarios";
 
     // Rutas Base Restantes (RequestMapping)
-    public static final String API_REPORTES = "/api/reportes";
     public static final String API_UPLOADS = "/api/uploads";
     public static final String API_NOTIFICATIONS = "/api/notifications";
     public static final String API_GROUP_INVITES = "/api/group-invites";
@@ -108,9 +107,6 @@ public class Constantes {
     public static final String MSG_CONTRASENA_ACTUALIZADA = "Contraseña actualizada exitosamente";
     public static final String MSG_PASSWORD_INCORRECTA = "Contraseña incorrecta";
     public static final String MSG_USUARIO_REACTIVADO = "Usuario reactivado exitosamente";
-    public static final String MSG_REPORTE_LANZADO = "Reporte de usuarios lanzado (soloActivos=";
-    public static final String MSG_REPORTE_LANZADO_FIN = ").";
-    public static final String MSG_ERROR_LANZAR_REPORTE = "Error al lanzar reporte: ";
     public static final String DEFAULT_FALSE = "false";
     public static final String PROP_UPLOADS_ROOT = "${app.uploads.root:uploads}";
     public static final String PROP_UPLOADS_BASE_URL = "${app.uploads.base-url:/uploads}";

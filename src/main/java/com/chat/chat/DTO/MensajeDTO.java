@@ -1,6 +1,7 @@
 package com.chat.chat.DTO;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.annotation.JsonAlias;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -31,19 +32,47 @@ public class MensajeDTO {
     private String imageUrl;
     private String imageMime;
     private String imageNombre;
+    private String fileUrl;
+    private String fileMime;
+    private String fileNombre;
+    private Long fileSizeBytes;
     private String reaccionEmoji;
     private Long reaccionUsuarioId;
     private LocalDateTime reaccionFecha;
     private List<MensajeReaccionResumenDTO> reacciones;
 
     private boolean leido;
+    private boolean editado;
+    private Boolean edited;
+    private LocalDateTime fechaEdicion;
+    private LocalDateTime editedAt;
 
     private Long chatId;
+    private EncuestaDTO poll;
+    @JsonAlias("poll_type")
+    private String pollType;
+    @JsonAlias("content_kind")
+    private String contentKind;
+    private Boolean mensajeTemporal;
+    private Long mensajeTemporalSegundos;
+    private LocalDateTime expiraEn;
+    private String estadoTemporal;
+    private String motivoEliminacion;
+    private String placeholderTexto;
+    @JsonAlias({"deletedAt", "deleted_at", "fecha_eliminacion"})
+    private LocalDateTime fechaEliminacion;
+    private String contenidoAuditoria;
+    private String audioUrlAuditoria;
+    private String imageUrlAuditoria;
+    private Boolean tieneOriginalAuditoria;
 
     private String emisorNombre;
     private String emisorApellido;
     private String emisorNombreCompleto;
     private String emisorFoto;
+    private Boolean esSistema;
+    private String systemEvent;
+    private Long targetUserId;
 
     public String getEmisorNombre() {
         return emisorNombre;
@@ -75,6 +104,33 @@ public class MensajeDTO {
 
     public void setEmisorFoto(String emisorFoto) {
         this.emisorFoto = emisorFoto;
+    }
+
+    public Boolean getEsSistema() {
+        if (esSistema != null) {
+            return esSistema;
+        }
+        return tipo != null && "SYSTEM".equalsIgnoreCase(tipo);
+    }
+
+    public void setEsSistema(Boolean esSistema) {
+        this.esSistema = esSistema;
+    }
+
+    public String getSystemEvent() {
+        return systemEvent;
+    }
+
+    public void setSystemEvent(String systemEvent) {
+        this.systemEvent = systemEvent;
+    }
+
+    public Long getTargetUserId() {
+        return targetUserId;
+    }
+
+    public void setTargetUserId(Long targetUserId) {
+        this.targetUserId = targetUserId;
     }
 
     public boolean isReenviado() {
@@ -121,8 +177,162 @@ public class MensajeDTO {
         return leido;
     }
 
+    public boolean isEditado() {
+        return editado || Boolean.TRUE.equals(edited);
+    }
+
+    public void setEditado(boolean editado) {
+        this.editado = editado;
+        this.edited = editado;
+    }
+
+    public Boolean getEdited() {
+        return edited == null ? editado : edited;
+    }
+
+    public void setEdited(Boolean edited) {
+        this.edited = edited;
+        if (edited != null) {
+            this.editado = edited;
+        }
+    }
+
+    public LocalDateTime getFechaEdicion() {
+        return fechaEdicion;
+    }
+
+    public void setFechaEdicion(LocalDateTime fechaEdicion) {
+        this.fechaEdicion = fechaEdicion;
+        if (fechaEdicion != null && this.editedAt == null) {
+            this.editedAt = fechaEdicion;
+        }
+    }
+
+    public LocalDateTime getEditedAt() {
+        return editedAt == null ? fechaEdicion : editedAt;
+    }
+
+    public void setEditedAt(LocalDateTime editedAt) {
+        this.editedAt = editedAt;
+        if (editedAt != null) {
+            this.fechaEdicion = editedAt;
+        }
+    }
+
     public Long getChatId() {
         return chatId;
+    }
+
+    public EncuestaDTO getPoll() {
+        return poll;
+    }
+
+    public void setPoll(EncuestaDTO poll) {
+        this.poll = poll;
+    }
+
+    public String getPollType() {
+        return pollType;
+    }
+
+    public void setPollType(String pollType) {
+        this.pollType = pollType;
+    }
+
+    public String getContentKind() {
+        return contentKind;
+    }
+
+    public void setContentKind(String contentKind) {
+        this.contentKind = contentKind;
+    }
+
+    public Boolean getMensajeTemporal() {
+        return mensajeTemporal;
+    }
+
+    public void setMensajeTemporal(Boolean mensajeTemporal) {
+        this.mensajeTemporal = mensajeTemporal;
+    }
+
+    public Long getMensajeTemporalSegundos() {
+        return mensajeTemporalSegundos;
+    }
+
+    public void setMensajeTemporalSegundos(Long mensajeTemporalSegundos) {
+        this.mensajeTemporalSegundos = mensajeTemporalSegundos;
+    }
+
+    public LocalDateTime getExpiraEn() {
+        return expiraEn;
+    }
+
+    public void setExpiraEn(LocalDateTime expiraEn) {
+        this.expiraEn = expiraEn;
+    }
+
+    public String getEstadoTemporal() {
+        return estadoTemporal;
+    }
+
+    public void setEstadoTemporal(String estadoTemporal) {
+        this.estadoTemporal = estadoTemporal;
+    }
+
+    public String getMotivoEliminacion() {
+        return motivoEliminacion;
+    }
+
+    public void setMotivoEliminacion(String motivoEliminacion) {
+        this.motivoEliminacion = motivoEliminacion;
+    }
+
+    public String getPlaceholderTexto() {
+        return placeholderTexto;
+    }
+
+    public void setPlaceholderTexto(String placeholderTexto) {
+        this.placeholderTexto = placeholderTexto;
+    }
+
+    public LocalDateTime getFechaEliminacion() {
+        return fechaEliminacion;
+    }
+
+    public void setFechaEliminacion(LocalDateTime fechaEliminacion) {
+        this.fechaEliminacion = fechaEliminacion;
+    }
+
+    public String getContenidoAuditoria() {
+        return contenidoAuditoria;
+    }
+
+    public void setContenidoAuditoria(String contenidoAuditoria) {
+        this.contenidoAuditoria = contenidoAuditoria;
+    }
+
+    public String getAudioUrlAuditoria() {
+        return audioUrlAuditoria;
+    }
+
+    public void setAudioUrlAuditoria(String audioUrlAuditoria) {
+        this.audioUrlAuditoria = audioUrlAuditoria;
+    }
+
+    public String getImageUrlAuditoria() {
+        return imageUrlAuditoria;
+    }
+
+    public void setImageUrlAuditoria(String imageUrlAuditoria) {
+        this.imageUrlAuditoria = imageUrlAuditoria;
+    }
+
+    public Boolean getTieneOriginalAuditoria() {
+        return tieneOriginalAuditoria;
+    }
+
+    public void setTieneOriginalAuditoria(Boolean tieneOriginalAuditoria) {
+        this.tieneOriginalAuditoria = tieneOriginalAuditoria;
     }
 
     public String getTipo() {
@@ -183,6 +393,38 @@ public class MensajeDTO {
 
     public void setImageNombre(String imageNombre) {
         this.imageNombre = imageNombre;
+    }
+
+    public String getFileUrl() {
+        return fileUrl;
+    }
+
+    public void setFileUrl(String fileUrl) {
+        this.fileUrl = fileUrl;
+    }
+
+    public String getFileMime() {
+        return fileMime;
+    }
+
+    public void setFileMime(String fileMime) {
+        this.fileMime = fileMime;
+    }
+
+    public String getFileNombre() {
+        return fileNombre;
+    }
+
+    public void setFileNombre(String fileNombre) {
+        this.fileNombre = fileNombre;
+    }
+
+    public Long getFileSizeBytes() {
+        return fileSizeBytes;
+    }
+
+    public void setFileSizeBytes(Long fileSizeBytes) {
+        this.fileSizeBytes = fileSizeBytes;
     }
 
 

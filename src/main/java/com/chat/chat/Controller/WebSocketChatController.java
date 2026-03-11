@@ -4,11 +4,14 @@ import com.chat.chat.Call.DTO.CallAnswerDTO;
 import com.chat.chat.Call.DTO.CallEndDTO;
 import com.chat.chat.Call.DTO.CallInviteDTO;
 import com.chat.chat.Configuracion.EstadoUsuarioManager;
+import com.chat.chat.DTO.AudioGrabandoDTO;
+import com.chat.chat.DTO.AudioGrabandoGrupoDTO;
 import com.chat.chat.DTO.EscribiendoDTO;
 import com.chat.chat.DTO.EscribiendoGrupoDTO;
 import com.chat.chat.DTO.EstadoDTO;
 import com.chat.chat.DTO.MensajeDTO;
 import com.chat.chat.DTO.MensajeReaccionDTO;
+import com.chat.chat.DTO.VotoEncuestaDTO;
 import com.chat.chat.Entity.ChatGrupalEntity;
 import com.chat.chat.Entity.UsuarioEntity;
 import com.chat.chat.Exceptions.E2EGroupValidationException;
@@ -75,6 +78,9 @@ public class WebSocketChatController {
     @Value("${app.ws.reactions.legacy-broadcast:false}")
     private boolean legacyReactionBroadcastEnabled;
 
+    @Value("${app.uploads.security.max-file-bytes:26214400}")
+    private long maxUploadFileBytes;
+
     // 1) A → INVITE → B
     @MessageMapping(Constantes.WS_APP_CALL_START)
     public void startCall(@Payload CallInviteDTO dto) {
@@ -109,6 +115,22 @@ public class WebSocketChatController {
         messagingTemplate.convertAndSend(Constantes.TOPIC_CHAT + guardado.getEmisorId(), guardado);
     }
 
+    @MessageMapping(Constantes.WS_APP_CHAT_EDITAR)
+    public void editarMensaje(@Payload MensajeDTO mensajeDTO) {
+        MensajeDTO editado = mensajeriaService.editarMensajePropio(mensajeDTO);
+
+        if (editado.getChatId() != null && editado.getReceptorId() == null) {
+            messagingTemplate.convertAndSend(Constantes.TOPIC_CHAT_GRUPAL + editado.getChatId(), editado);
+            return;
+        }
+        if (editado.getReceptorId() == null || editado.getEmisorId() == null) {
+            throw new IllegalArgumentException("No se pudo resolver destinatarios para la edicion");
+        }
+
+        messagingTemplate.convertAndSend(Constantes.TOPIC_CHAT + editado.getReceptorId(), editado);
+        messagingTemplate.convertAndSend(Constantes.TOPIC_CHAT + editado.getEmisorId(), editado);
+    }
+
     @MessageMapping(Constantes.WS_APP_CHAT_ELIMINAR)
     public void eliminarMensaje(@Payload MensajeDTO mensajeDTO) {
         LOGGER.info(Constantes.LOG_WS_DELETE, "unknown", mensajeDTO);
@@ -116,29 +138,11 @@ public class WebSocketChatController {
             LOGGER.warn(Constantes.LOG_WS_DELETE_INVALID);
             return;
         }
-        LOGGER.info(Constantes.LOG_WS_DELETE_PAYLOAD,
-                mensajeDTO.getId(),
-                mensajeDTO.getChatId(),
-                mensajeDTO.getEmisorId(),
-                mensajeDTO.getReceptorId(),
-                mensajeDTO.isActivo());
-        boolean eliminado = mensajeriaService.eliminarMensajePropio(mensajeDTO);
-        LOGGER.info(Constantes.LOG_WS_DELETE_RESULT, mensajeDTO.getId(), eliminado);
-        if (eliminado) {
-            mensajeDTO.setActivo(false); // 👈 asegúralo en el payload
-            // (opcional) incluye chatId si tu front lo usa para preview
-            // dto.setChatId(chatIdDelMensaje);
 
-            messagingTemplate.convertAndSend(Constantes.TOPIC_CHAT + mensajeDTO.getEmisorId(), mensajeDTO);
-            messagingTemplate.convertAndSend(Constantes.TOPIC_CHAT + mensajeDTO.getReceptorId(), mensajeDTO);
-            LOGGER.info(Constantes.LOG_WS_SEND_CHAT_DELETE, mensajeDTO.getEmisorId(), mensajeDTO.getId(), mensajeDTO.isActivo());
-            LOGGER.info(Constantes.LOG_WS_SEND_CHAT_DELETE, mensajeDTO.getReceptorId(), mensajeDTO.getId(), mensajeDTO.isActivo());
-            LOGGER.info(Constantes.LOG_WS_DELETE_EMIT,
-                    mensajeDTO.getEmisorId(),
-                    mensajeDTO.getReceptorId(),
-                    mensajeDTO.getId(),
-                    mensajeDTO.isActivo());
-        }
+        MensajeDTO eliminado = mensajeriaService.eliminarMensajePropio(
+                mensajeDTO.getId(),
+                mensajeDTO.getMotivoEliminacion());
+        LOGGER.info(Constantes.LOG_WS_DELETE_RESULT, mensajeDTO.getId(), eliminado != null);
     }
 
     @MessageMapping(Constantes.WS_APP_MENSAJES_MARCAR_LEIDOS)
@@ -175,6 +179,58 @@ public class WebSocketChatController {
         });
 
         messagingTemplate.convertAndSend(Constantes.TOPIC_ESCRIBIENDO_GRUPO + dto.getChatId(), payload);
+    }
+
+    @MessageMapping(Constantes.WS_APP_AUDIO_GRABANDO)
+    public void indicarGrabandoAudio(@Payload AudioGrabandoDTO dto) {
+        if (dto == null || dto.getReceptorId() == null) {
+            return;
+        }
+
+        Long authenticatedUserId = securityUtils.getAuthenticatedUserId();
+        Map<String, Object> payload = new HashMap<>();
+        payload.put(Constantes.KEY_EMISOR_ID, authenticatedUserId);
+        payload.put(Constantes.KEY_GRABANDO_AUDIO, dto.isGrabandoAudio());
+
+        messagingTemplate.convertAndSend(Constantes.TOPIC_AUDIO_GRABANDO + dto.getReceptorId(), payload);
+    }
+
+    @MessageMapping(Constantes.WS_APP_AUDIO_GRABANDO_GRUPO)
+    public void indicarGrabandoAudioGrupo(@Payload AudioGrabandoGrupoDTO dto) {
+        if (dto == null || dto.getChatId() == null) {
+            throw new IllegalArgumentException(Constantes.MSG_CHAT_GRUPAL_NO_ENCONTRADO);
+        }
+
+        Long authenticatedUserId = securityUtils.getAuthenticatedUserId();
+        if (dto.getEmisorId() != null && !Objects.equals(dto.getEmisorId(), authenticatedUserId)) {
+            throw new AccessDeniedException(Constantes.ERR_RESPUESTA_NO_AUTORIZADA);
+        }
+
+        ChatGrupalEntity chat = chatGrupalRepository.findByIdWithUsuarios(dto.getChatId())
+                .orElseThrow(() -> new IllegalArgumentException(Constantes.MSG_CHAT_GRUPAL_NO_ENCONTRADO_ID + dto.getChatId()));
+        if (!chat.isActivo()) {
+            throw new AccessDeniedException(Constantes.MSG_CHAT_GRUPAL_NO_ENCONTRADO);
+        }
+
+        UsuarioEntity emisor = findActiveGroupMember(chat, authenticatedUserId)
+                .orElseThrow(() -> new AccessDeniedException(Constantes.MSG_NO_PERTENECE_GRUPO));
+
+        Map<String, Object> payload = buildAudioGrabandoPayload(
+                authenticatedUserId,
+                dto.getChatId(),
+                dto.isGrabandoAudio(),
+                emisor);
+
+        messagingTemplate.convertAndSend(Constantes.TOPIC_AUDIO_GRABANDO_GRUPO + dto.getChatId(), payload);
+        for (UsuarioEntity member : chat.getUsuarios()) {
+            if (member == null || member.getId() == null || !member.isActivo()) {
+                continue;
+            }
+            if (Objects.equals(member.getId(), authenticatedUserId)) {
+                continue;
+            }
+            messagingTemplate.convertAndSend(Constantes.TOPIC_AUDIO_GRABANDO + member.getId(), payload);
+        }
     }
 
     @MessageMapping(Constantes.WS_APP_ESTADO)
@@ -348,6 +404,11 @@ public class WebSocketChatController {
         }
     }
 
+    @MessageMapping(Constantes.WS_APP_CHAT_POLL_VOTE)
+    public void votarEncuesta(@Payload VotoEncuestaDTO payload) {
+        mensajeriaService.votarEncuesta(payload);
+    }
+
     private void validateInboundGroupMessage(MensajeDTO mensajeDTO,
                                              ChatGrupalEntity chat,
                                              Long senderId,
@@ -375,6 +436,7 @@ public class WebSocketChatController {
         boolean textType = E2EGroupValidationUtils.isTextType(tipo);
         boolean audioType = E2EGroupValidationUtils.isAudioType(tipo);
         boolean imageType = E2EGroupValidationUtils.isImageType(tipo);
+        boolean fileType = E2EGroupValidationUtils.isFileType(tipo);
         if (textType && !E2EGroupValidationUtils.hasRequiredE2EGroupFields(inboundDiag)) {
             throw new E2EGroupValidationException(
                     Constantes.ERR_E2E_GROUP_PAYLOAD_INVALID,
@@ -395,6 +457,11 @@ public class WebSocketChatController {
         boolean imagePayloadValid = !imageType
                 || E2EGroupValidationUtils.hasRequiredE2EGroupImageFields(mensajeDTO == null ? null : mensajeDTO.getContenido());
         boolean imageRecipientKeysValid = !imageType
+                || E2EGroupValidationUtils.recipientKeysMatchExactly(chat, senderId, payloadForReceptoresKeys);
+        boolean filePayloadValid = !fileType
+                || (E2EGroupValidationUtils.hasRequiredE2EGroupFileFields(mensajeDTO == null ? null : mensajeDTO.getContenido())
+                && E2EGroupValidationUtils.fileSizeBytesInRange(mensajeDTO == null ? null : mensajeDTO.getContenido(), 1L, maxUploadFileBytes));
+        boolean fileRecipientKeysValid = !fileType
                 || E2EGroupValidationUtils.recipientKeysMatchExactly(chat, senderId, payloadForReceptoresKeys);
         boolean audioValidateOk = audioPayloadValid && audioRecipientKeysValid;
         String audioRejectReason = "-";
@@ -441,6 +508,20 @@ public class WebSocketChatController {
                     Constantes.ERR_E2E_RECIPIENT_KEYS_MISMATCH,
                     ExceptionConstants.ERROR_E2E_RECIPIENTS_MISMATCH);
         }
+        if (fileType && !filePayloadValid) {
+            LOGGER.warn("[VALIDATION_ERROR] code={} traceId={} tipo={} chatType=GRUPAL",
+                    Constantes.ERR_E2E_FILE_PAYLOAD_INVALID,
+                    traceId,
+                    Constantes.TIPO_FILE);
+            throw new E2EGroupValidationException(
+                    Constantes.ERR_E2E_FILE_PAYLOAD_INVALID,
+                    ExceptionConstants.ERROR_E2E_GROUP_FILE_PAYLOAD_INVALID + " traceId=" + traceId);
+        }
+        if (fileType && !fileRecipientKeysValid) {
+            throw new E2EGroupValidationException(
+                    Constantes.ERR_E2E_RECIPIENT_KEYS_MISMATCH,
+                    ExceptionConstants.ERROR_E2E_RECIPIENTS_MISMATCH);
+        }
     }
 
     private void sendGroupErrorToUser(UsuarioEntity sender,
@@ -476,6 +557,33 @@ public class WebSocketChatController {
         return mensajeDTO.getReceptorId();
     }
 
+    private Optional<UsuarioEntity> findActiveGroupMember(ChatGrupalEntity chat, Long userId) {
+        if (chat == null || userId == null || chat.getUsuarios() == null) {
+            return Optional.empty();
+        }
+        return chat.getUsuarios().stream()
+                .filter(Objects::nonNull)
+                .filter(UsuarioEntity::isActivo)
+                .filter(u -> Objects.equals(u.getId(), userId))
+                .findFirst();
+    }
+
+    private Map<String, Object> buildAudioGrabandoPayload(Long emisorId,
+                                                          Long chatId,
+                                                          boolean grabandoAudio,
+                                                          UsuarioEntity emisor) {
+        Map<String, Object> payload = new HashMap<>();
+        payload.put(Constantes.KEY_EMISOR_ID, emisorId);
+        payload.put(Constantes.KEY_CHAT_ID, chatId);
+        payload.put(Constantes.KEY_GRABANDO_AUDIO, grabandoAudio);
+
+        if (emisor != null) {
+            payload.put(Constantes.KEY_EMISOR_NOMBRE, emisor.getNombre());
+            payload.put(Constantes.KEY_EMISOR_APELLIDO, emisor.getApellido());
+        }
+        return payload;
+    }
+
     @MessageExceptionHandler({IllegalArgumentException.class, AccessDeniedException.class})
     @SendToUser(Constantes.WS_QUEUE_ERRORS)
     public Map<String, Object> handleWsSemanticError(Exception ex) {
@@ -486,3 +594,4 @@ public class WebSocketChatController {
         return payload;
     }
 }
+

@@ -24,6 +24,10 @@ public class ChatGrupalDTO {
     private String ultimaMensajeAudioUrl;
     private String ultimaMensajeAudioMime;
     private Integer ultimaMensajeAudioDuracionMs;
+    private String ultimaMensajeFileUrl;
+    private String ultimaMensajeFileMime;
+    private String ultimaMensajeFileNombre;
+    private Long ultimaMensajeFileSizeBytes;
     private LocalDateTime ultimaFecha;
 
     public Long getId() {
@@ -168,6 +172,38 @@ public class ChatGrupalDTO {
 
     public void setUltimaMensajeAudioDuracionMs(Integer ultimaMensajeAudioDuracionMs) {
         this.ultimaMensajeAudioDuracionMs = ultimaMensajeAudioDuracionMs;
+    }
+
+    public String getUltimaMensajeFileUrl() {
+        return ultimaMensajeFileUrl;
+    }
+
+    public void setUltimaMensajeFileUrl(String ultimaMensajeFileUrl) {
+        this.ultimaMensajeFileUrl = ultimaMensajeFileUrl;
+    }
+
+    public String getUltimaMensajeFileMime() {
+        return ultimaMensajeFileMime;
+    }
+
+    public void setUltimaMensajeFileMime(String ultimaMensajeFileMime) {
+        this.ultimaMensajeFileMime = ultimaMensajeFileMime;
+    }
+
+    public String getUltimaMensajeFileNombre() {
+        return ultimaMensajeFileNombre;
+    }
+
+    public void setUltimaMensajeFileNombre(String ultimaMensajeFileNombre) {
+        this.ultimaMensajeFileNombre = ultimaMensajeFileNombre;
+    }
+
+    public Long getUltimaMensajeFileSizeBytes() {
+        return ultimaMensajeFileSizeBytes;
+    }
+
+    public void setUltimaMensajeFileSizeBytes(Long ultimaMensajeFileSizeBytes) {
+        this.ultimaMensajeFileSizeBytes = ultimaMensajeFileSizeBytes;
     }
 
     public LocalDateTime getUltimaFecha() {

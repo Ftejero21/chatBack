@@ -6,5 +6,6 @@ public enum MessageType {
     IMAGE,
     VIDEO,
     FILE,
+    POLL,
     SYSTEM
 }

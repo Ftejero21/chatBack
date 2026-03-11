@@ -3,7 +3,9 @@ package com.chat.chat.Service.ChatService;
 import com.chat.chat.DTO.*;
 import com.chat.chat.DTO.*;
 import com.chat.chat.Entity.*;
+import com.chat.chat.Exceptions.RecursoNoEncontradoException;
 import com.chat.chat.Repository.*;
+import com.chat.chat.Service.EncuestaService.EncuestaService;
 import com.chat.chat.Utils.*;
 import com.chat.chat.Utils.ExceptionConstants;
 import com.chat.chat.Utils.ChatConstants;
@@ -45,6 +47,8 @@ public class ChatServiceImpl implements ChatService {
     private static final int DEFAULT_SEARCH_PAGE = 0;
     private static final int DEFAULT_SEARCH_SIZE = 20;
     private static final int MAX_SEARCH_SIZE = 100;
+    private static final int MAX_GROUP_NAME_LENGTH = 120;
+    private static final int MAX_GROUP_DESCRIPTION_LENGTH = 500;
     private static final int SEARCH_SNIPPET_CONTEXT_CHARS = 40;
     private static final String CURSOR_SEPARATOR = "_";
     private static final Pattern DIACRITICS_PATTERN = Pattern.compile("\\p{M}+");
@@ -72,6 +76,9 @@ public class ChatServiceImpl implements ChatService {
     private MensajeReaccionRepository mensajeReaccionRepository;
 
     @Autowired
+    private MensajeTemporalAuditoriaRepository mensajeTemporalAuditoriaRepository;
+
+    @Autowired
     private ChatRepository chatRepository;
 
     @Autowired
@@ -84,6 +91,9 @@ public class ChatServiceImpl implements ChatService {
 
     @Autowired
     private SecurityUtils securityUtils;
+
+    @Autowired
+    private EncuestaService encuestaService;
 
     @Autowired
     private AdminAuditCrypto adminAuditCrypto;
@@ -453,6 +463,9 @@ public class ChatServiceImpl implements ChatService {
                         dto.setUltimaMensaje(ChatConstants.MSG_SIN_MENSAJES);
                         dto.setUltimaFecha(null);
                         applyLastMessageMeta(dto, null);
+                    } else if (isTemporalExpirado(last)) {
+                        dto.setUltimaMensaje(buildPlaceholderTemporal(last));
+                        applyLastMessageMeta(dto, last);
                     } else if (!last.isActivo()) {
                         dto.setUltimaMensaje(ChatConstants.MSG_MENSAJE_ELIMINADO);
                         applyLastMessageMeta(dto, last);
@@ -510,6 +523,9 @@ public class ChatServiceImpl implements ChatService {
                         dto.setUltimaMensaje(ChatConstants.MSG_SIN_MENSAJES);
                         dto.setUltimaFecha(null);
                         applyLastMessageMeta(dto, null);
+                    } else if (isTemporalExpirado(last)) {
+                        dto.setUltimaMensaje(buildPlaceholderTemporal(last));
+                        applyLastMessageMeta(dto, last);
                     } else if (!last.isActivo()) {
                         dto.setUltimaMensaje(ChatConstants.MSG_MENSAJE_ELIMINADO);
                         applyLastMessageMeta(dto, last);
@@ -550,6 +566,9 @@ public class ChatServiceImpl implements ChatService {
         if (last == null) {
             return ChatConstants.MSG_SIN_MENSAJES;
         }
+        if (isTemporalExpirado(last)) {
+            return buildPlaceholderTemporal(last);
+        }
         boolean soyYo = last.getEmisor() != null && Objects.equals(last.getEmisor().getId(), viewerId);
         String prefix = soyYo ? "Tu: " : "";
         MessageType tipo = last.getTipo() == null ? MessageType.TEXT : last.getTipo();
@@ -561,6 +580,14 @@ public class ChatServiceImpl implements ChatService {
             String dur = Utils.mmss(meta.durMs());
             return prefix + "Audio" + (dur.isEmpty() ? "" : " (" + dur + ")");
         }
+        if (tipo == MessageType.FILE) {
+            MediaMeta meta = extractMediaMeta(last);
+            String nombre = meta.fileName() == null || meta.fileName().isBlank() ? "Archivo" : meta.fileName();
+            return prefix + "Archivo: " + nombre;
+        }
+        if (tipo == MessageType.POLL) {
+            return prefix + "Encuesta";
+        }
         if (isEncryptedPayload(last.getContenido())) {
             return prefix + "Mensaje cifrado";
         }
@@ -570,6 +597,9 @@ public class ChatServiceImpl implements ChatService {
     private String buildGroupPreview(MensajeEntity last, Long viewerId) {
         if (last == null) {
             return ChatConstants.MSG_SIN_MENSAJES;
+        }
+        if (isTemporalExpirado(last)) {
+            return buildPlaceholderTemporal(last);
         }
         Long senderId = last.getEmisor() == null ? null : last.getEmisor().getId();
         String senderName = last.getEmisor() == null ? null : last.getEmisor().getNombre();
@@ -591,6 +621,14 @@ public class ChatServiceImpl implements ChatService {
             String dur = Utils.mmss(meta.durMs());
             return prefix + "Audio" + (dur.isEmpty() ? "" : " (" + dur + ")");
         }
+        if (tipo == MessageType.FILE) {
+            MediaMeta meta = extractMediaMeta(last);
+            String nombre = meta.fileName() == null || meta.fileName().isBlank() ? "Archivo" : meta.fileName();
+            return prefix + "Archivo: " + nombre;
+        }
+        if (tipo == MessageType.POLL) {
+            return prefix + "Encuesta";
+        }
         if (isEncryptedPayload(last.getContenido())) {
             return prefix + "Mensaje cifrado";
         }
@@ -603,6 +641,23 @@ public class ChatServiceImpl implements ChatService {
         }
         String classification = E2EDiagnosticUtils.analyze(content).getClassification();
         return classification != null && classification.startsWith("JSON_E2E");
+    }
+
+    private boolean isTemporalExpirado(MensajeEntity mensaje) {
+        return mensaje != null
+                && mensaje.isMensajeTemporal()
+                && mensaje.getExpiraEn() != null
+                && !mensaje.getExpiraEn().isAfter(LocalDateTime.now());
+    }
+
+    private String buildPlaceholderTemporal(MensajeEntity mensaje) {
+        if (mensaje == null) {
+            return Utils.construirPlaceholderTemporal(null);
+        }
+        if (mensaje.getPlaceholderTexto() != null && !mensaje.getPlaceholderTexto().isBlank()) {
+            return mensaje.getPlaceholderTexto();
+        }
+        return Utils.construirPlaceholderTemporal(mensaje.getMensajeTemporalSegundos());
     }
 
     private void applyLastMessageMeta(ChatIndividualDTO dto, MensajeEntity last) {
@@ -618,15 +673,34 @@ public class ChatServiceImpl implements ChatService {
                 dto.setUltimaMensajeAudioUrl(null);
                 dto.setUltimaMensajeAudioMime(null);
                 dto.setUltimaMensajeAudioDuracionMs(null);
+                dto.setUltimaMensajeFileUrl(null);
+                dto.setUltimaMensajeFileMime(null);
+                dto.setUltimaMensajeFileNombre(null);
+                dto.setUltimaMensajeFileSizeBytes(null);
             }
             return;
         }
         MessageType tipo = last.getTipo() == null ? MessageType.TEXT : last.getTipo();
+        boolean temporalExpirado = isTemporalExpirado(last);
         dto.setUltimaMensajeId(last.getId());
-        dto.setUltimaMensajeTipo(tipo.name());
+        dto.setUltimaMensajeTipo(temporalExpirado ? MessageType.TEXT.name() : tipo.name());
         dto.setUltimaMensajeEmisorId(last.getEmisor() == null ? null : last.getEmisor().getId());
-        dto.setUltimaMensajeRaw(last.getContenido());
+        dto.setUltimaMensajeRaw(temporalExpirado ? buildPlaceholderTemporal(last) : last.getContenido());
         dto.setUltimaFecha(last.getFechaEnvio());
+
+        if (temporalExpirado) {
+            dto.setUltimaMensajeImageUrl(null);
+            dto.setUltimaMensajeImageMime(null);
+            dto.setUltimaMensajeImageNombre(null);
+            dto.setUltimaMensajeAudioUrl(null);
+            dto.setUltimaMensajeAudioMime(null);
+            dto.setUltimaMensajeAudioDuracionMs(null);
+            dto.setUltimaMensajeFileUrl(null);
+            dto.setUltimaMensajeFileMime(null);
+            dto.setUltimaMensajeFileNombre(null);
+            dto.setUltimaMensajeFileSizeBytes(null);
+            return;
+        }
 
         MediaMeta meta = extractMediaMeta(last);
         if (tipo == MessageType.IMAGE) {
@@ -636,6 +710,10 @@ public class ChatServiceImpl implements ChatService {
             dto.setUltimaMensajeAudioUrl(null);
             dto.setUltimaMensajeAudioMime(null);
             dto.setUltimaMensajeAudioDuracionMs(null);
+            dto.setUltimaMensajeFileUrl(null);
+            dto.setUltimaMensajeFileMime(null);
+            dto.setUltimaMensajeFileNombre(null);
+            dto.setUltimaMensajeFileSizeBytes(null);
             return;
         }
         if (tipo == MessageType.AUDIO) {
@@ -645,6 +723,23 @@ public class ChatServiceImpl implements ChatService {
             dto.setUltimaMensajeImageUrl(null);
             dto.setUltimaMensajeImageMime(null);
             dto.setUltimaMensajeImageNombre(null);
+            dto.setUltimaMensajeFileUrl(null);
+            dto.setUltimaMensajeFileMime(null);
+            dto.setUltimaMensajeFileNombre(null);
+            dto.setUltimaMensajeFileSizeBytes(null);
+            return;
+        }
+        if (tipo == MessageType.FILE) {
+            dto.setUltimaMensajeFileUrl(meta.mediaUrl());
+            dto.setUltimaMensajeFileMime(meta.mime());
+            dto.setUltimaMensajeFileNombre(meta.fileName());
+            dto.setUltimaMensajeFileSizeBytes(meta.sizeBytes());
+            dto.setUltimaMensajeImageUrl(null);
+            dto.setUltimaMensajeImageMime(null);
+            dto.setUltimaMensajeImageNombre(null);
+            dto.setUltimaMensajeAudioUrl(null);
+            dto.setUltimaMensajeAudioMime(null);
+            dto.setUltimaMensajeAudioDuracionMs(null);
             return;
         }
         dto.setUltimaMensajeImageUrl(null);
@@ -653,6 +748,10 @@ public class ChatServiceImpl implements ChatService {
         dto.setUltimaMensajeAudioUrl(null);
         dto.setUltimaMensajeAudioMime(null);
         dto.setUltimaMensajeAudioDuracionMs(null);
+        dto.setUltimaMensajeFileUrl(null);
+        dto.setUltimaMensajeFileMime(null);
+        dto.setUltimaMensajeFileNombre(null);
+        dto.setUltimaMensajeFileSizeBytes(null);
     }
 
     private void applyLastMessageMeta(ChatGrupalDTO dto, MensajeEntity last) {
@@ -668,15 +767,34 @@ public class ChatServiceImpl implements ChatService {
                 dto.setUltimaMensajeAudioUrl(null);
                 dto.setUltimaMensajeAudioMime(null);
                 dto.setUltimaMensajeAudioDuracionMs(null);
+                dto.setUltimaMensajeFileUrl(null);
+                dto.setUltimaMensajeFileMime(null);
+                dto.setUltimaMensajeFileNombre(null);
+                dto.setUltimaMensajeFileSizeBytes(null);
             }
             return;
         }
         MessageType tipo = last.getTipo() == null ? MessageType.TEXT : last.getTipo();
+        boolean temporalExpirado = isTemporalExpirado(last);
         dto.setUltimaMensajeId(last.getId());
-        dto.setUltimaMensajeTipo(tipo.name());
+        dto.setUltimaMensajeTipo(temporalExpirado ? MessageType.TEXT.name() : tipo.name());
         dto.setUltimaMensajeEmisorId(last.getEmisor() == null ? null : last.getEmisor().getId());
-        dto.setUltimaMensajeRaw(last.getContenido());
+        dto.setUltimaMensajeRaw(temporalExpirado ? buildPlaceholderTemporal(last) : last.getContenido());
         dto.setUltimaFecha(last.getFechaEnvio());
+
+        if (temporalExpirado) {
+            dto.setUltimaMensajeImageUrl(null);
+            dto.setUltimaMensajeImageMime(null);
+            dto.setUltimaMensajeImageNombre(null);
+            dto.setUltimaMensajeAudioUrl(null);
+            dto.setUltimaMensajeAudioMime(null);
+            dto.setUltimaMensajeAudioDuracionMs(null);
+            dto.setUltimaMensajeFileUrl(null);
+            dto.setUltimaMensajeFileMime(null);
+            dto.setUltimaMensajeFileNombre(null);
+            dto.setUltimaMensajeFileSizeBytes(null);
+            return;
+        }
 
         MediaMeta meta = extractMediaMeta(last);
         if (tipo == MessageType.IMAGE) {
@@ -686,6 +804,10 @@ public class ChatServiceImpl implements ChatService {
             dto.setUltimaMensajeAudioUrl(null);
             dto.setUltimaMensajeAudioMime(null);
             dto.setUltimaMensajeAudioDuracionMs(null);
+            dto.setUltimaMensajeFileUrl(null);
+            dto.setUltimaMensajeFileMime(null);
+            dto.setUltimaMensajeFileNombre(null);
+            dto.setUltimaMensajeFileSizeBytes(null);
             return;
         }
         if (tipo == MessageType.AUDIO) {
@@ -695,6 +817,23 @@ public class ChatServiceImpl implements ChatService {
             dto.setUltimaMensajeImageUrl(null);
             dto.setUltimaMensajeImageMime(null);
             dto.setUltimaMensajeImageNombre(null);
+            dto.setUltimaMensajeFileUrl(null);
+            dto.setUltimaMensajeFileMime(null);
+            dto.setUltimaMensajeFileNombre(null);
+            dto.setUltimaMensajeFileSizeBytes(null);
+            return;
+        }
+        if (tipo == MessageType.FILE) {
+            dto.setUltimaMensajeFileUrl(meta.mediaUrl());
+            dto.setUltimaMensajeFileMime(meta.mime());
+            dto.setUltimaMensajeFileNombre(meta.fileName());
+            dto.setUltimaMensajeFileSizeBytes(meta.sizeBytes());
+            dto.setUltimaMensajeImageUrl(null);
+            dto.setUltimaMensajeImageMime(null);
+            dto.setUltimaMensajeImageNombre(null);
+            dto.setUltimaMensajeAudioUrl(null);
+            dto.setUltimaMensajeAudioMime(null);
+            dto.setUltimaMensajeAudioDuracionMs(null);
             return;
         }
         dto.setUltimaMensajeImageUrl(null);
@@ -703,6 +842,10 @@ public class ChatServiceImpl implements ChatService {
         dto.setUltimaMensajeAudioUrl(null);
         dto.setUltimaMensajeAudioMime(null);
         dto.setUltimaMensajeAudioDuracionMs(null);
+        dto.setUltimaMensajeFileUrl(null);
+        dto.setUltimaMensajeFileMime(null);
+        dto.setUltimaMensajeFileNombre(null);
+        dto.setUltimaMensajeFileSizeBytes(null);
     }
 
     private Map<Long, List<MensajeReaccionEntity>> loadReaccionesPorMensaje(List<MensajeEntity> mensajes) {
@@ -729,6 +872,13 @@ public class ChatServiceImpl implements ChatService {
 
     private void applyReacciones(MensajeDTO dto, List<MensajeReaccionEntity> reaccionesMensaje) {
         if (dto == null) {
+            return;
+        }
+        if ("EXPIRADO".equalsIgnoreCase(dto.getEstadoTemporal())) {
+            dto.setReaccionEmoji(null);
+            dto.setReaccionUsuarioId(null);
+            dto.setReaccionFecha(null);
+            dto.setReacciones(List.of());
             return;
         }
         if (reaccionesMensaje == null || reaccionesMensaje.isEmpty()) {
@@ -760,11 +910,12 @@ public class ChatServiceImpl implements ChatService {
                 .orElseThrow(() -> new RuntimeException(Constantes.MSG_CHAT_NO_ENCONTRADO_ID + chatId));
         String traceId = Optional.ofNullable(E2EDiagnosticUtils.currentTraceId()).orElse(E2EDiagnosticUtils.newTraceId());
         boolean groupChat = chat instanceof ChatGrupalEntity;
+        Long requesterId = securityUtils.getAuthenticatedUserId();
 
         List<MensajeEntity> mensajes = fetchMessagesPageChronological(chatId, page, size);
         Map<Long, List<MensajeReaccionEntity>> reaccionesPorMensaje = loadReaccionesPorMensaje(mensajes);
 
-        return mensajes.stream()
+        List<MensajeDTO> salida = mensajes.stream()
                 .map(e -> {
                     try {
                         MensajeDTO dto = MappingUtils.mensajeEntityADto(e);
@@ -809,6 +960,8 @@ public class ChatServiceImpl implements ChatService {
                     }
                 })
                 .collect(Collectors.toList());
+        encuestaService.enriquecerMensajesConEncuesta(mensajes, salida, requesterId, true);
+        return salida;
     }
 
     @Override
@@ -816,6 +969,7 @@ public class ChatServiceImpl implements ChatService {
         ChatGrupalEntity chat = chatGrupalRepo.findById(chatId)
                 .orElseThrow(() -> new RuntimeException(Constantes.MSG_CHAT_GRUPAL_NO_ENCONTRADO_ID + chatId));
         String traceId = Optional.ofNullable(E2EDiagnosticUtils.currentTraceId()).orElse(E2EDiagnosticUtils.newTraceId());
+        Long requesterId = securityUtils.getAuthenticatedUserId();
 
         // Si tienes un repo con este mÃ©todo, Ãºsalo; si no, ordenamos en memoria:
         // List<MensajeEntity> mensajes =
@@ -831,7 +985,7 @@ public class ChatServiceImpl implements ChatService {
             });
         }
 
-        return mensajes.stream()
+        List<MensajeDTO> salida = mensajes.stream()
                 .map(e -> {
                     try {
                         MensajeDTO dto = MappingUtils.mensajeEntityADto(e);
@@ -889,6 +1043,8 @@ public class ChatServiceImpl implements ChatService {
                     }
                 })
                 .collect(Collectors.toList());
+        encuestaService.enriquecerMensajesConEncuesta(mensajes, salida, requesterId, true);
+        return salida;
     }
 
     @Override
@@ -1042,24 +1198,31 @@ public class ChatServiceImpl implements ChatService {
     }
 
     @Override
-    public List<MensajeDTO> listarMensajesPorChatIdAdmin(Long chatId) {
+    public List<MensajeDTO> listarMensajesPorChatIdAdmin(Long chatId, Boolean includeExpired) {
         Long requesterId = securityUtils.getAuthenticatedUserId();
-        boolean requesterIsAdmin = securityUtils.hasRole("ADMIN") || usuarioRepo.findById(requesterId)
-                .map(this::esAdmin)
+        boolean requesterPuedeAuditar = usuarioRepo.findById(requesterId)
+                .map(this::esAdminOAuditor)
                 .orElse(false);
-        if (!requesterIsAdmin) {
+        if (!requesterPuedeAuditar) {
             throw new AccessDeniedException(Constantes.MSG_SOLO_ADMIN);
         }
 
         ChatEntity chat = chatRepository.findById(chatId)
                 .orElseThrow(() -> new RuntimeException(Constantes.MSG_CHAT_NO_ENCONTRADO_ID + chatId));
 
-        List<MensajeEntity> mensajes = mensajeRepository.findByChatIdOrderByFechaEnvioAsc(chat.getId());
+        boolean incluirExpirados = Boolean.TRUE.equals(includeExpired);
+        List<MensajeEntity> mensajes = incluirExpirados
+                ? mensajeRepository.findByChatIdOrderByFechaEnvioAscIncluyendoExpirados(chat.getId())
+                : mensajeRepository.findByChatIdOrderByFechaEnvioAsc(chat.getId());
+
+        Map<Long, MensajeTemporalAuditoriaEntity> auditoriaPorMensaje = cargarAuditoriaPorMensajes(mensajes);
+        boolean mostrarOriginalAuditoria = incluirExpirados && requesterPuedeAuditar;
         Map<Long, List<MensajeReaccionEntity>> reaccionesPorMensaje = loadReaccionesPorMensaje(mensajes);
-        return mensajes.stream()
+        List<MensajeDTO> salida = mensajes.stream()
                 .map(e -> {
                     MensajeDTO dto = MappingUtils.mensajeEntityADto(e);
                     applyReacciones(dto, reaccionesPorMensaje.get(e.getId()));
+                    aplicarCamposAuditoriaAdmin(dto, e, auditoriaPorMensaje.get(e.getId()), mostrarOriginalAuditoria, requesterId);
                     LOGGER.info(Constantes.LOG_E2E_ADMIN_CHAT_MESSAGES_RAW,
                             chatId,
                             e.getId(),
@@ -1071,15 +1234,17 @@ public class ChatServiceImpl implements ChatService {
                     return dto;
                 })
                 .collect(Collectors.toList());
+        encuestaService.enriquecerMensajesConEncuesta(mensajes, salida, requesterId, true);
+        return salida;
     }
 
     @Override
-    public List<ChatResumenDTO> listarConversacionesDeUsuario(Long usuarioId) {
+    public List<ChatResumenDTO> listarConversacionesDeUsuario(Long usuarioId, Boolean includeExpired) {
         Long requesterId = securityUtils.getAuthenticatedUserId();
-        boolean requesterIsAdmin = securityUtils.hasRole("ADMIN") || usuarioRepo.findById(requesterId)
-                .map(this::esAdmin)
+        boolean requesterPuedeAuditar = usuarioRepo.findById(requesterId)
+                .map(this::esAdminOAuditor)
                 .orElse(false);
-        if (!requesterIsAdmin) {
+        if (!requesterPuedeAuditar) {
             throw new AccessDeniedException(Constantes.MSG_SOLO_ADMIN);
         }
 
@@ -1091,12 +1256,21 @@ public class ChatServiceImpl implements ChatService {
 
         Map<Long, Integer> totalMensajesPorChat = new HashMap<>();
         Map<Long, MensajeEntity> ultimoMensajePorChat = new HashMap<>();
+        boolean incluirExpirados = Boolean.TRUE.equals(includeExpired);
         if (!chatIds.isEmpty()) {
-            mensajeRepository.countActivosByChatIds(chatIds)
+            (incluirExpirados
+                    ? mensajeRepository.countActivosByChatIdsIncluyendoExpirados(chatIds)
+                    : mensajeRepository.countActivosByChatIds(chatIds))
                     .forEach(row -> totalMensajesPorChat.put((Long) row[0], ((Long) row[1]).intValue()));
-            mensajeRepository.findLatestByChatIds(chatIds)
+            (incluirExpirados
+                    ? mensajeRepository.findLatestByChatIdsIncluyendoExpirados(chatIds)
+                    : mensajeRepository.findLatestByChatIds(chatIds))
                     .forEach(m -> ultimoMensajePorChat.put(m.getChat().getId(), m));
         }
+
+        Map<Long, MensajeTemporalAuditoriaEntity> auditoriaUltimosMensajes = cargarAuditoriaPorMensajes(
+                new ArrayList<>(ultimoMensajePorChat.values()));
+        boolean mostrarOriginalAuditoria = incluirExpirados && requesterPuedeAuditar;
 
         List<ChatResumenDTO> resumenes = new ArrayList<>();
         for (ChatIndividualEntity ci : individuales) {
@@ -1105,7 +1279,13 @@ public class ChatServiceImpl implements ChatService {
             dto.setTipo(Constantes.CHAT_TIPO_INDIVIDUAL);
             dto.setNombreChat(ci.getUsuario1().getNombre() + Constantes.MSG_Y + ci.getUsuario2().getNombre());
             dto.setTotalMensajes(totalMensajesPorChat.getOrDefault(ci.getId(), 0));
-            applyAdminRawMetadata(dto, ultimoMensajePorChat.get(ci.getId()));
+            MensajeEntity ultimo = ultimoMensajePorChat.get(ci.getId());
+            applyAdminRawMetadata(
+                    dto,
+                    ultimo,
+                    ultimo == null ? null : auditoriaUltimosMensajes.get(ultimo.getId()),
+                    mostrarOriginalAuditoria,
+                    requesterId);
             resumenes.add(dto);
         }
 
@@ -1115,7 +1295,13 @@ public class ChatServiceImpl implements ChatService {
             dto.setTipo(Constantes.CHAT_TIPO_GRUPAL);
             dto.setNombreChat(cg.getNombreGrupo() + Constantes.MSG_GRUPO_SUFFIX);
             dto.setTotalMensajes(totalMensajesPorChat.getOrDefault(cg.getId(), 0));
-            applyAdminRawMetadata(dto, ultimoMensajePorChat.get(cg.getId()));
+            MensajeEntity ultimo = ultimoMensajePorChat.get(cg.getId());
+            applyAdminRawMetadata(
+                    dto,
+                    ultimo,
+                    ultimo == null ? null : auditoriaUltimosMensajes.get(ultimo.getId()),
+                    mostrarOriginalAuditoria,
+                    requesterId);
             resumenes.add(dto);
         }
 
@@ -1125,20 +1311,13 @@ public class ChatServiceImpl implements ChatService {
     @Override
     public GroupDetailDTO obtenerDetalleGrupo(Long groupId) {
         Long authenticatedUserId = securityUtils.getAuthenticatedUserId();
-        ChatGrupalEntity chat = chatGrupalRepo.findById(groupId)
-                .orElseThrow(() -> new RuntimeException(Constantes.MSG_CHAT_GRUPAL_NO_ENCONTRADO_ID + groupId));
-        if (!chat.isActivo()) {
-            throw new RuntimeException(Constantes.MSG_CHAT_GRUPAL_NO_ENCONTRADO_ID + groupId);
-        }
+        ChatGrupalEntity chat = findActiveGroupOrThrow(groupId);
 
-        boolean esMiembro = chat.getUsuarios() != null
-                && chat.getUsuarios().stream().anyMatch(u -> Objects.equals(u.getId(), authenticatedUserId));
-        if (!esMiembro) {
+        if (!isActiveGroupMember(chat, authenticatedUserId)) {
             throw new AccessDeniedException(Constantes.MSG_NO_PERTENECE_GRUPO);
         }
 
-        if ((chat.getAdmins() == null || chat.getAdmins().isEmpty()) && chat.getCreador() != null) {
-            chat.getAdmins().add(chat.getCreador());
+        if (ensureCreatorAdmin(chat)) {
             chat = chatGrupalRepo.save(chat);
         }
 
@@ -1151,6 +1330,7 @@ public class ChatServiceImpl implements ChatService {
         dto.setFechaCreacion(chat.getFechaCreacion());
         dto.setMediaCount(chat.getMediaCount());
         dto.setFilesCount(chat.getFilesCount());
+        dto.setCanEditGroup(canEditGroupMetadata(chat, authenticatedUserId));
 
         UsuarioEntity creador = chat.getCreador();
         if (creador != null) {
@@ -1214,35 +1394,91 @@ public class ChatServiceImpl implements ChatService {
 
     @Override
     @Transactional
-    public void setAdminGrupo(Long groupId, Long targetUserId, boolean makeAdmin) {
-        Long requesterId = securityUtils.getAuthenticatedUserId();
-        ChatGrupalEntity chat = chatGrupalRepo.findById(groupId)
-                .orElseThrow(() -> new RuntimeException(Constantes.MSG_CHAT_GRUPAL_NO_ENCONTRADO_ID + groupId));
-        if (!chat.isActivo()) {
-            throw new RuntimeException(Constantes.MSG_CHAT_GRUPAL_NO_ENCONTRADO_ID + groupId);
+    public GroupDetailDTO actualizarMetadataGrupo(Long groupId, GroupMetadataUpdateDTO dto) {
+        if (groupId == null) {
+            throw new IllegalArgumentException(Constantes.MSG_GROUP_ID_OBLIGATORIO);
+        }
+        if (dto == null) {
+            throw new IllegalArgumentException("payload de actualizacion vacio");
         }
 
-        boolean requesterIsMember = chat.getUsuarios() != null
-                && chat.getUsuarios().stream().anyMatch(u -> Objects.equals(u.getId(), requesterId));
-        if (!requesterIsMember) {
+        boolean wantsUpdateNombre = dto.getNombreGrupo() != null;
+        boolean wantsUpdateDescripcion = dto.getDescripcion() != null;
+        boolean wantsUpdateFoto = dto.getFotoGrupo() != null;
+        if (!wantsUpdateNombre && !wantsUpdateDescripcion && !wantsUpdateFoto) {
+            throw new IllegalArgumentException("Debes enviar al menos uno: nombreGrupo, descripcion o fotoGrupo");
+        }
+
+        Long requesterId = securityUtils.getAuthenticatedUserId();
+        ChatGrupalEntity chat = findActiveGroupOrThrow(groupId);
+
+        if (!isActiveGroupMember(chat, requesterId)) {
+            throw new AccessDeniedException(Constantes.MSG_NO_PERTENECE_GRUPO);
+        }
+        if (!canEditGroupMetadata(chat, requesterId)) {
+            throw new AccessDeniedException(Constantes.MSG_SOLO_ADMIN);
+        }
+        ensureCreatorAdmin(chat);
+
+        if (wantsUpdateNombre) {
+            String nombre = dto.getNombreGrupo() == null ? null : dto.getNombreGrupo().trim();
+            if (nombre == null || nombre.isBlank()) {
+                throw new IllegalArgumentException("nombreGrupo no puede estar vacio");
+            }
+            if (nombre.length() > MAX_GROUP_NAME_LENGTH) {
+                throw new IllegalArgumentException("nombreGrupo supera el maximo de " + MAX_GROUP_NAME_LENGTH + " caracteres");
+            }
+            chat.setNombreGrupo(nombre);
+        }
+
+        if (wantsUpdateDescripcion) {
+            String descripcion = dto.getDescripcion() == null ? null : dto.getDescripcion().trim();
+            if (descripcion != null && descripcion.length() > MAX_GROUP_DESCRIPTION_LENGTH) {
+                throw new IllegalArgumentException("descripcion supera el maximo de " + MAX_GROUP_DESCRIPTION_LENGTH + " caracteres");
+            }
+            chat.setDescripcion(descripcion == null || descripcion.isBlank() ? null : descripcion);
+        }
+
+        if (wantsUpdateFoto) {
+            String foto = dto.getFotoGrupo() == null ? "" : dto.getFotoGrupo().trim();
+            if (foto.isBlank()) {
+                chat.setFotoUrl(null);
+            } else if (foto.startsWith(Constantes.DATA_IMAGE_PREFIX)) {
+                chat.setFotoUrl(Utils.saveDataUrlToUploads(foto, Constantes.DIR_GROUP_PHOTOS, uploadsRoot, uploadsBaseUrl));
+            } else if (Utils.isPublicUrl(foto)) {
+                chat.setFotoUrl(foto);
+            } else {
+                throw new IllegalArgumentException("fotoGrupo debe ser data:image/* o URL publica");
+            }
+        }
+
+        chatGrupalRepo.save(chat);
+        return obtenerDetalleGrupo(chat.getId());
+    }
+
+    @Override
+    @Transactional
+    public void setAdminGrupo(Long groupId, Long targetUserId, boolean makeAdmin) {
+        Long requesterId = securityUtils.getAuthenticatedUserId();
+        ChatGrupalEntity chat = findActiveGroupOrThrow(groupId);
+
+        if (!isActiveGroupMember(chat, requesterId)) {
             throw new AccessDeniedException(Constantes.MSG_NO_PERTENECE_GRUPO);
         }
 
-        if ((chat.getAdmins() == null || chat.getAdmins().isEmpty()) && chat.getCreador() != null) {
-            chat.getAdmins().add(chat.getCreador());
-        }
+        ensureCreatorAdmin(chat);
 
-        boolean requesterIsAdmin = chat.getAdmins() != null
-                && chat.getAdmins().stream().anyMatch(u -> Objects.equals(u.getId(), requesterId));
-        if (!requesterIsAdmin) {
+        boolean requesterCanManage = isGroupAdmin(chat, requesterId) || isGroupCreator(chat, requesterId);
+        if (!requesterCanManage) {
             throw new AccessDeniedException(Constantes.MSG_SOLO_ADMIN);
         }
 
         UsuarioEntity target = usuarioRepo.findById(targetUserId).orElseThrow();
-        boolean targetIsMember = chat.getUsuarios() != null
-                && chat.getUsuarios().stream().anyMatch(u -> Objects.equals(u.getId(), targetUserId));
-        if (!targetIsMember) {
+        if (!isActiveGroupMember(chat, targetUserId)) {
             throw new IllegalArgumentException(Constantes.MSG_NO_PERTENECE_GRUPO);
+        }
+        if (!makeAdmin && isGroupCreator(chat, targetUserId)) {
+            throw new AccessDeniedException(Constantes.MSG_NO_SE_PUEDE_QUITAR_ADMIN_FUNDADOR);
         }
 
         if (makeAdmin) {
@@ -1255,6 +1491,138 @@ public class ChatServiceImpl implements ChatService {
         }
 
         chatGrupalRepo.save(chat);
+    }
+
+    @Override
+    @Transactional
+    public GroupMemberExpulsionResponseDTO expulsarMiembroDeGrupo(Long groupId, Long targetUserId) {
+        if (groupId == null) {
+            throw new IllegalArgumentException(Constantes.MSG_GROUP_ID_OBLIGATORIO);
+        }
+        if (targetUserId == null) {
+            throw new IllegalArgumentException("userId es obligatorio.");
+        }
+
+        Long actorId = securityUtils.getAuthenticatedUserId();
+        ChatGrupalEntity chat = findActiveGroupOrThrow(groupId);
+
+        if (!isActiveGroupMember(chat, actorId)) {
+            throw new AccessDeniedException(Constantes.MSG_NO_PERTENECE_GRUPO);
+        }
+
+        ensureCreatorAdmin(chat);
+
+        boolean actorCanManage = isGroupAdmin(chat, actorId) || isGroupCreator(chat, actorId);
+        if (!actorCanManage) {
+            throw new AccessDeniedException(Constantes.MSG_SOLO_ADMIN);
+        }
+
+        if (!isActiveGroupMember(chat, targetUserId)) {
+            throw new IllegalArgumentException(Constantes.MSG_NO_PERTENECE_GRUPO);
+        }
+        if (Objects.equals(actorId, targetUserId)) {
+            throw new IllegalArgumentException(Constantes.MSG_NO_SE_PUEDE_EXPULSAR_A_SI_MISMO);
+        }
+        if (isGroupCreator(chat, targetUserId)) {
+            throw new AccessDeniedException(Constantes.MSG_NO_SE_PUEDE_EXPULSAR_FUNDADOR);
+        }
+
+        UsuarioEntity actor = findActiveGroupMemberEntity(chat, actorId)
+                .orElseThrow(() -> new AccessDeniedException(Constantes.MSG_NO_PERTENECE_GRUPO));
+        UsuarioEntity target = findActiveGroupMemberEntity(chat, targetUserId)
+                .orElseThrow(() -> new IllegalArgumentException(Constantes.MSG_NO_PERTENECE_GRUPO));
+
+        boolean targetWasAdmin = isGroupAdmin(chat, targetUserId);
+
+        chat.getUsuarios().removeIf(u -> u != null && Objects.equals(u.getId(), targetUserId));
+        if (chat.getAdmins() != null) {
+            chat.getAdmins().removeIf(u -> u != null && Objects.equals(u.getId(), targetUserId));
+        }
+        chatGrupalRepo.save(chat);
+
+        String traceId = Optional.ofNullable(E2EDiagnosticUtils.currentTraceId()).orElse(E2EDiagnosticUtils.newTraceId());
+        LOGGER.info(Constantes.LOG_GROUP_MEMBER_EXPELLED_AUDIT,
+                traceId, actorId, targetUserId, groupId, actorCanManage, targetWasAdmin);
+
+        MensajeDTO groupEvent = crearMensajeSistemaExpulsionGrupo(chat, actor, target);
+        MensajeDTO expelledEvent = crearMensajeSistemaExpulsionUsuario(chat, actor, target);
+
+        messagingTemplate.convertAndSend(Constantes.TOPIC_CHAT_GRUPAL + groupId, groupEvent);
+        messagingTemplate.convertAndSend(Constantes.TOPIC_CHAT + targetUserId, expelledEvent);
+        messagingTemplate.convertAndSend(Constantes.TOPIC_CHAT + actorId, groupEvent);
+
+        return new GroupMemberExpulsionResponseDTO(
+                true,
+                Constantes.MSG_MIEMBRO_EXPULSADO_GRUPO,
+                groupId,
+                targetUserId,
+                actorId,
+                buildNombreCompleto(actor.getNombre(), actor.getApellido()));
+    }
+
+    private ChatGrupalEntity findActiveGroupOrThrow(Long groupId) {
+        ChatGrupalEntity chat = chatGrupalRepo.findById(groupId)
+                .orElseThrow(() -> new RecursoNoEncontradoException(Constantes.MSG_CHAT_GRUPAL_NO_ENCONTRADO_ID + groupId));
+        if (!chat.isActivo()) {
+            throw new RecursoNoEncontradoException(Constantes.MSG_CHAT_GRUPAL_NO_ENCONTRADO_ID + groupId);
+        }
+        return chat;
+    }
+
+    private boolean isActiveGroupMember(ChatGrupalEntity chat, Long userId) {
+        return chat != null
+                && userId != null
+                && chat.getUsuarios() != null
+                && chat.getUsuarios().stream()
+                .anyMatch(u -> u != null && Objects.equals(u.getId(), userId) && u.isActivo());
+    }
+
+    private Optional<UsuarioEntity> findActiveGroupMemberEntity(ChatGrupalEntity chat, Long userId) {
+        if (chat == null || userId == null || chat.getUsuarios() == null) {
+            return Optional.empty();
+        }
+        return chat.getUsuarios().stream()
+                .filter(Objects::nonNull)
+                .filter(UsuarioEntity::isActivo)
+                .filter(u -> Objects.equals(u.getId(), userId))
+                .findFirst();
+    }
+
+    private boolean isGroupAdmin(ChatGrupalEntity chat, Long userId) {
+        return chat != null
+                && userId != null
+                && chat.getAdmins() != null
+                && chat.getAdmins().stream()
+                .anyMatch(a -> a != null && Objects.equals(a.getId(), userId));
+    }
+
+    private boolean isGroupCreator(ChatGrupalEntity chat, Long userId) {
+        return chat != null
+                && userId != null
+                && chat.getCreador() != null
+                && Objects.equals(chat.getCreador().getId(), userId);
+    }
+
+    private boolean canEditGroupMetadata(ChatGrupalEntity chat, Long userId) {
+        return isActiveGroupMember(chat, userId) && (isGroupAdmin(chat, userId) || isGroupCreator(chat, userId));
+    }
+
+    private boolean ensureCreatorAdmin(ChatGrupalEntity chat) {
+        if (chat == null || chat.getCreador() == null) {
+            return false;
+        }
+        if (chat.getAdmins() == null) {
+            chat.setAdmins(new LinkedHashSet<>());
+        }
+        Long creatorId = chat.getCreador().getId();
+        boolean alreadyAdmin = chat.getAdmins().stream()
+                .filter(Objects::nonNull)
+                .anyMatch(a -> Objects.equals(a.getId(), creatorId));
+        if (alreadyAdmin) {
+            return false;
+        }
+        chat.getAdmins().add(chat.getCreador());
+        return true;
     }
 
     private List<MensajeEntity> fetchMessagesPageChronological(Long chatId, Integer page, Integer size) {
@@ -1390,6 +1758,77 @@ public class ChatServiceImpl implements ChatService {
         return DIACRITICS_PATTERN.matcher(normalized).replaceAll("");
     }
 
+    private MensajeDTO crearMensajeSistemaExpulsionGrupo(ChatGrupalEntity chat,
+                                                         UsuarioEntity actor,
+                                                         UsuarioEntity target) {
+        String actorNombre = buildNombreCompleto(
+                actor == null ? null : actor.getNombre(),
+                actor == null ? null : actor.getApellido());
+        String targetNombre = buildNombreCompleto(
+                target == null ? null : target.getNombre(),
+                target == null ? null : target.getApellido());
+        String contenido = actorNombre + " expuls\u00F3 a " + targetNombre + " del grupo";
+
+        MensajeEntity mensaje = new MensajeEntity();
+        mensaje.setChat(chat);
+        mensaje.setEmisor(actor);
+        mensaje.setReceptor(null);
+        mensaje.setTipo(MessageType.SYSTEM);
+        mensaje.setContenido(contenido);
+        mensaje.setFechaEnvio(LocalDateTime.now());
+        mensaje.setActivo(true);
+        mensaje.setLeido(false);
+        mensaje.setReenviado(false);
+
+        MensajeEntity saved = mensajeRepository.save(mensaje);
+        MensajeDTO dto = MappingUtils.mensajeEntityADto(saved);
+        dto.setTipo(Constantes.TIPO_SYSTEM);
+        dto.setEsSistema(true);
+        dto.setSystemEvent(Constantes.SYSTEM_EVENT_GROUP_MEMBER_REMOVED);
+        dto.setChatId(chat == null ? null : chat.getId());
+        dto.setReceptorId(chat == null ? null : chat.getId());
+        dto.setTargetUserId(target == null ? null : target.getId());
+        dto.setEmisorNombre(actor == null ? null : actor.getNombre());
+        dto.setEmisorApellido(actor == null ? null : actor.getApellido());
+        dto.setEmisorNombreCompleto(actorNombre);
+        return dto;
+    }
+
+    private MensajeDTO crearMensajeSistemaExpulsionUsuario(ChatGrupalEntity chat,
+                                                           UsuarioEntity actor,
+                                                           UsuarioEntity target) {
+        String actorNombre = buildNombreCompleto(
+                actor == null ? null : actor.getNombre(),
+                actor == null ? null : actor.getApellido());
+        String groupName = chat == null || chat.getNombreGrupo() == null || chat.getNombreGrupo().isBlank()
+                ? "grupo"
+                : chat.getNombreGrupo().trim();
+        String contenido = "Has sido expulsado de \"" + groupName + "\" por \"" + actorNombre + "\"";
+
+        MensajeEntity mensaje = new MensajeEntity();
+        mensaje.setChat(chat);
+        mensaje.setEmisor(actor);
+        mensaje.setReceptor(target);
+        mensaje.setTipo(MessageType.SYSTEM);
+        mensaje.setContenido(contenido);
+        mensaje.setFechaEnvio(LocalDateTime.now());
+        mensaje.setActivo(true);
+        mensaje.setLeido(false);
+        mensaje.setReenviado(false);
+
+        MensajeEntity saved = mensajeRepository.save(mensaje);
+        MensajeDTO dto = MappingUtils.mensajeEntityADto(saved);
+        dto.setTipo(Constantes.TIPO_SYSTEM);
+        dto.setEsSistema(true);
+        dto.setSystemEvent(Constantes.SYSTEM_EVENT_GROUP_MEMBER_EXPELLED);
+        dto.setChatId(chat == null ? null : chat.getId());
+        dto.setTargetUserId(target == null ? null : target.getId());
+        dto.setEmisorNombre(actor == null ? null : actor.getNombre());
+        dto.setEmisorApellido(actor == null ? null : actor.getApellido());
+        dto.setEmisorNombreCompleto(actorNombre);
+        return dto;
+    }
+
     private MensajeDTO crearMensajeSistemaSalidaGrupo(ChatGrupalEntity chat, UsuarioEntity usuarioQueSale) {
         String nombreCompleto = buildNombreCompleto(
                 usuarioQueSale == null ? null : usuarioQueSale.getNombre(),
@@ -1411,6 +1850,7 @@ public class ChatServiceImpl implements ChatService {
         MensajeDTO dto = MappingUtils.mensajeEntityADto(saved);
         dto.setReceptorId(chat.getId());
         dto.setTipo(Constantes.TIPO_SYSTEM);
+        dto.setEsSistema(true);
         dto.setEmisorNombre(usuarioQueSale == null ? null : usuarioQueSale.getNombre());
         dto.setEmisorApellido(usuarioQueSale == null ? null : usuarioQueSale.getApellido());
         dto.setEmisorNombreCompleto(nombreCompleto);
@@ -1426,7 +1866,11 @@ public class ChatServiceImpl implements ChatService {
         return dto;
     }
 
-    private void applyAdminRawMetadata(ChatResumenDTO dto, MensajeEntity mensaje) {
+    private void applyAdminRawMetadata(ChatResumenDTO dto,
+                                       MensajeEntity mensaje,
+                                       MensajeTemporalAuditoriaEntity auditoria,
+                                       boolean mostrarOriginalAuditoria,
+                                       Long requesterId) {
         if (mensaje == null) {
             dto.setUltimoMensaje(Constantes.MSG_SIN_DATOS);
             dto.setUltimoMensajeFecha(null);
@@ -1438,6 +1882,10 @@ public class ChatServiceImpl implements ChatService {
             dto.setUltimoMensajeEmisorNombre(null);
             dto.setUltimoMensajeEmisorApellido(null);
             dto.setUltimoMensajeEmisorNombreCompleto(null);
+            dto.setUltimoMensajeTemporal(false);
+            dto.setUltimoMensajeTemporalSegundos(null);
+            dto.setUltimoMensajeExpiraEn(null);
+            dto.setUltimoMensajeEstadoTemporal("NO_TEMPORAL");
             return;
         }
 
@@ -1447,20 +1895,113 @@ public class ChatServiceImpl implements ChatService {
         String emisorNombre = mensaje.getEmisor() == null ? null : mensaje.getEmisor().getNombre();
         String emisorApellido = mensaje.getEmisor() == null ? null : mensaje.getEmisor().getApellido();
         String emisorNombreCompleto = buildNombreCompleto(emisorNombre, emisorApellido);
-        String rawContenido = mensaje.getContenido() == null ? Constantes.MSG_SIN_DATOS : mensaje.getContenido();
+        boolean temporalExpirado = isTemporalExpirado(mensaje);
+        String contenidoFallback = temporalExpirado
+                ? buildPlaceholderTemporal(mensaje)
+                : (mensaje.getContenido() == null ? Constantes.MSG_SIN_DATOS : mensaje.getContenido());
+        String rawContenido = contenidoFallback;
+        if (temporalExpirado && mostrarOriginalAuditoria && auditoria != null
+                && auditoria.getContenidoOriginal() != null && !auditoria.getContenidoOriginal().isBlank()) {
+            rawContenido = auditoria.getContenidoOriginal();
+            registrarAccesoAuditoria(requesterId, mensaje.getChat() == null ? null : mensaje.getChat().getId(), mensaje.getId());
+        }
 
         dto.setUltimoMensaje(rawContenido);
         dto.setUltimoMensajeFecha(mensaje.getFechaEnvio());
         dto.setFechaUltimoMensaje(mensaje.getFechaEnvio());
-        dto.setUltimoMensajeTipo(mensaje.getTipo() == null ? MessageType.TEXT.name() : mensaje.getTipo().name());
+        dto.setUltimoMensajeTipo(temporalExpirado
+                ? MessageType.TEXT.name()
+                : (mensaje.getTipo() == null ? MessageType.TEXT.name() : mensaje.getTipo().name()));
         dto.setUltimoMensajeEmisorNombre(emisorNombre);
         dto.setUltimoMensajeEmisorApellido(emisorApellido);
         dto.setUltimoMensajeEmisorNombreCompleto(emisorNombreCompleto);
         dto.setUltimoMensajeTexto(null);
         dto.setUltimoMensajePreview(null);
         dto.setUltimoMensajeDescifrado(null);
+        dto.setUltimoMensajeTemporal(mensaje.isMensajeTemporal());
+        dto.setUltimoMensajeTemporalSegundos(mensaje.getMensajeTemporalSegundos());
+        dto.setUltimoMensajeExpiraEn(mensaje.getExpiraEn());
+        dto.setUltimoMensajeEstadoTemporal(resolveEstadoTemporal(mensaje.isMensajeTemporal(), mensaje.getExpiraEn()));
 
         logAdminPreviewDiag(mensaje, classification, false, false);
+    }
+
+    private Map<Long, MensajeTemporalAuditoriaEntity> cargarAuditoriaPorMensajes(List<MensajeEntity> mensajes) {
+        if (mensajes == null || mensajes.isEmpty()) {
+            return Map.of();
+        }
+        List<Long> ids = mensajes.stream()
+                .map(MensajeEntity::getId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toList());
+        if (ids.isEmpty()) {
+            return Map.of();
+        }
+        return mensajeTemporalAuditoriaRepository.findByMensajeIdIn(ids).stream()
+                .filter(Objects::nonNull)
+                .filter(a -> a.getMensajeId() != null)
+                .collect(Collectors.toMap(
+                        MensajeTemporalAuditoriaEntity::getMensajeId,
+                        a -> a,
+                        (a, b) -> a,
+                        LinkedHashMap::new));
+    }
+
+    private void aplicarCamposAuditoriaAdmin(MensajeDTO dto,
+                                             MensajeEntity mensaje,
+                                             MensajeTemporalAuditoriaEntity auditoria,
+                                             boolean mostrarOriginalAuditoria,
+                                             Long requesterId) {
+        if (dto == null) {
+            return;
+        }
+        if (auditoria == null) {
+            dto.setTieneOriginalAuditoria(false);
+            return;
+        }
+        dto.setTieneOriginalAuditoria(true);
+        if (mostrarOriginalAuditoria) {
+            dto.setContenidoAuditoria(auditoria.getContenidoOriginal());
+            dto.setAudioUrlAuditoria(auditoria.getAudioUrlOriginal());
+            dto.setImageUrlAuditoria(auditoria.getImageUrlOriginal());
+        }
+
+        if (!mostrarOriginalAuditoria || mensaje == null || !isTemporalExpirado(mensaje)) {
+            return;
+        }
+
+        if (auditoria.getContenidoOriginal() != null && !auditoria.getContenidoOriginal().isBlank()) {
+            dto.setContenido(auditoria.getContenidoOriginal());
+        }
+        String tipoOriginal = auditoria.getTipoOriginal();
+        if (tipoOriginal != null && !tipoOriginal.isBlank()) {
+            dto.setTipo(tipoOriginal);
+        }
+        if (auditoria.getAudioUrlOriginal() != null && !auditoria.getAudioUrlOriginal().isBlank()) {
+            dto.setAudioUrl(auditoria.getAudioUrlOriginal());
+        }
+        if (auditoria.getImageUrlOriginal() != null && !auditoria.getImageUrlOriginal().isBlank()) {
+            dto.setImageUrl(auditoria.getImageUrlOriginal());
+        }
+        dto.setActivo(false);
+        dto.setMotivoEliminacion("TEMPORAL_EXPIRADO");
+        dto.setEstadoTemporal("EXPIRADO");
+        registrarAccesoAuditoria(requesterId, mensaje.getChat() == null ? null : mensaje.getChat().getId(), mensaje.getId());
+    }
+
+    private void registrarAccesoAuditoria(Long requesterId, Long chatId, Long mensajeId) {
+        LOGGER.info("[AUDITORIA_TEMPORAL_ACCESS] requesterId={} chatId={} mensajeId={} at={}",
+                requesterId,
+                chatId,
+                mensajeId,
+                LocalDateTime.now());
+    }
+
+    private String resolveEstadoTemporal(boolean mensajeTemporal, LocalDateTime expiraEn) {
+        if (!mensajeTemporal || expiraEn == null) {
+            return "NO_TEMPORAL";
+        }
+        return expiraEn.isAfter(LocalDateTime.now()) ? "ACTIVO" : "EXPIRADO";
     }
 
     private void logAdminPreviewDiag(MensajeEntity mensaje, String classification, boolean decryptOk, boolean usedForAdmin) {
@@ -1569,14 +2110,16 @@ public class ChatServiceImpl implements ChatService {
     private MediaMeta extractMediaMeta(MensajeEntity mensaje) {
         String mime = mensaje.getMediaMime();
         Integer durMs = mensaje.getMediaDuracionMs();
+        Long sizeBytes = mensaje.getMediaSizeBytes();
         String mediaUrl = mensaje.getMediaUrl();
         String fileName = null;
-        Long sizeBytes = null;
 
         if (mediaUrl != null && !mediaUrl.isBlank()) {
             int slash = mediaUrl.lastIndexOf('/');
             fileName = slash >= 0 && slash + 1 < mediaUrl.length() ? mediaUrl.substring(slash + 1) : mediaUrl;
-            sizeBytes = resolveSizeBytesFromMediaUrl(mediaUrl);
+            if (sizeBytes == null) {
+                sizeBytes = resolveSizeBytesFromMediaUrl(mediaUrl);
+            }
         }
 
         String contenido = mensaje.getContenido();
@@ -1587,6 +2130,7 @@ public class ChatServiceImpl implements ChatService {
                     mime = firstNonBlank(
                             root.path("audioMime").asText(null),
                             root.path("imageMime").asText(null),
+                            root.path("fileMime").asText(null),
                             root.path("mime").asText(null));
                 }
                 if (durMs == null) {
@@ -1599,17 +2143,21 @@ public class ChatServiceImpl implements ChatService {
                 if (mediaUrl == null) {
                     mediaUrl = firstNonBlank(root.path("audioUrl").asText(null),
                             root.path("imageUrl").asText(null),
+                            root.path("fileUrl").asText(null),
                             root.path("mediaUrl").asText(null),
                             root.path("url").asText(null));
                 }
                 if (fileName == null) {
                     fileName = firstNonBlank(
                             root.path("imageNombre").asText(null),
+                            root.path("fileNombre").asText(null),
                             root.path("fileName").asText(null),
                             extractFileNameFromUrl(mediaUrl));
                 }
                 if (sizeBytes == null) {
-                    Long parsedSize = extractLong(root, "sizeBytes");
+                    Long parsedSize = firstNonNull(
+                            extractLong(root, "fileSizeBytes"),
+                            extractLong(root, "sizeBytes"));
                     if (parsedSize == null && mediaUrl != null) {
                         parsedSize = resolveSizeBytesFromMediaUrl(mediaUrl);
                     }
@@ -1695,6 +2243,19 @@ public class ChatServiceImpl implements ChatService {
         return null;
     }
 
+    @SafeVarargs
+    private final <T> T firstNonNull(T... values) {
+        if (values == null) {
+            return null;
+        }
+        for (T value : values) {
+            if (value != null) {
+                return value;
+            }
+        }
+        return null;
+    }
+
     private record SearchMatchCandidate(boolean startsWithQuery,
                                         LocalDateTime fechaEnvio,
                                         Long id,
@@ -1727,6 +2288,23 @@ public class ChatServiceImpl implements ChatService {
                 .filter(Objects::nonNull)
                 .map(String::trim)
                 .anyMatch(rol -> Constantes.ROLE_ADMIN.equalsIgnoreCase(rol) || Constantes.ADMIN.equalsIgnoreCase(rol));
+    }
+
+    private boolean esAuditor(UsuarioEntity usuario) {
+        if (usuario == null || usuario.getRoles() == null) {
+            return false;
+        }
+        return usuario.getRoles().stream()
+                .filter(Objects::nonNull)
+                .map(String::trim)
+                .anyMatch(rol -> "ROLE_AUDITOR".equalsIgnoreCase(rol) || "AUDITOR".equalsIgnoreCase(rol));
+    }
+
+    private boolean esAdminOAuditor(UsuarioEntity usuario) {
+        return securityUtils.hasRole("ADMIN")
+                || securityUtils.hasRole("AUDITOR")
+                || esAdmin(usuario)
+                || esAuditor(usuario);
     }
 
 

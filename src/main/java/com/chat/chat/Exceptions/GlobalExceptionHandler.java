@@ -8,6 +8,9 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
+import java.util.LinkedHashMap;
+import java.util.Map;
+
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
@@ -65,6 +68,12 @@ public class GlobalExceptionHandler {
                 .body(new ApiError(ex.getCode(), ex.getMessage()));
     }
 
+    @ExceptionHandler(UploadSecurityException.class)
+    public ResponseEntity<ApiError> handleUploadSecurity(UploadSecurityException ex) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(new ApiError(ex.getCode(), ex.getMessage()));
+    }
+
     @ExceptionHandler(AccessDeniedException.class)
     public ResponseEntity<ApiError> handleAccessDenied(AccessDeniedException ex) {
         return ResponseEntity.status(HttpStatus.FORBIDDEN)
@@ -80,13 +89,22 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(ConflictoException.class)
     public ResponseEntity<ApiError> handleConflict(ConflictoException ex) {
         return ResponseEntity.status(HttpStatus.CONFLICT)
-                .body(new ApiError(Constantes.ERR_CONFLICTO, ex.getMessage()));
+                .body(new ApiError(ex.getCode(), ex.getMessage()));
     }
 
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<ApiError> handleIllegalArgument(IllegalArgumentException ex) {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                 .body(new ApiError(Constantes.ERR_RESPUESTA_INVALIDA, ex.getMessage()));
+    }
+
+    @ExceptionHandler(ValidacionPayloadException.class)
+    public ResponseEntity<Map<String, Object>> handleValidacionPayload(ValidacionPayloadException ex) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("code", Constantes.ERR_RESPUESTA_INVALIDA);
+        body.put("message", ex.getMessage());
+        body.put("detalleCampos", ex.getDetalleCampos());
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(body);
     }
 
     @ExceptionHandler(SqlInjectionException.class)

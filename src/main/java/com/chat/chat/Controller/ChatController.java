@@ -9,13 +9,22 @@ import com.chat.chat.DTO.ChatMensajeBusquedaPageDTO;
 import com.chat.chat.DTO.ChatResumenDTO;
 import com.chat.chat.DTO.EsMiembroDTO;
 import com.chat.chat.DTO.GroupDetailDTO;
+import com.chat.chat.DTO.GroupMemberExpulsionResponseDTO;
+import com.chat.chat.DTO.GroupMetadataUpdateDTO;
 import com.chat.chat.DTO.GroupMediaPageDTO;
 import com.chat.chat.DTO.LeaveGroupRequestDTO;
 import com.chat.chat.DTO.MensajeDTO;
+import com.chat.chat.DTO.MensajeProgramadoDTO;
 import com.chat.chat.DTO.MessagueSalirGrupoDTO;
+import com.chat.chat.DTO.ProgramarMensajeRequestDTO;
+import com.chat.chat.DTO.ProgramarMensajeResponseDTO;
+import com.chat.chat.DTO.VotoEncuestaDTO;
 import com.chat.chat.Exceptions.ApiError;
 import com.chat.chat.Service.ChatService.ChatService;
+import com.chat.chat.Service.MensajeProgramadoService.MensajeProgramadoService;
+import com.chat.chat.Service.MensajeriaService.MensajeriaService;
 import com.chat.chat.Utils.Constantes;
+import com.chat.chat.Utils.EstadoMensajeProgramado;
 import com.chat.chat.Utils.SecurityUtils;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -30,6 +39,7 @@ import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -37,6 +47,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
+import java.util.Locale;
 
 @RestController
 @RequestMapping(Constantes.API_CHAT)
@@ -46,6 +57,12 @@ public class ChatController {
 
     @Autowired
     private ChatService chatService;
+
+    @Autowired
+    private MensajeriaService mensajeriaService;
+
+    @Autowired
+    private MensajeProgramadoService mensajeProgramadoService;
 
     @Autowired
     private SecurityUtils securityUtils;
@@ -79,6 +96,19 @@ public class ChatController {
         return chatService.obtenerDetalleGrupo(groupId);
     }
 
+    @PatchMapping(Constantes.GRUPAL_UPDATE_METADATA)
+    @Operation(summary = "Actualizar metadata de grupo", description = "Actualiza nombre, descripcion y/o foto del grupo.")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Grupo actualizado", content = @Content(schema = @Schema(implementation = GroupDetailDTO.class))),
+            @ApiResponse(responseCode = "400", description = "Payload invalido", content = @Content(schema = @Schema(implementation = ApiError.class))),
+            @ApiResponse(responseCode = "403", description = "Sin permisos para editar", content = @Content(schema = @Schema(implementation = ApiError.class))),
+            @ApiResponse(responseCode = "404", description = "Grupo no encontrado", content = @Content(schema = @Schema(implementation = ApiError.class)))
+    })
+    public GroupDetailDTO actualizarMetadataGrupo(@PathVariable("groupId") Long groupId,
+                                                  @RequestBody GroupMetadataUpdateDTO dto) {
+        return chatService.actualizarMetadataGrupo(groupId, dto);
+    }
+
     @PostMapping(Constantes.GRUPAL_ADMIN_ADD)
     @Operation(summary = "Asignar admin de grupo", description = "Promueve un miembro como administrador del grupo.")
     @ApiResponses(value = {
@@ -99,6 +129,19 @@ public class ChatController {
     })
     public void removeAdmin(@PathVariable("groupId") Long groupId, @PathVariable("userId") Long userId) {
         chatService.setAdminGrupo(groupId, userId, false);
+    }
+
+    @DeleteMapping(Constantes.GRUPAL_MIEMBRO_REMOVE)
+    @Operation(summary = "Expulsar miembro de grupo", description = "Permite a ADMIN/CREADOR expulsar un miembro activo del grupo.")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Miembro expulsado", content = @Content(schema = @Schema(implementation = GroupMemberExpulsionResponseDTO.class))),
+            @ApiResponse(responseCode = "400", description = "Solicitud invalida", content = @Content(schema = @Schema(implementation = ApiError.class))),
+            @ApiResponse(responseCode = "403", description = "Sin permisos o intento de expulsar al fundador", content = @Content(schema = @Schema(implementation = ApiError.class))),
+            @ApiResponse(responseCode = "404", description = "Grupo no encontrado o inactivo", content = @Content(schema = @Schema(implementation = ApiError.class)))
+    })
+    public GroupMemberExpulsionResponseDTO expulsarMiembroGrupo(@PathVariable("groupId") Long groupId,
+                                                                 @PathVariable("userId") Long userId) {
+        return chatService.expulsarMiembroDeGrupo(groupId, userId);
     }
 
     @PostMapping(Constantes.GRUPAL)
@@ -133,8 +176,9 @@ public class ChatController {
             @ApiResponse(responseCode = "200", description = "Conversaciones obtenidas"),
             @ApiResponse(responseCode = "403", description = "Solo administradores", content = @Content(schema = @Schema(implementation = ApiError.class)))
     })
-    public List<ChatResumenDTO> getChatsUsuario(@PathVariable("id") Long id) {
-        return chatService.listarConversacionesDeUsuario(id);
+    public List<ChatResumenDTO> getChatsUsuario(@PathVariable("id") Long id,
+                                                @RequestParam(value = "includeExpired", defaultValue = "false") Boolean includeExpired) {
+        return chatService.listarConversacionesDeUsuario(id, includeExpired);
     }
 
     @PostMapping(Constantes.GRUPAL_SALIR)
@@ -189,6 +233,30 @@ public class ChatController {
         return ResponseEntity.ok(chatService.listarMensajesPorChatGrupal(chatId, page, size));
     }
 
+    @PostMapping(Constantes.MENSAJES_ELIMINAR)
+    @Operation(summary = "Eliminar mensaje", description = "Aplica borrado logico de un mensaje propio y registra fechaEliminacion en UTC.")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Mensaje eliminado", content = @Content(schema = @Schema(implementation = MensajeDTO.class))),
+            @ApiResponse(responseCode = "403", description = "No autorizado para eliminar el mensaje", content = @Content(schema = @Schema(implementation = ApiError.class))),
+            @ApiResponse(responseCode = "404", description = "Mensaje no encontrado", content = @Content(schema = @Schema(implementation = ApiError.class))),
+            @ApiResponse(responseCode = "409", description = "Conflicto de estado del mensaje", content = @Content(schema = @Schema(implementation = ApiError.class)))
+    })
+    public ResponseEntity<MensajeDTO> eliminarMensaje(@PathVariable("mensajeId") Long mensajeId) {
+        return ResponseEntity.ok(mensajeriaService.eliminarMensajePropio(mensajeId, null));
+    }
+
+    @PostMapping(Constantes.MENSAJES_RESTAURAR)
+    @Operation(summary = "Restaurar mensaje eliminado", description = "Restaura un mensaje eliminado logicamente por su emisor dentro de la ventana de 3 dias.")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Mensaje restaurado", content = @Content(schema = @Schema(implementation = MensajeDTO.class))),
+            @ApiResponse(responseCode = "403", description = "No autorizado para restaurar el mensaje", content = @Content(schema = @Schema(implementation = ApiError.class))),
+            @ApiResponse(responseCode = "404", description = "Mensaje no encontrado", content = @Content(schema = @Schema(implementation = ApiError.class))),
+            @ApiResponse(responseCode = "409", description = "Ventana de restauracion vencida", content = @Content(schema = @Schema(implementation = ApiError.class)))
+    })
+    public ResponseEntity<MensajeDTO> restaurarMensaje(@PathVariable("mensajeId") Long mensajeId) {
+        return ResponseEntity.ok(mensajeriaService.restaurarMensajePropio(mensajeId));
+    }
+
     @GetMapping(Constantes.MENSAJES_BUSCAR_CHAT)
     @Operation(summary = "Buscar mensajes en chat", description = "Busca texto dentro del historial de un chat y devuelve resultados paginados.")
     @ApiResponses(value = {
@@ -223,7 +291,69 @@ public class ChatController {
             @ApiResponse(responseCode = "200", description = "Mensajes obtenidos"),
             @ApiResponse(responseCode = "403", description = "Solo administradores", content = @Content(schema = @Schema(implementation = ApiError.class)))
     })
-    public ResponseEntity<List<MensajeDTO>> listarMensajesPorChatIdAdmin(@PathVariable("chatId") Long chatId) {
-        return ResponseEntity.ok(chatService.listarMensajesPorChatIdAdmin(chatId));
+    public ResponseEntity<List<MensajeDTO>> listarMensajesPorChatIdAdmin(
+            @PathVariable("chatId") Long chatId,
+            @RequestParam(value = "includeExpired", defaultValue = "false") Boolean includeExpired) {
+        return ResponseEntity.ok(chatService.listarMensajesPorChatIdAdmin(chatId, includeExpired));
+    }
+
+    @PostMapping(Constantes.POLL_VOTE)
+    @Operation(summary = "Votar encuesta en chat grupal", description = "Registra o alterna el voto del usuario autenticado para una encuesta.")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Voto aplicado y encuesta actualizada"),
+            @ApiResponse(responseCode = "403", description = "Sin permisos para votar en el grupo", content = @Content(schema = @Schema(implementation = ApiError.class))),
+            @ApiResponse(responseCode = "404", description = "Mensaje/encuesta no encontrado", content = @Content(schema = @Schema(implementation = ApiError.class))),
+            @ApiResponse(responseCode = "409", description = "Conflicto de voto concurrente", content = @Content(schema = @Schema(implementation = ApiError.class)))
+    })
+    public ResponseEntity<MensajeDTO> votarEncuesta(
+            @PathVariable("mensajeId") Long mensajeId,
+            @RequestBody VotoEncuestaDTO payload) {
+        payload.setMensajeId(mensajeId);
+        return ResponseEntity.ok(mensajeriaService.votarEncuesta(payload));
+    }
+
+    @PostMapping(Constantes.MENSAJES_PROGRAMADOS)
+    @Operation(summary = "Programar mensaje", description = "Programa el envio de un mensaje para una fecha/hora UTC exacta.")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Mensajes programados correctamente"),
+            @ApiResponse(responseCode = "400", description = "Payload invalido", content = @Content(schema = @Schema(implementation = ApiError.class))),
+            @ApiResponse(responseCode = "403", description = "Sin permisos sobre chat destino", content = @Content(schema = @Schema(implementation = ApiError.class)))
+    })
+    public ResponseEntity<ProgramarMensajeResponseDTO> programarMensaje(
+            @RequestBody ProgramarMensajeRequestDTO payload) {
+        return ResponseEntity.ok(mensajeProgramadoService.crearMensajesProgramados(payload));
+    }
+
+    @GetMapping(Constantes.MENSAJES_PROGRAMADOS)
+    @Operation(summary = "Listar mensajes programados", description = "Lista mensajes programados del usuario autenticado, opcionalmente filtrados por estado.")
+    @ApiResponse(responseCode = "200", description = "Mensajes programados obtenidos")
+    public ResponseEntity<List<MensajeProgramadoDTO>> listarMensajesProgramados(
+            @RequestParam(value = "status", required = false) String status) {
+        EstadoMensajeProgramado estado = parseEstadoProgramado(status);
+        return ResponseEntity.ok(mensajeProgramadoService.listarMensajesProgramados(estado));
+    }
+
+    @PostMapping(Constantes.MENSAJES_PROGRAMADOS_CANCELAR)
+    @Operation(summary = "Cancelar mensaje programado", description = "Cancela un mensaje programado en estado PENDING.")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Cancelacion aplicada"),
+            @ApiResponse(responseCode = "400", description = "No cancelable en estado actual", content = @Content(schema = @Schema(implementation = ApiError.class))),
+            @ApiResponse(responseCode = "403", description = "Sin permisos", content = @Content(schema = @Schema(implementation = ApiError.class))),
+            @ApiResponse(responseCode = "404", description = "No encontrado", content = @Content(schema = @Schema(implementation = ApiError.class)))
+    })
+    public ResponseEntity<MensajeProgramadoDTO> cancelarMensajeProgramado(
+            @PathVariable("id") Long id) {
+        return ResponseEntity.ok(mensajeProgramadoService.cancelarMensajeProgramado(id));
+    }
+
+    private EstadoMensajeProgramado parseEstadoProgramado(String status) {
+        if (status == null || status.isBlank()) {
+            return null;
+        }
+        try {
+            return EstadoMensajeProgramado.valueOf(status.trim().toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException ex) {
+            throw new IllegalArgumentException("status invalido. Usa: PENDING, PROCESSING, SENT, FAILED, CANCELED");
+        }
     }
 }

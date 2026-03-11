@@ -1,12 +1,28 @@
 package com.chat.chat.Entity;
 
 import com.chat.chat.Utils.MessageType;
-import jakarta.persistence.*;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.Index;
+import jakarta.persistence.Lob;
+import jakarta.persistence.ManyToOne;
+import jakarta.persistence.Table;
 
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "mensajes")
+@Table(
+        name = "mensajes",
+        indexes = {
+                @Index(name = "idx_mensajes_temporal_expira_en", columnList = "mensaje_temporal,expira_en")
+        }
+)
 public class MensajeEntity {
 
     @Id
@@ -28,23 +44,38 @@ public class MensajeEntity {
     @Enumerated(EnumType.STRING)
     private MessageType tipo = MessageType.TEXT;
 
-    // AUDIO
-    @Column(name="media_url")
-    private String mediaUrl;            // /uploads/voice/xxxxx.webm (o .ogg/.m4a)
-    @Column(name="media_mime")
-    private String mediaMime;           // p.ej "audio/webm"
-    @Column(name="media_duracion_ms")
+    @Column(name = "media_url")
+    private String mediaUrl;
+
+    @Column(name = "media_mime")
+    private String mediaMime;
+
+    @Column(name = "media_duracion_ms")
     private Integer mediaDuracionMs;
+
+    @Column(name = "media_size_bytes")
+    private Long mediaSizeBytes;
 
     @Lob
     @Column(columnDefinition = "TEXT")
     private String contenido;
+
     private LocalDateTime fechaEnvio;
+
     @Column(nullable = false)
     private boolean activo = true;
 
     @Column(nullable = false)
     private boolean reenviado = false;
+
+    @Column(nullable = false)
+    private boolean leido = false;
+
+    @Column(nullable = false)
+    private boolean editado = false;
+
+    @Column(name = "fecha_edicion")
+    private LocalDateTime fechaEdicion;
 
     @Column(name = "mensaje_original_id")
     private Long mensajeOriginalId;
@@ -57,6 +88,56 @@ public class MensajeEntity {
 
     @Column(name = "reply_author_name", length = 120)
     private String replyAuthorName;
+
+    @Column(name = "mensaje_temporal", nullable = false)
+    private boolean mensajeTemporal = false;
+
+    @Column(name = "mensaje_temporal_segundos")
+    private Long mensajeTemporalSegundos;
+
+    @Column(name = "expira_en")
+    private LocalDateTime expiraEn;
+
+    @Column(name = "motivo_eliminacion", length = 80)
+    private String motivoEliminacion;
+
+    @Column(name = "placeholder_texto", length = 500)
+    private String placeholderTexto;
+
+    @Column(name = "fecha_eliminacion")
+    private LocalDateTime fechaEliminacion;
+
+    public Long getId() {
+        return id;
+    }
+
+    public void setId(Long id) {
+        this.id = id;
+    }
+
+    public UsuarioEntity getEmisor() {
+        return emisor;
+    }
+
+    public void setEmisor(UsuarioEntity emisor) {
+        this.emisor = emisor;
+    }
+
+    public UsuarioEntity getReceptor() {
+        return receptor;
+    }
+
+    public void setReceptor(UsuarioEntity receptor) {
+        this.receptor = receptor;
+    }
+
+    public ChatEntity getChat() {
+        return chat;
+    }
+
+    public void setChat(ChatEntity chat) {
+        this.chat = chat;
+    }
 
     public MessageType getTipo() {
         return tipo;
@@ -90,47 +171,12 @@ public class MensajeEntity {
         this.mediaDuracionMs = mediaDuracionMs;
     }
 
-    @Column(nullable = false)
-    private boolean leido = false; // Inicialmente no leído
-
-    public Long getId() {
-        return id;
+    public Long getMediaSizeBytes() {
+        return mediaSizeBytes;
     }
 
-    public void setId(Long id) {
-        this.id = id;
-    }
-
-    public boolean isLeido() {
-        return leido;
-    }
-
-    public void setLeido(boolean leido) {
-        this.leido = leido;
-    }
-
-    public UsuarioEntity getEmisor() {
-        return emisor;
-    }
-
-    public void setEmisor(UsuarioEntity emisor) {
-        this.emisor = emisor;
-    }
-
-    public UsuarioEntity getReceptor() {
-        return receptor;
-    }
-
-    public void setReceptor(UsuarioEntity receptor) {
-        this.receptor = receptor;
-    }
-
-    public ChatEntity getChat() {
-        return chat;
-    }
-
-    public void setChat(ChatEntity chat) {
-        this.chat = chat;
+    public void setMediaSizeBytes(Long mediaSizeBytes) {
+        this.mediaSizeBytes = mediaSizeBytes;
     }
 
     public String getContenido() {
@@ -165,6 +211,30 @@ public class MensajeEntity {
         this.reenviado = reenviado;
     }
 
+    public boolean isLeido() {
+        return leido;
+    }
+
+    public void setLeido(boolean leido) {
+        this.leido = leido;
+    }
+
+    public boolean isEditado() {
+        return editado;
+    }
+
+    public void setEditado(boolean editado) {
+        this.editado = editado;
+    }
+
+    public LocalDateTime getFechaEdicion() {
+        return fechaEdicion;
+    }
+
+    public void setFechaEdicion(LocalDateTime fechaEdicion) {
+        this.fechaEdicion = fechaEdicion;
+    }
+
     public Long getMensajeOriginalId() {
         return mensajeOriginalId;
     }
@@ -197,5 +267,51 @@ public class MensajeEntity {
         this.replyAuthorName = replyAuthorName;
     }
 
+    public boolean isMensajeTemporal() {
+        return mensajeTemporal;
+    }
 
+    public void setMensajeTemporal(boolean mensajeTemporal) {
+        this.mensajeTemporal = mensajeTemporal;
+    }
+
+    public Long getMensajeTemporalSegundos() {
+        return mensajeTemporalSegundos;
+    }
+
+    public void setMensajeTemporalSegundos(Long mensajeTemporalSegundos) {
+        this.mensajeTemporalSegundos = mensajeTemporalSegundos;
+    }
+
+    public LocalDateTime getExpiraEn() {
+        return expiraEn;
+    }
+
+    public void setExpiraEn(LocalDateTime expiraEn) {
+        this.expiraEn = expiraEn;
+    }
+
+    public String getMotivoEliminacion() {
+        return motivoEliminacion;
+    }
+
+    public void setMotivoEliminacion(String motivoEliminacion) {
+        this.motivoEliminacion = motivoEliminacion;
+    }
+
+    public String getPlaceholderTexto() {
+        return placeholderTexto;
+    }
+
+    public void setPlaceholderTexto(String placeholderTexto) {
+        this.placeholderTexto = placeholderTexto;
+    }
+
+    public LocalDateTime getFechaEliminacion() {
+        return fechaEliminacion;
+    }
+
+    public void setFechaEliminacion(LocalDateTime fechaEliminacion) {
+        this.fechaEliminacion = fechaEliminacion;
+    }
 }

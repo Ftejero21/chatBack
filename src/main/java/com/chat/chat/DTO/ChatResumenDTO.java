@@ -17,6 +17,10 @@ public class ChatResumenDTO {
     private String ultimoMensajePreview;
     private LocalDateTime ultimoMensajeFecha;
     private String ultimoMensajeTipo;
+    private Boolean ultimoMensajeTemporal;
+    private Long ultimoMensajeTemporalSegundos;
+    private LocalDateTime ultimoMensajeExpiraEn;
+    private String ultimoMensajeEstadoTemporal;
 
     public Long getId() {
         return id;
@@ -128,5 +132,37 @@ public class ChatResumenDTO {
 
     public void setUltimoMensajeTipo(String ultimoMensajeTipo) {
         this.ultimoMensajeTipo = ultimoMensajeTipo;
+    }
+
+    public Boolean getUltimoMensajeTemporal() {
+        return ultimoMensajeTemporal;
+    }
+
+    public void setUltimoMensajeTemporal(Boolean ultimoMensajeTemporal) {
+        this.ultimoMensajeTemporal = ultimoMensajeTemporal;
+    }
+
+    public Long getUltimoMensajeTemporalSegundos() {
+        return ultimoMensajeTemporalSegundos;
+    }
+
+    public void setUltimoMensajeTemporalSegundos(Long ultimoMensajeTemporalSegundos) {
+        this.ultimoMensajeTemporalSegundos = ultimoMensajeTemporalSegundos;
+    }
+
+    public LocalDateTime getUltimoMensajeExpiraEn() {
+        return ultimoMensajeExpiraEn;
+    }
+
+    public void setUltimoMensajeExpiraEn(LocalDateTime ultimoMensajeExpiraEn) {
+        this.ultimoMensajeExpiraEn = ultimoMensajeExpiraEn;
+    }
+
+    public String getUltimoMensajeEstadoTemporal() {
+        return ultimoMensajeEstadoTemporal;
+    }
+
+    public void setUltimoMensajeEstadoTemporal(String ultimoMensajeEstadoTemporal) {
+        this.ultimoMensajeEstadoTemporal = ultimoMensajeEstadoTemporal;
     }
 }

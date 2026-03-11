@@ -44,6 +44,8 @@ public class ExceptionConstants {
     public static final String ERROR_E2E_AUDIO_PAYLOAD_INVALID = "Invalid E2E_AUDIO payload";
     public static final String ERROR_E2E_IMAGE_PAYLOAD_INVALID = "Invalid E2E_IMAGE payload";
     public static final String ERROR_E2E_GROUP_IMAGE_PAYLOAD_INVALID = "Invalid E2E_GROUP_IMAGE payload";
+    public static final String ERROR_E2E_FILE_PAYLOAD_INVALID = "Invalid E2E_FILE payload";
+    public static final String ERROR_E2E_GROUP_FILE_PAYLOAD_INVALID = "Invalid E2E_GROUP_FILE payload";
     public static final String ERROR_MEDIA_CURSOR_INVALID = "cursor invalido";
     public static final String ERROR_MEDIA_TYPES_INVALID_PREFIX = "types contiene valor no soportado: ";
 }

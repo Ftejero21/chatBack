@@ -158,6 +158,31 @@ public class Utils {
         return String.format(TIME_MMSS_FORMAT, m, s);
     }
 
+    public static String descripcionDuracionTemporal(Long segundos) {
+        if (segundos == null || segundos <= 0) {
+            return "unos instantes";
+        }
+        long s = segundos;
+        if (s % 86_400L == 0) {
+            long dias = s / 86_400L;
+            return dias == 1 ? "1 dia" : dias + " dias";
+        }
+        if (s % 3_600L == 0) {
+            long horas = s / 3_600L;
+            return horas == 1 ? "1 hora" : horas + " horas";
+        }
+        if (s % 60L == 0) {
+            long minutos = s / 60L;
+            return minutos == 1 ? "1 minuto" : minutos + " minutos";
+        }
+        return s == 1 ? "1 segundo" : s + " segundos";
+    }
+
+    public static String construirPlaceholderTemporal(Long segundos) {
+        return "Se trataba de un mensaje temporal que solo estaba disponible los primeros "
+                + descripcionDuracionTemporal(segundos);
+    }
+
     // evita NPE si contenido es null antes de truncar
     public static String truncarSafe(String s, int max) {
         if (s == null) return EMPTY;

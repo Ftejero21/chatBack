@@ -15,10 +15,12 @@ public class Constantes {
 
     public static final String INDIVIDUAL = "/individual";
     public static final String GRUPAL = "/grupal";
+    public static final String GRUPAL_UPDATE_METADATA = "/grupal/{groupId}";
     public static final String GRUPAL_MEDIA = "/grupal/{chatId}/media";
     public static final String GRUPAL_DETALLE = "/grupal/{groupId}/detalle";
     public static final String GRUPAL_ADMIN_ADD = "/grupal/{groupId}/admins/{userId}";
     public static final String GRUPAL_ADMIN_REMOVE = "/grupal/{groupId}/admins/{userId}";
+    public static final String GRUPAL_MIEMBRO_REMOVE = "/grupal/{groupId}/miembros/{userId}";
 
     public static final String LOGIN = "/login";
 
@@ -57,6 +59,11 @@ public class Constantes {
     public static final String MENSAJES_GRUPO = "/mensajes/grupo/{chatId}";
     public static final String MENSAJES_BUSCAR_CHAT = "/mensajes/{chatId}/buscar";
     public static final String MENSAJES_MARCAR_LEIDOS = "/mensajes/marcar-leidos";
+    public static final String MENSAJES_ELIMINAR = "/mensajes/{mensajeId}/eliminar";
+    public static final String MENSAJES_RESTAURAR = "/mensajes/{mensajeId}/restaurar";
+    public static final String POLL_VOTE = "/poll/{mensajeId}/vote";
+    public static final String MENSAJES_PROGRAMADOS = "/scheduled";
+    public static final String MENSAJES_PROGRAMADOS_CANCELAR = "/scheduled/{id}/cancel";
     public static final String GRUPAL_ADD_USUARIOS = "/{groupId}/usuarios";
 
     // Rutas Base Restantes (RequestMapping)
@@ -125,6 +132,8 @@ public class Constantes {
     public static final String TOPIC_CHAT_REACCION = "/topic/chat.reaccion.";
     public static final String TOPIC_ESCRIBIENDO = "/topic/escribiendo.";
     public static final String TOPIC_ESCRIBIENDO_GRUPO = "/topic/escribiendo.grupo.";
+    public static final String TOPIC_AUDIO_GRABANDO = "/topic/audio.grabando.";
+    public static final String TOPIC_AUDIO_GRABANDO_GRUPO = "/topic/audio.grabando.grupo.";
     public static final String TOPIC_ESTADO = "/topic/estado.";
     public static final String TOPIC_CALL_INVITE = "/topic/call.invite.";
     public static final String TOPIC_CALL_ANSWER = "/topic/call.answer.";
@@ -133,9 +142,12 @@ public class Constantes {
 
     // Puedes añadir aquí otras constantes globales:
     public static final String ADMIN = "ADMIN";
+    public static final String USER = "USER";
     public static final String USUARIO = "USUARIO";
     public static final String ROLE_PREFIX = "ROLE_";
     public static final String ROLE_ADMIN = "ROLE_ADMIN";
+    public static final String ROLE_USER = "ROLE_USER";
+    public static final String ROLE_USUARIO = "ROLE_USUARIO";
     public static final String DEFAULT_CALLER_NAME = "Usuario";
 
 
@@ -172,12 +184,17 @@ public class Constantes {
     public static final String MSG_CHAT_NO_ENCONTRADO_ID = "Chat no encontrado con ID: ";
     public static final String MSG_NO_PERTENECE_CHAT = "No perteneces a este chat.";
     public static final String MSG_CHAT_GRUPAL_NO_ENCONTRADO_ID = "Chat grupal no encontrado con ID: ";
+    public static final String MSG_NO_SE_PUEDE_QUITAR_ADMIN_FUNDADOR = "No se puede quitar el rol admin al fundador del grupo.";
+    public static final String MSG_NO_SE_PUEDE_EXPULSAR_FUNDADOR = "No se puede expulsar al fundador del grupo.";
+    public static final String MSG_NO_SE_PUEDE_EXPULSAR_A_SI_MISMO = "No puedes expulsarte a ti mismo. Usa la opcion salir del grupo.";
+    public static final String MSG_MIEMBRO_EXPULSADO_GRUPO = "Miembro expulsado del grupo.";
     public static final String CHAT_TIPO_INDIVIDUAL = "INDIVIDUAL";
     public static final String CHAT_TIPO_GRUPAL = "GRUPAL";
     public static final String TIPO_AUDIO = "AUDIO";
     public static final String TIPO_IMAGE = "IMAGE";
     public static final String TIPO_VIDEO = "VIDEO";
     public static final String TIPO_FILE = "FILE";
+    public static final String TIPO_POLL = "POLL";
     public static final String TIPO_TEXT = "TEXT";
     public static final String TIPO_SYSTEM = "SYSTEM";
     public static final String MSG_Y = " y ";
@@ -238,6 +255,7 @@ public class Constantes {
     public static final String LOG_E2E_GROUP_DETAIL_MEMBERS = "[E2E_DIAG] stage=GROUP_DETAIL_MEMBERS ts={} chatId={} requesterId={} memberIds={} memberCount={} memberKeyFp={}";
     public static final String LOG_E2E_GROUP_MEMBER_LEFT_SYSTEM_MESSAGE_CREATED = "[E2E_DIAG] stage=GROUP_MEMBER_LEFT_SYSTEM_MESSAGE_CREATED chatId={} userId={} messageId={} tipo={} hash12={} len={}";
     public static final String LOG_E2E_GROUP_MEMBER_LEFT_SYSTEM_MESSAGE_BROADCAST = "[E2E_DIAG] stage=GROUP_MEMBER_LEFT_SYSTEM_MESSAGE_BROADCAST chatId={} userId={} messageId={} tipo={} hash12={} len={}";
+    public static final String LOG_GROUP_MEMBER_EXPELLED_AUDIT = "GROUP_MEMBER_EXPELLED traceId={} actorId={} targetId={} groupId={} actorCanManage={} targetWasAdmin={}";
     public static final String LOG_E2E_ADMIN_CHAT_LIST_PREVIEW = "[E2E_DIAG] stage=ADMIN_CHAT_LIST_PREVIEW chatId={} messageId={} class={} decryptOk={} usedForAdmin={}";
     public static final String LOG_E2E_GROUP_MEDIA_LIST = "[E2E_DIAG] stage=GROUP_MEDIA_LIST traceId={} chatId={} requesterId={} cursor={} size={} types={} returned={} hasMore={}";
     public static final String LOG_E2E_GROUP_MEDIA_ITEM = "[E2E_DIAG] stage=GROUP_MEDIA_ITEM traceId={} chatId={} messageId={} tipo={} class={} len={} hash12={}";
@@ -296,11 +314,15 @@ public class Constantes {
     public static final String WS_APP_CALL_END = "/call.end";
     public static final String WS_APP_CHAT_INDIVIDUAL = "/chat.individual";
     public static final String WS_APP_CHAT_ELIMINAR = "/chat.eliminar";
+    public static final String WS_APP_CHAT_EDITAR = "/chat.editar";
     public static final String WS_APP_MENSAJES_MARCAR_LEIDOS = "/mensajes.marcarLeidos";
     public static final String WS_APP_ESCRIBIENDO = "/escribiendo";
     public static final String WS_APP_ESCRIBIENDO_GRUPO = "/escribiendo.grupo";
+    public static final String WS_APP_AUDIO_GRABANDO = "/audio.grabando";
+    public static final String WS_APP_AUDIO_GRABANDO_GRUPO = "/audio.grabando.grupo";
     public static final String WS_APP_ESTADO = "/estado";
     public static final String WS_APP_CHAT_GRUPAL = "/chat.grupal";
+    public static final String WS_APP_CHAT_POLL_VOTE = "/chat.poll.vote";
     public static final String WS_APP_CHAT_REACCION = "/chat.reaccion";
 
     public static final String WS_ENDPOINT = "/ws-chat";
@@ -340,6 +362,8 @@ public class Constantes {
     public static final String ERR_NO_AUTORIZADO = "NO_AUTORIZADO";
     public static final String ERR_NO_ENCONTRADO = "NO_ENCONTRADO";
     public static final String ERR_CONFLICTO = "CONFLICTO";
+    public static final String ERR_DELETE_TIMESTAMP_MISSING = "DELETE_TIMESTAMP_MISSING";
+    public static final String ERR_RESTORE_WINDOW_EXPIRED = "RESTORE_WINDOW_EXPIRED";
     public static final String ERR_E2E_REKEY_CONFLICT = "E2E_REKEY_CONFLICT";
     public static final String ERR_E2E_REKEY_REQUIRED = "E2E_REKEY_REQUIRED";
     public static final String ERR_E2E_SENDER_KEY_MISSING = "E2E_SENDER_KEY_MISSING";
@@ -350,6 +374,9 @@ public class Constantes {
     public static final String ERR_E2E_AUDIO_PAYLOAD_INVALID = "E2E_AUDIO_PAYLOAD_INVALID";
     public static final String ERR_E2E_IMAGE_PAYLOAD_INVALID = "E2E_IMAGE_PAYLOAD_INVALID";
     public static final String ERR_E2E_GROUP_IMAGE_PAYLOAD_INVALID = "E2E_GROUP_IMAGE_PAYLOAD_INVALID";
+    public static final String ERR_E2E_PAYLOAD_INVALID = "E2E_PAYLOAD_INVALID";
+    public static final String ERR_E2E_FILE_PAYLOAD_INVALID = "E2E_FILE_PAYLOAD_INVALID";
+    public static final String ERR_UPLOAD_SECURITY_BLOCK = "UPLOAD_SECURITY_BLOCK";
     public static final String ERR_SOLICITUD_DESBANEO_INVALIDA = "SOLICITUD_DESBANEO_INVALIDA";
 
     // Payload keys
@@ -361,10 +388,14 @@ public class Constantes {
     public static final String KEY_MOTIVO = "motivo";
     public static final String KEY_EMISOR_ID = "emisorId";
     public static final String KEY_ESCRIBIENDO = "escribiendo";
+    public static final String KEY_GRABANDO_AUDIO = "grabandoAudio";
     public static final String KEY_CHAT_ID = "chatId";
     public static final String KEY_EMISOR_NOMBRE = "emisorNombre";
     public static final String KEY_EMISOR_APELLIDO = "emisorApellido";
     public static final String KEY_USER_ID = "userId";
+    public static final String KEY_ES_SISTEMA = "esSistema";
+    public static final String KEY_SYSTEM_EVENT = "systemEvent";
+    public static final String KEY_TARGET_USER_ID = "targetUserId";
     public static final String KEY_Q = "q";
     public static final String KEY_FILE = "file";
     public static final String KEY_DUR_MS = "durMs";
@@ -372,11 +403,15 @@ public class Constantes {
 
     // Queries DB fix mensajes.tipo
     public static final String SQL_INFO_SCHEMA_COLUMN_TYPE_MENSAJES_TIPO = "SELECT COLUMN_TYPE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'mensajes' AND COLUMN_NAME = 'tipo'";
-    public static final String SQL_ALTER_MENSAJES_TIPO_MULTIMEDIA = "ALTER TABLE mensajes MODIFY COLUMN tipo ENUM('TEXT','AUDIO','IMAGE','VIDEO','FILE','SYSTEM') NOT NULL DEFAULT 'TEXT'";
+    public static final String SQL_ALTER_MENSAJES_TIPO_MULTIMEDIA = "ALTER TABLE mensajes MODIFY COLUMN tipo ENUM('TEXT','AUDIO','IMAGE','VIDEO','FILE','POLL','SYSTEM') NOT NULL DEFAULT 'TEXT'";
     public static final String SQL_INFO_SCHEMA_INDEX_COUNT = "SELECT COUNT(1) FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'mensajes' AND INDEX_NAME = ?";
     public static final String SQL_CREATE_INDEX_MENSAJES_MEDIA_FEED = "CREATE INDEX ";
     public static final String SQL_CREATE_INDEX_MENSAJES_MEDIA_FEED_SUFFIX = " ON mensajes (chat_id, tipo, activo, fecha_envio DESC, id DESC)";
     public static final String IDX_MENSAJES_MEDIA_FEED = "idx_mensajes_chat_tipo_activo_fecha_id";
+
+    // System message events
+    public static final String SYSTEM_EVENT_GROUP_MEMBER_REMOVED = "GROUP_MEMBER_REMOVED";
+    public static final String SYSTEM_EVENT_GROUP_MEMBER_EXPELLED = "GROUP_MEMBER_EXPELLED";
 
     // Labels
     public static final String LABEL_INVITACION = "Invitación";

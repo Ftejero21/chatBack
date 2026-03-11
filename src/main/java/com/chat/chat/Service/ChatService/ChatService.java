@@ -13,6 +13,7 @@ public interface ChatService {
     ChatGrupalDTO crearChatGrupal(ChatGrupalDTO dto);
 
     MessagueSalirGrupoDTO salirDeChatGrupal(Long groupId, Long userId);
+    GroupMemberExpulsionResponseDTO expulsarMiembroDeGrupo(Long groupId, Long targetUserId);
 
     EsMiembroDTO esMiembroDeChatGrupal(Long groupId, Long userId);
     List<ChatGrupalDTO> listarChatsGrupalesPorUsuario(Long usuarioId);
@@ -33,13 +34,20 @@ public interface ChatService {
 
     GroupMediaPageDTO listarMediaPorChatGrupal(Long chatId, String cursor, Integer size, String types);
 
-    List<MensajeDTO> listarMensajesPorChatIdAdmin(Long chatId);
+    List<MensajeDTO> listarMensajesPorChatIdAdmin(Long chatId, Boolean includeExpired);
+    default List<MensajeDTO> listarMensajesPorChatIdAdmin(Long chatId) {
+        return listarMensajesPorChatIdAdmin(chatId, false);
+    }
 
     AddUsuariosGrupoWSResponse anadirUsuariosAGrupo(AddUsuariosGrupoDTO dto);
 
-    List<ChatResumenDTO> listarConversacionesDeUsuario(Long usuarioId);
+    List<ChatResumenDTO> listarConversacionesDeUsuario(Long usuarioId, Boolean includeExpired);
+    default List<ChatResumenDTO> listarConversacionesDeUsuario(Long usuarioId) {
+        return listarConversacionesDeUsuario(usuarioId, false);
+    }
 
     GroupDetailDTO obtenerDetalleGrupo(Long groupId);
+    GroupDetailDTO actualizarMetadataGrupo(Long groupId, GroupMetadataUpdateDTO dto);
 
     void setAdminGrupo(Long groupId, Long targetUserId, boolean makeAdmin);
 }

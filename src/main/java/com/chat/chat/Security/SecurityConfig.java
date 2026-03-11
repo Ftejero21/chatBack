@@ -1,8 +1,11 @@
 package com.chat.chat.Security;
 
+import com.chat.chat.Utils.Constantes;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.AuthenticationProvider;
 import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
@@ -15,14 +18,13 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
-import org.springframework.http.HttpMethod;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
+import org.springframework.web.filter.CorsFilter;
 
 import java.util.Arrays;
-import org.springframework.boot.web.servlet.FilterRegistrationBean;
-import com.chat.chat.Utils.Constantes;
+import java.util.List;
 
 @Configuration
 @EnableWebSecurity
@@ -33,24 +35,34 @@ public class SecurityConfig {
     private static final String SWAGGER_UI = "/swagger-ui/**";
     private static final String SWAGGER_UI_HTML = "/swagger-ui.html";
     private static final String API_DOCS = "/v3/api-docs/**";
-    private static final String CORS_METHOD_GET = "GET";
+    private static final String API_UPLOADS_PATTERN = "/api/uploads/**";
+    private static final String API_UPLOADS_FILE = "/api/uploads/file";
+    private static final String API_UPLOADS_MEDIA = "/api/uploads/media";
+    private static final String API_UPLOADS_AUDIO = "/api/uploads/audio";
     private static final String CORS_METHOD_POST = "POST";
-    private static final String CORS_METHOD_PUT = "PUT";
-    private static final String CORS_METHOD_DELETE = "DELETE";
     private static final String CORS_METHOD_OPTIONS = "OPTIONS";
-    private static final String CORS_METHOD_PATCH = "PATCH";
-    private static final String CORS_METHOD_HEAD = "HEAD";
+    private static final String CORS_HEADER_CONTENT_TYPE = "Content-Type";
+    private static final String CORS_HEADER_ACCEPT = "Accept";
 
     @Autowired
     private JwtAuthFilter jwtAuthFilter;
 
     @Autowired
+    private CorsPreflightDebugFilter corsPreflightDebugFilter;
+
+    @Autowired
     private CustomUserDetailsService userDetailsService;
+
+    @Autowired
+    private SecurityDebugAuthenticationEntryPoint securityDebugAuthenticationEntryPoint;
+
+    @Autowired
+    private SecurityDebugAccessDeniedHandler securityDebugAccessDeniedHandler;
 
     @Bean
     public FilterRegistrationBean<JwtAuthFilter> jwtAuthFilterRegistration(JwtAuthFilter filter) {
         FilterRegistrationBean<JwtAuthFilter> registration = new FilterRegistrationBean<>(filter);
-        registration.setEnabled(false); // 🔥 Evita que Spring Boot lo registre globalmente fuera de Spring Security
+        registration.setEnabled(false);
         return registration;
     }
 
@@ -58,27 +70,32 @@ public class SecurityConfig {
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
-                .csrf(csrf -> csrf.disable()) // Deshabilitar CSRF porque usamos JWT
+                .csrf(csrf -> csrf
+                        .ignoringRequestMatchers(API_UPLOADS_PATTERN)
+                        .disable())
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers(HttpMethod.OPTIONS, MATCH_ALL).permitAll() // Permite
-                                                                                                         // Preflight
-                                                                                                         // globalmente
+                        .requestMatchers(HttpMethod.OPTIONS, MATCH_ALL).permitAll()
+                        .requestMatchers(HttpMethod.POST, API_UPLOADS_FILE, API_UPLOADS_MEDIA, API_UPLOADS_AUDIO)
+                        .hasAnyAuthority(Constantes.ROLE_USUARIO, Constantes.ROLE_USER, Constantes.ROLE_ADMIN)
                         .requestMatchers(SWAGGER_UI, SWAGGER_UI_HTML, API_DOCS).permitAll()
-                        .requestMatchers(Constantes.USUARIO_API + Constantes.LOGIN, Constantes.USUARIO_API + Constantes.REGISTRO, Constantes.USUARIO_API,
+                        .requestMatchers(
+                                Constantes.USUARIO_API + Constantes.LOGIN,
+                                Constantes.USUARIO_API + Constantes.REGISTRO,
+                                Constantes.USUARIO_API,
                                 Constantes.USUARIO_API + Constantes.RECUPERAR_PASSWORD_ALL,
-                                Constantes.USUARIO_API + Constantes.SOLICITUD_DESBANEO_CREATE)
-                        .permitAll() // Login, Registro y Recuperación de Password
-                        // públicos
-                        .requestMatchers(Constantes.WS_ENDPOINT_PATTERN).permitAll() // WebSocket endpoint inicial público (la
-                                                                    // autenticación se hará en los interceptores STOMP)
-                        .requestMatchers(Constantes.UPLOADS_PATTERN).permitAll() // Dejar la carpeta uploads como pública para poder
-                        .requestMatchers(Constantes.USUARIO_API + Constantes.USUARIO_ADMIN_PATTERN).hasRole(Constantes.ADMIN) // Solo Administradores
+                                Constantes.USUARIO_API + Constantes.SOLICITUD_DESBANEO_CREATE
+                        ).permitAll()
+                        .requestMatchers(Constantes.WS_ENDPOINT_PATTERN).permitAll()
+                        .requestMatchers(Constantes.UPLOADS_PATTERN).permitAll()
+                        .requestMatchers(Constantes.USUARIO_API + Constantes.USUARIO_ADMIN_PATTERN).hasRole(Constantes.ADMIN)
                         .requestMatchers(Constantes.API_AI_PATTERN).hasRole(Constantes.ADMIN)
                         .anyRequest().authenticated())
-                .sessionManagement(sess -> sess.sessionCreationPolicy(SessionCreationPolicy.STATELESS)) // No usamos
-                                                                                                        // sesiones
-                                                                                                        // (Cookies)
+                .exceptionHandling(ex -> ex
+                        .authenticationEntryPoint(securityDebugAuthenticationEntryPoint)
+                        .accessDeniedHandler(securityDebugAccessDeniedHandler))
+                .sessionManagement(sess -> sess.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authenticationProvider(authenticationProvider())
+                .addFilterBefore(corsPreflightDebugFilter, CorsFilter.class)
                 .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
@@ -88,7 +105,6 @@ public class SecurityConfig {
     public AuthenticationProvider authenticationProvider() {
         DaoAuthenticationProvider authProvider = new DaoAuthenticationProvider();
         authProvider.setUserDetailsService(userDetailsService);
-        // Usamos BCrypt para comparar passwords
         authProvider.setPasswordEncoder(passwordEncoder());
         return authProvider;
     }
@@ -105,20 +121,29 @@ public class SecurityConfig {
 
     @Bean
     CorsConfigurationSource corsConfigurationSource() {
-        CorsConfiguration configuration = new CorsConfiguration();
-        // Permite cualquier origen (en producción cámbialo por tu dominio)
-        configuration.setAllowedOrigins(Arrays.asList(Constantes.CORS_ORIGIN_LOCALHOST_4200, Constantes.CORS_ORIGIN_127_4200));
-        configuration.setAllowedOriginPatterns(Arrays.asList(Constantes.CORS_ANY_ORIGIN));
-        // Permite TODOS los métodos, incluyendo OPTIONS que es crucial para Pre-flight
-        // requests
-        configuration.setAllowedMethods(Arrays.asList(CORS_METHOD_GET, CORS_METHOD_POST, CORS_METHOD_PUT, CORS_METHOD_DELETE, CORS_METHOD_OPTIONS, CORS_METHOD_PATCH, CORS_METHOD_HEAD));
-        // Permite TODAS las cabeceras, crucial para Authorization y Content-Type
-        configuration.setAllowedHeaders(Arrays.asList(Constantes.CORS_ANY_ORIGIN));
-        configuration.setAllowCredentials(true);
-
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
-        // Aplica esta configuración a TODOS los endpoints
-        source.registerCorsConfiguration("/**", configuration);
+
+        CorsConfiguration uploadsConfiguration = new CorsConfiguration();
+        uploadsConfiguration.setAllowedOrigins(List.of(Constantes.CORS_ORIGIN_LOCALHOST_4200));
+        uploadsConfiguration.setAllowedMethods(List.of(CORS_METHOD_POST, CORS_METHOD_OPTIONS));
+        uploadsConfiguration.setAllowedHeaders(List.of(
+                Constantes.HEADER_AUTHORIZATION,
+                CORS_HEADER_CONTENT_TYPE,
+                CORS_HEADER_ACCEPT));
+        uploadsConfiguration.setAllowCredentials(true);
+        uploadsConfiguration.setMaxAge(3600L);
+        source.registerCorsConfiguration(API_UPLOADS_FILE, uploadsConfiguration);
+        source.registerCorsConfiguration(API_UPLOADS_MEDIA, uploadsConfiguration);
+        source.registerCorsConfiguration(API_UPLOADS_AUDIO, uploadsConfiguration);
+
+        CorsConfiguration defaultConfiguration = new CorsConfiguration();
+        defaultConfiguration.setAllowedOrigins(Arrays.asList(Constantes.CORS_ORIGIN_LOCALHOST_4200, Constantes.CORS_ORIGIN_127_4200));
+        defaultConfiguration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH", "HEAD"));
+        defaultConfiguration.setAllowedHeaders(Arrays.asList(Constantes.CORS_ANY_ORIGIN));
+        defaultConfiguration.setAllowCredentials(true);
+        defaultConfiguration.setMaxAge(3600L);
+        source.registerCorsConfiguration(MATCH_ALL, defaultConfiguration);
+
         return source;
     }
 }

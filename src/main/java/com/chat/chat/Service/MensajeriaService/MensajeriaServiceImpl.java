@@ -2,34 +2,41 @@ package com.chat.chat.Service.MensajeriaService;
 
 import com.chat.chat.DTO.MensajeDTO;
 import com.chat.chat.DTO.MensajeReaccionDTO;
+import com.chat.chat.DTO.VotoEncuestaDTO;
 import com.chat.chat.Entity.ChatEntity;
 import com.chat.chat.Entity.ChatGrupalEntity;
 import com.chat.chat.Entity.ChatIndividualEntity;
 import com.chat.chat.Entity.MensajeEntity;
 import com.chat.chat.Entity.MensajeReaccionEntity;
 import com.chat.chat.Entity.UsuarioEntity;
+import com.chat.chat.Exceptions.ConflictoException;
 import com.chat.chat.Exceptions.E2EGroupValidationException;
 import com.chat.chat.Exceptions.ReenvioInvalidoException;
 import com.chat.chat.Exceptions.ReenvioNoAutorizadoException;
+import com.chat.chat.Exceptions.RecursoNoEncontradoException;
 import com.chat.chat.Exceptions.RespuestaInvalidaException;
 import com.chat.chat.Exceptions.RespuestaNoAutorizadaException;
 import com.chat.chat.Repository.ChatGrupalRepository;
 import com.chat.chat.Repository.ChatIndividualRepository;
 import com.chat.chat.Repository.MensajeReaccionRepository;
 import com.chat.chat.Repository.MensajeRepository;
+import com.chat.chat.Repository.MensajeTemporalAuditoriaRepository;
 import com.chat.chat.Repository.UsuarioRepository;
+import com.chat.chat.Service.EncuestaService.EncuestaService;
 import com.chat.chat.Utils.MappingUtils;
 import com.chat.chat.Utils.Constantes;
 import com.chat.chat.Utils.E2EDiagnosticUtils;
 import com.chat.chat.Utils.E2EGroupValidationUtils;
 import com.chat.chat.Utils.E2EPayloadUtils;
 import com.chat.chat.Utils.ExceptionConstants;
+import com.chat.chat.Utils.MessageType;
 import com.chat.chat.Utils.ReactionAction;
 import com.chat.chat.Utils.SecurityUtils;
 import com.chat.chat.Utils.Utils;
 import jakarta.transaction.Transactional;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
@@ -38,7 +45,9 @@ import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 
 import java.time.Instant;
+import java.time.ZoneOffset;
 import java.time.LocalDateTime;
+import java.sql.Timestamp;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -48,18 +57,27 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 @Service
 public class MensajeriaServiceImpl implements MensajeriaService {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(MensajeriaServiceImpl.class);
+    private static final long VENTANA_RESTAURACION_DIAS = 3L;
+    private static final String MOTIVO_TEMPORAL_EXPIRADO = "TEMPORAL_EXPIRADO";
+    private static final String SQL_MENSAJES_COLUMN_EXISTS =
+            "SELECT COUNT(1) FROM information_schema.COLUMNS " +
+            "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'mensajes' AND COLUMN_NAME = ?";
 
     @Value(Constantes.PROP_UPLOADS_ROOT)
     private String uploadsRoot;
 
     @Value(Constantes.PROP_UPLOADS_BASE_URL)
     private String uploadsBaseUrl;
+
+    @Value("${app.uploads.security.max-file-bytes:26214400}")
+    private long maxUploadFileBytes;
 
     @Autowired
     private SimpMessagingTemplate messagingTemplate;
@@ -74,6 +92,9 @@ public class MensajeriaServiceImpl implements MensajeriaService {
     private MensajeReaccionRepository mensajeReaccionRepository;
 
     @Autowired
+    private MensajeTemporalAuditoriaRepository mensajeTemporalAuditoriaRepository;
+
+    @Autowired
     private ChatIndividualRepository chatIndividualRepository;
 
     @Autowired
@@ -81,6 +102,14 @@ public class MensajeriaServiceImpl implements MensajeriaService {
 
     @Autowired
     private SecurityUtils securityUtils;
+
+    @Autowired
+    private EncuestaService encuestaService;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+
+    private final Map<String, Boolean> mensajesColumnExistsCache = new ConcurrentHashMap<>();
 
     @Override
     @Transactional
@@ -120,6 +149,7 @@ public class MensajeriaServiceImpl implements MensajeriaService {
         }
 
         boolean imageType = E2EGroupValidationUtils.isImageType(dto.getTipo());
+        boolean fileType = E2EGroupValidationUtils.isFileType(dto.getTipo());
         E2EDiagnosticUtils.ContentDiagnostic inboundDiag = E2EDiagnosticUtils.analyze(dto.getContenido(), dto.getTipo());
         boolean encryptedAudio = E2EGroupValidationUtils.isAudioType(dto.getTipo())
                 && E2EGroupValidationUtils.isE2EAudio(inboundDiag);
@@ -142,17 +172,38 @@ public class MensajeriaServiceImpl implements MensajeriaService {
                     Constantes.ERR_E2E_IMAGE_PAYLOAD_INVALID,
                     ExceptionConstants.ERROR_E2E_IMAGE_PAYLOAD_INVALID);
         }
+        if (fileType) {
+            boolean validFilePayload = E2EGroupValidationUtils.hasRequiredE2EFileFields(dto.getContenido())
+                    && E2EGroupValidationUtils.fileSizeBytesInRange(dto.getContenido(), 1L, maxUploadFileBytes);
+            if (!validFilePayload) {
+                String traceId = E2EDiagnosticUtils.newTraceId();
+                LOGGER.warn("[E2E_FILE_VALIDATION_ERROR] traceId={} chatType=INDIVIDUAL emisorId={} receptorId={} code={}",
+                        traceId,
+                        authenticatedUserId,
+                        dto.getReceptorId(),
+                        Constantes.ERR_E2E_FILE_PAYLOAD_INVALID);
+                LOGGER.warn("[VALIDATION_ERROR] code={} traceId={} tipo={} chatType=INDIVIDUAL",
+                        Constantes.ERR_E2E_FILE_PAYLOAD_INVALID,
+                        traceId,
+                        Constantes.TIPO_FILE);
+                throw new E2EGroupValidationException(
+                        Constantes.ERR_E2E_FILE_PAYLOAD_INVALID,
+                        ExceptionConstants.ERROR_E2E_FILE_PAYLOAD_INVALID + " traceId=" + traceId);
+            }
+        }
 
         MensajeEntity mensaje = MappingUtils.mensajeDtoAEntity(dto, emisor, receptor);
-        if (imageType) {
+        if (imageType || fileType) {
             mensaje.setContenido(mensaje.getContenido());
         } else {
             mensaje.setContenido(E2EPayloadUtils.normalizeForStorage(mensaje.getContenido()));
         }
+        LocalDateTime fechaEnvio = LocalDateTime.now();
         mensaje.setChat(chat);
-        mensaje.setFechaEnvio(LocalDateTime.now());
+        mensaje.setFechaEnvio(fechaEnvio);
         mensaje.setActivo(true);
         mensaje.setLeido(false);
+        aplicarConfiguracionMensajeTemporal(dto, mensaje, fechaEnvio);
 
         MensajeEntity saved = mensajeRepository.save(mensaje);
         return MappingUtils.mensajeEntityADto(saved);
@@ -169,6 +220,7 @@ public class MensajeriaServiceImpl implements MensajeriaService {
             createdTraceId = true;
         }
 
+        encuestaService.normalizarPayloadEncuesta(dto);
         Long chatId = dto.getChatId() != null ? dto.getChatId() : dto.getReceptorId();
         E2EDiagnosticUtils.ContentDiagnostic inboundDiag = E2EDiagnosticUtils.analyze(dto.getContenido(), dto.getTipo());
 
@@ -191,6 +243,7 @@ public class MensajeriaServiceImpl implements MensajeriaService {
             boolean textType = E2EGroupValidationUtils.isTextType(dto == null ? null : dto.getTipo());
             boolean audioType = E2EGroupValidationUtils.isAudioType(dto == null ? null : dto.getTipo());
             boolean imageType = E2EGroupValidationUtils.isImageType(dto == null ? null : dto.getTipo());
+            boolean fileType = E2EGroupValidationUtils.isFileType(dto == null ? null : dto.getTipo());
             boolean encryptedGroupAudio = audioType && E2EGroupValidationUtils.isE2EGroupAudio(inboundDiag);
             for (Long recipientId : expectedRecipientIds) {
                 String recipientKey = usuarioRepository.findFreshById(recipientId)
@@ -216,6 +269,9 @@ public class MensajeriaServiceImpl implements MensajeriaService {
                     || E2EGroupValidationUtils.hasRequiredE2EGroupAudioFields(dto.getContenido());
             boolean groupImagePayloadValid = !imageType
                     || E2EGroupValidationUtils.hasRequiredE2EGroupImageFields(dto.getContenido());
+            boolean groupFilePayloadValid = !fileType
+                    || (E2EGroupValidationUtils.hasRequiredE2EGroupFileFields(dto.getContenido())
+                    && E2EGroupValidationUtils.fileSizeBytesInRange(dto.getContenido(), 1L, maxUploadFileBytes));
             boolean groupValidateOk = true;
             String inboundValidateRejectReason = "-";
             if (textType && !recipientKeysMatch) {
@@ -233,6 +289,13 @@ public class MensajeriaServiceImpl implements MensajeriaService {
                 groupValidateOk = false;
                 inboundValidateRejectReason = Constantes.ERR_E2E_GROUP_IMAGE_PAYLOAD_INVALID;
             } else if (imageType && !recipientKeysMatch) {
+                groupValidateOk = false;
+                inboundValidateRejectReason = Constantes.ERR_E2E_RECIPIENT_KEYS_MISMATCH;
+            }
+            if (fileType && !groupFilePayloadValid) {
+                groupValidateOk = false;
+                inboundValidateRejectReason = Constantes.ERR_E2E_FILE_PAYLOAD_INVALID;
+            } else if (fileType && !recipientKeysMatch) {
                 groupValidateOk = false;
                 inboundValidateRejectReason = Constantes.ERR_E2E_RECIPIENT_KEYS_MISMATCH;
             }
@@ -286,13 +349,27 @@ public class MensajeriaServiceImpl implements MensajeriaService {
                         Constantes.ERR_E2E_RECIPIENT_KEYS_MISMATCH,
                         ExceptionConstants.ERROR_E2E_RECIPIENTS_MISMATCH);
             }
+            if (fileType && !groupFilePayloadValid) {
+                LOGGER.warn("[VALIDATION_ERROR] code={} traceId={} tipo={} chatType=GRUPAL",
+                        Constantes.ERR_E2E_FILE_PAYLOAD_INVALID,
+                        traceId,
+                        Constantes.TIPO_FILE);
+                throw new E2EGroupValidationException(
+                        Constantes.ERR_E2E_FILE_PAYLOAD_INVALID,
+                        ExceptionConstants.ERROR_E2E_GROUP_FILE_PAYLOAD_INVALID + " traceId=" + traceId);
+            }
+            if (fileType && !recipientKeysMatch) {
+                throw new E2EGroupValidationException(
+                        Constantes.ERR_E2E_RECIPIENT_KEYS_MISMATCH,
+                        ExceptionConstants.ERROR_E2E_RECIPIENTS_MISMATCH);
+            }
 
             normalizeReenvio(dto, authenticatedUserId);
             normalizeRespuesta(dto, authenticatedUserId, chatGrupal);
 
             MensajeEntity mensaje = MappingUtils.mensajeDtoAEntity(dto, emisor, null);
             String rawContent = mensaje.getContenido();
-            String normalizedContent = imageType ? rawContent : E2EPayloadUtils.normalizeForStorage(rawContent);
+            String normalizedContent = (imageType || fileType) ? rawContent : E2EPayloadUtils.normalizeForStorage(rawContent);
             boolean transformed = !Objects.equals(rawContent, normalizedContent);
             E2EDiagnosticUtils.ContentDiagnostic prePersistDiag = E2EDiagnosticUtils.analyze(
                     normalizedContent,
@@ -356,12 +433,17 @@ public class MensajeriaServiceImpl implements MensajeriaService {
             }
 
             mensaje.setContenido(normalizedContent);
+            LocalDateTime fechaEnvio = LocalDateTime.now();
             mensaje.setChat(chatGrupal);
-            mensaje.setFechaEnvio(LocalDateTime.now());
+            mensaje.setFechaEnvio(fechaEnvio);
             mensaje.setActivo(true);
             mensaje.setLeido(false);
+            aplicarConfiguracionMensajeTemporal(dto, mensaje, fechaEnvio);
 
             MensajeEntity saved = mensajeRepository.save(mensaje);
+            if (encuestaService.esMensajeEncuesta(dto)) {
+                encuestaService.crearEncuestaParaMensaje(saved, dto, emisor);
+            }
             E2EDiagnosticUtils.ContentDiagnostic postPersistDiag = E2EDiagnosticUtils.analyze(
                     saved.getContenido(),
                     String.valueOf(saved.getTipo()));
@@ -392,6 +474,7 @@ public class MensajeriaServiceImpl implements MensajeriaService {
             }
 
             MensajeDTO out = MappingUtils.mensajeEntityADto(saved);
+            encuestaService.enriquecerMensajesConEncuesta(List.of(saved), List.of(out), authenticatedUserId, true);
 
             // Enriquecer con datos del emisor para que el front no tenga que resolver nada
             out.setEmisorNombre(emisor.getNombre());
@@ -416,6 +499,80 @@ public class MensajeriaServiceImpl implements MensajeriaService {
 
     @Override
     @Transactional
+    public MensajeDTO votarEncuesta(VotoEncuestaDTO request) {
+        Long authenticatedUserId = securityUtils.getAuthenticatedUserId();
+        return encuestaService.votarEncuesta(request, authenticatedUserId);
+    }
+
+    @Override
+    @Transactional
+    public MensajeDTO editarMensajePropio(MensajeDTO dto) {
+        if (dto == null || dto.getId() == null) {
+            throw new IllegalArgumentException("id de mensaje es obligatorio");
+        }
+        if (dto.getContenido() == null || dto.getContenido().isBlank()) {
+            throw new IllegalArgumentException("contenido es obligatorio");
+        }
+        if (dto.getTipo() != null && !dto.getTipo().isBlank() && !Constantes.TIPO_TEXT.equalsIgnoreCase(dto.getTipo())) {
+            throw new IllegalArgumentException("tipo debe ser TEXT");
+        }
+
+        Long authenticatedUserId = securityUtils.getAuthenticatedUserId();
+        MensajeEntity mensaje = mensajeRepository.findById(dto.getId())
+                .orElseThrow(() -> new IllegalArgumentException("mensaje no existe"));
+
+        Long ownerId = mensaje.getEmisor() == null ? null : mensaje.getEmisor().getId();
+        if (!Objects.equals(ownerId, authenticatedUserId)) {
+            throw new AccessDeniedException("No puedes editar mensajes de otro usuario");
+        }
+        if (isMensajeExpirado(mensaje)) {
+            throw new IllegalArgumentException("No se puede editar un mensaje expirado");
+        }
+        if (!mensaje.isActivo()) {
+            throw new IllegalArgumentException("No se puede editar un mensaje inactivo");
+        }
+        if (!Objects.equals(mensaje.getTipo(), MessageType.TEXT)) {
+            throw new IllegalArgumentException("Solo se pueden editar mensajes de texto");
+        }
+
+        ChatEntity chat = mensaje.getChat();
+        if (chat == null || chat.getId() == null) {
+            throw new IllegalArgumentException("chat no encontrado para el mensaje");
+        }
+
+        if (chat instanceof ChatGrupalEntity) {
+            ChatGrupalEntity chatGrupal = chatGrupalRepository.findByIdWithUsuarios(chat.getId())
+                    .orElseThrow(() -> new IllegalArgumentException(Constantes.MSG_CHAT_GRUPAL_NO_ENCONTRADO));
+            if (!chatGrupal.isActivo()) {
+                throw new AccessDeniedException(Constantes.MSG_CHAT_GRUPAL_NO_ENCONTRADO);
+            }
+            boolean senderIsActiveMember = chatGrupal.getUsuarios() != null && chatGrupal.getUsuarios().stream()
+                    .filter(Objects::nonNull)
+                    .anyMatch(u -> Objects.equals(u.getId(), authenticatedUserId) && u.isActivo());
+            if (!senderIsActiveMember) {
+                throw new AccessDeniedException(Constantes.MSG_NO_PERTENECE_GRUPO);
+            }
+            mensaje.setChat(chatGrupal);
+        }
+
+        LocalDateTime editionTimestamp = dto.getEditedAt() != null
+                ? dto.getEditedAt()
+                : (dto.getFechaEdicion() != null ? dto.getFechaEdicion() : LocalDateTime.now());
+        mensaje.setContenido(E2EPayloadUtils.normalizeForStorage(dto.getContenido()));
+        mensaje.setEditado(true);
+        mensaje.setFechaEdicion(editionTimestamp);
+
+        MensajeEntity saved = mensajeRepository.save(mensaje);
+        MensajeDTO out = MappingUtils.mensajeEntityADto(saved);
+        out.setEditado(true);
+        out.setEdited(true);
+        out.setFechaEdicion(editionTimestamp);
+        out.setEditedAt(editionTimestamp);
+        return out;
+    }
+
+    @Override
+    @Transactional
     public ReactionDispatchResult procesarReaccion(MensajeReaccionDTO request) {
         validateReaccionRequest(request);
 
@@ -426,6 +583,9 @@ public class MensajeriaServiceImpl implements MensajeriaService {
 
         MensajeEntity mensaje = mensajeRepository.findById(request.getMessageId())
                 .orElseThrow(() -> new IllegalArgumentException("messageId no existe"));
+        if (isMensajeExpirado(mensaje)) {
+            throw new IllegalArgumentException("No se puede reaccionar a un mensaje expirado");
+        }
         if (!mensaje.isActivo()) {
             throw new IllegalArgumentException("No se puede reaccionar a un mensaje inactivo");
         }
@@ -595,25 +755,96 @@ public class MensajeriaServiceImpl implements MensajeriaService {
             LOGGER.warn(Constantes.LOG_WS_DELETE_INVALID);
             return false;
         }
-        Long authenticatedUserId = securityUtils.getAuthenticatedUserId();
-        LOGGER.info(Constantes.LOG_WS_DELETE, authenticatedUserId, mensajeDTO);
-        Optional<Long> emisorIdOpt = mensajeRepository.findEmisorIdById(mensajeDTO.getId());
-
-        if (emisorIdOpt.isPresent()) {
-            Long emisorId = emisorIdOpt.get();
-            LOGGER.info(Constantes.LOG_DELETE_MSG_STATE, mensajeDTO.getId(), emisorId, false);
-
-            // Validar que el mensaje pertenece al emisor autenticado
-            if (!emisorId.equals(authenticatedUserId)) {
-                LOGGER.warn(Constantes.LOG_DELETE_MSG_NOT_OWNER, mensajeDTO.getId(), emisorId, authenticatedUserId);
-                return false;
-            }
-
-            int updated = mensajeRepository.markInactivoById(mensajeDTO.getId());
-            return updated > 0;
+        try {
+            MensajeDTO eliminado = eliminarMensajePropio(mensajeDTO.getId(), mensajeDTO.getMotivoEliminacion());
+            return eliminado != null && !eliminado.isActivo();
+        } catch (RuntimeException ex) {
+            LOGGER.warn("[DELETE] no se pudo eliminar mensaje id={} motivo={} error={}",
+                    mensajeDTO.getId(),
+                    mensajeDTO.getMotivoEliminacion(),
+                    ex.getClass().getSimpleName());
+            return false;
         }
-        LOGGER.warn(Constantes.LOG_DELETE_MSG_NOT_FOUND, mensajeDTO.getId());
-        return false;
+    }
+
+    @Override
+    @Transactional
+    public MensajeDTO eliminarMensajePropio(Long mensajeId, String motivoEliminacion) {
+        if (mensajeId == null) {
+            throw new IllegalArgumentException("mensajeId es obligatorio");
+        }
+        Long authenticatedUserId = securityUtils.getAuthenticatedUserId();
+
+        MensajeEntity mensaje = mensajeRepository.findById(mensajeId)
+                .orElseThrow(() -> new RecursoNoEncontradoException("Mensaje no encontrado: " + mensajeId));
+        Long ownerId = mensaje.getEmisor() == null ? null : mensaje.getEmisor().getId();
+        if (!Objects.equals(ownerId, authenticatedUserId)) {
+            throw new AccessDeniedException("No puedes eliminar mensajes de otro usuario");
+        }
+        if (!mensaje.isActivo()) {
+            throw new ConflictoException("El mensaje ya estaba eliminado");
+        }
+        if (isMensajeExpirado(mensaje)) {
+            throw new ConflictoException("No se puede eliminar un mensaje temporal expirado");
+        }
+
+        ChatDispatchContext dispatchContext = resolveChatDispatchContext(mensaje.getChat(), authenticatedUserId);
+
+        mensaje.setActivo(false);
+        mensaje.setFechaEliminacion(nowUtc());
+        mensaje.setMotivoEliminacion(normalizeNullableText(motivoEliminacion));
+
+        MensajeEntity saved = mensajeRepository.save(mensaje);
+        syncLegacyDeleteColumns(saved.getId(), saved.getFechaEliminacion());
+        MensajeDTO out = MappingUtils.mensajeEntityADto(saved);
+        broadcastMensaje(out, dispatchContext);
+        return out;
+    }
+
+    @Override
+    @Transactional
+    public MensajeDTO restaurarMensajePropio(Long mensajeId) {
+        if (mensajeId == null) {
+            throw new IllegalArgumentException("mensajeId es obligatorio");
+        }
+
+        Long authenticatedUserId = securityUtils.getAuthenticatedUserId();
+        MensajeEntity mensaje = mensajeRepository.findById(mensajeId)
+                .orElseThrow(() -> new RecursoNoEncontradoException("Mensaje no encontrado: " + mensajeId));
+
+        Long ownerId = mensaje.getEmisor() == null ? null : mensaje.getEmisor().getId();
+        if (!Objects.equals(ownerId, authenticatedUserId)) {
+            throw new AccessDeniedException("No puedes restaurar mensajes de otro usuario");
+        }
+        if (mensaje.isActivo()) {
+            throw new AccessDeniedException("Solo se pueden restaurar mensajes eliminados");
+        }
+
+        if (MOTIVO_TEMPORAL_EXPIRADO.equalsIgnoreCase(mensaje.getMotivoEliminacion()) || isMensajeExpirado(mensaje)) {
+            throw new ConflictoException("No se puede restaurar un mensaje temporal expirado");
+        }
+
+        LocalDateTime fechaEliminacion = resolveDeleteTimestamp(mensaje);
+        LocalDateTime limiteRestauracion = fechaEliminacion.plusDays(VENTANA_RESTAURACION_DIAS);
+        if (nowUtc().isAfter(limiteRestauracion)) {
+            throw new ConflictoException(
+                    Constantes.ERR_RESTORE_WINDOW_EXPIRED,
+                    "Ventana de restauracion vencida. Limite UTC: " + limiteRestauracion);
+        }
+
+        ChatDispatchContext dispatchContext = resolveChatDispatchContext(mensaje.getChat(), authenticatedUserId);
+
+        mensaje.setActivo(true);
+        mensaje.setMotivoEliminacion(null);
+        mensaje.setPlaceholderTexto(null);
+        mensaje.setFechaEliminacion(null);
+
+        MensajeEntity saved = mensajeRepository.save(mensaje);
+        clearLegacyDeleteColumns(saved.getId());
+        MensajeDTO restored = MappingUtils.mensajeEntityADto(saved);
+
+        broadcastMensaje(restored, dispatchContext);
+        return restored;
     }
 
     private void validateReaccionRequest(MensajeReaccionDTO request) {
@@ -638,6 +869,9 @@ public class MensajeriaServiceImpl implements MensajeriaService {
             MensajeEntity original = mensajeRepository.findById(originalId)
                     .orElseThrow(() -> new ReenvioInvalidoException(
                             ExceptionConstants.ERROR_REENVIO_ORIGINAL_NO_EXISTE + originalId));
+            if (isMensajeExpirado(original)) {
+                throw new ReenvioInvalidoException(ExceptionConstants.ERROR_REENVIO_ORIGINAL_NO_EXISTE + originalId);
+            }
             UsuarioEntity usuario = usuarioRepository.findById(authenticatedUserId).orElseThrow();
             if (!canAccessChat(usuario, original.getChat())) {
                 throw new ReenvioNoAutorizadoException(ExceptionConstants.ERROR_REENVIO_NO_AUTORIZADO);
@@ -661,6 +895,10 @@ public class MensajeriaServiceImpl implements MensajeriaService {
         MensajeEntity original = mensajeRepository.findById(replyId)
                 .orElseThrow(() -> new RespuestaInvalidaException(ExceptionConstants.ERROR_RESPUESTA_INVALIDA));
 
+        if (isMensajeExpirado(original)) {
+            throw new RespuestaInvalidaException(ExceptionConstants.ERROR_RESPUESTA_INVALIDA);
+        }
+
         if (!original.isActivo()) {
             throw new RespuestaInvalidaException(ExceptionConstants.ERROR_RESPUESTA_INVALIDA);
         }
@@ -675,6 +913,36 @@ public class MensajeriaServiceImpl implements MensajeriaService {
             throw new RespuestaInvalidaException(ExceptionConstants.ERROR_RESPUESTA_INVALIDA);
         }
 
+    }
+
+    private void aplicarConfiguracionMensajeTemporal(MensajeDTO dto, MensajeEntity mensaje, LocalDateTime fechaEnvio) {
+        if (mensaje == null) {
+            return;
+        }
+        Long segundosTemporales = dto == null ? null : dto.getMensajeTemporalSegundos();
+        boolean temporalActivo = dto != null
+                && Boolean.TRUE.equals(dto.getMensajeTemporal())
+                && segundosTemporales != null
+                && segundosTemporales > 0;
+
+        if (!temporalActivo) {
+            mensaje.setMensajeTemporal(false);
+            mensaje.setMensajeTemporalSegundos(null);
+            mensaje.setExpiraEn(null);
+            return;
+        }
+
+        LocalDateTime base = fechaEnvio != null ? fechaEnvio : LocalDateTime.now();
+        mensaje.setMensajeTemporal(true);
+        mensaje.setMensajeTemporalSegundos(segundosTemporales);
+        mensaje.setExpiraEn(base.plusSeconds(segundosTemporales));
+    }
+
+    private boolean isMensajeExpirado(MensajeEntity mensaje) {
+        if (mensaje == null || mensaje.getExpiraEn() == null) {
+            return false;
+        }
+        return !mensaje.getExpiraEn().isAfter(LocalDateTime.now());
     }
 
     private boolean canAccessChat(UsuarioEntity usuario, ChatEntity chat) {
@@ -693,5 +961,197 @@ public class MensajeriaServiceImpl implements MensajeriaService {
                     && cg.getUsuarios().stream().anyMatch(u -> Objects.equals(u.getId(), usuario.getId()));
         }
         return false;
+    }
+
+    private ChatDispatchContext resolveChatDispatchContext(ChatEntity chat, Long authenticatedUserId) {
+        if (chat == null || chat.getId() == null) {
+            throw new RecursoNoEncontradoException("chat no encontrado para el mensaje");
+        }
+
+        if (chat instanceof ChatIndividualEntity) {
+            ChatIndividualEntity chatIndividual = chatIndividualRepository.findById(chat.getId())
+                    .orElseThrow(() -> new RecursoNoEncontradoException(Constantes.MSG_CHAT_INDIVIDUAL_NO_ENCONTRADO));
+
+            Long user1 = chatIndividual.getUsuario1() == null ? null : chatIndividual.getUsuario1().getId();
+            Long user2 = chatIndividual.getUsuario2() == null ? null : chatIndividual.getUsuario2().getId();
+            boolean belongs = Objects.equals(user1, authenticatedUserId) || Objects.equals(user2, authenticatedUserId);
+            if (!belongs) {
+                throw new AccessDeniedException(Constantes.MSG_NO_PERTENECE_CHAT);
+            }
+
+            Set<Long> recipients = new LinkedHashSet<>();
+            if (user1 != null) {
+                recipients.add(user1);
+            }
+            if (user2 != null) {
+                recipients.add(user2);
+            }
+            return new ChatDispatchContext(false, chatIndividual.getId(), recipients);
+        }
+
+        if (chat instanceof ChatGrupalEntity) {
+            ChatGrupalEntity chatGrupal = chatGrupalRepository.findByIdWithUsuarios(chat.getId())
+                    .orElseThrow(() -> new RecursoNoEncontradoException(Constantes.MSG_CHAT_GRUPAL_NO_ENCONTRADO));
+            if (!chatGrupal.isActivo()) {
+                throw new RecursoNoEncontradoException(Constantes.MSG_CHAT_GRUPAL_NO_ENCONTRADO);
+            }
+
+            boolean senderIsActiveMember = chatGrupal.getUsuarios() != null && chatGrupal.getUsuarios().stream()
+                    .filter(Objects::nonNull)
+                    .anyMatch(u -> Objects.equals(u.getId(), authenticatedUserId) && u.isActivo());
+            if (!senderIsActiveMember) {
+                throw new AccessDeniedException(Constantes.MSG_NO_PERTENECE_GRUPO);
+            }
+
+            Set<Long> recipients = new LinkedHashSet<>();
+            if (chatGrupal.getUsuarios() != null) {
+                chatGrupal.getUsuarios().stream()
+                        .filter(Objects::nonNull)
+                        .filter(UsuarioEntity::isActivo)
+                        .map(UsuarioEntity::getId)
+                        .filter(Objects::nonNull)
+                        .forEach(recipients::add);
+            }
+            return new ChatDispatchContext(true, chatGrupal.getId(), recipients);
+        }
+
+        throw new RecursoNoEncontradoException("Tipo de chat no soportado para operacion de mensaje");
+    }
+
+    private LocalDateTime resolveDeleteTimestamp(MensajeEntity mensaje) {
+        if (mensaje == null || mensaje.getId() == null) {
+            throw new RecursoNoEncontradoException("Mensaje no encontrado");
+        }
+
+        if (mensaje.getFechaEliminacion() != null) {
+            return mensaje.getFechaEliminacion();
+        }
+
+        LocalDateTime legacyDeletedAt = resolveLegacyDeletedTimestamp(mensaje.getId());
+        if (legacyDeletedAt != null) {
+            return legacyDeletedAt;
+        }
+
+        LocalDateTime legacyUpdatedAt = resolveLegacyUpdatedAtTimestampForDeleteAudit(mensaje);
+        if (legacyUpdatedAt != null) {
+            return legacyUpdatedAt;
+        }
+
+        throw new ConflictoException(
+                Constantes.ERR_DELETE_TIMESTAMP_MISSING,
+                "No se puede restaurar: falta timestamp de eliminacion para mensaje legacy");
+    }
+
+    private LocalDateTime resolveLegacyDeletedTimestamp(Long mensajeId) {
+        LocalDateTime deletedAt = queryLegacyTimestampIfColumnExists("deleted_at", mensajeId);
+        if (deletedAt != null) {
+            return deletedAt;
+        }
+        return queryLegacyTimestampIfColumnExists("deletedAt", mensajeId);
+    }
+
+    private LocalDateTime resolveLegacyUpdatedAtTimestampForDeleteAudit(MensajeEntity mensaje) {
+        if (mensaje == null || mensaje.getId() == null || mensaje.isActivo()) {
+            return null;
+        }
+        if (MOTIVO_TEMPORAL_EXPIRADO.equalsIgnoreCase(mensaje.getMotivoEliminacion())) {
+            return null;
+        }
+        if (mensajeTemporalAuditoriaRepository.findByMensajeId(mensaje.getId()).isEmpty()) {
+            return null;
+        }
+
+        LocalDateTime updatedAt = queryLegacyTimestampIfColumnExists("updated_at", mensaje.getId());
+        if (updatedAt == null) {
+            updatedAt = queryLegacyTimestampIfColumnExists("updatedAt", mensaje.getId());
+        }
+        if (updatedAt == null) {
+            return null;
+        }
+        if (mensaje.getFechaEnvio() != null && updatedAt.isBefore(mensaje.getFechaEnvio())) {
+            return null;
+        }
+        return updatedAt;
+    }
+
+    private LocalDateTime queryLegacyTimestampIfColumnExists(String columnName, Long mensajeId) {
+        if (columnName == null || columnName.isBlank() || mensajeId == null) {
+            return null;
+        }
+        if (!mensajesColumnExists(columnName)) {
+            return null;
+        }
+
+        String sql = "SELECT " + columnName + " FROM mensajes WHERE id = ?";
+        return jdbcTemplate.query(sql, rs -> {
+            if (!rs.next()) {
+                return null;
+            }
+            java.sql.Timestamp timestamp = rs.getTimestamp(1);
+            return timestamp == null ? null : timestamp.toLocalDateTime();
+        }, mensajeId);
+    }
+
+    private boolean mensajesColumnExists(String columnName) {
+        return mensajesColumnExistsCache.computeIfAbsent(columnName, key -> {
+            Integer count = jdbcTemplate.queryForObject(SQL_MENSAJES_COLUMN_EXISTS, Integer.class, key);
+            return count != null && count > 0;
+        });
+    }
+
+    private void syncLegacyDeleteColumns(Long mensajeId, LocalDateTime timestampUtc) {
+        if (mensajeId == null || timestampUtc == null) {
+            return;
+        }
+        Timestamp ts = Timestamp.valueOf(timestampUtc);
+        if (mensajesColumnExists("deleted_at")) {
+            jdbcTemplate.update("UPDATE mensajes SET deleted_at = ? WHERE id = ?", ts, mensajeId);
+        }
+        if (mensajesColumnExists("deletedAt")) {
+            jdbcTemplate.update("UPDATE mensajes SET deletedAt = ? WHERE id = ?", ts, mensajeId);
+        }
+    }
+
+    private void clearLegacyDeleteColumns(Long mensajeId) {
+        if (mensajeId == null) {
+            return;
+        }
+        if (mensajesColumnExists("deleted_at")) {
+            jdbcTemplate.update("UPDATE mensajes SET deleted_at = NULL WHERE id = ?", mensajeId);
+        }
+        if (mensajesColumnExists("deletedAt")) {
+            jdbcTemplate.update("UPDATE mensajes SET deletedAt = NULL WHERE id = ?", mensajeId);
+        }
+    }
+
+    private LocalDateTime nowUtc() {
+        return LocalDateTime.now(ZoneOffset.UTC);
+    }
+
+    private String normalizeNullableText(String value) {
+        if (value == null) {
+            return null;
+        }
+        String normalized = value.trim();
+        return normalized.isEmpty() ? null : normalized;
+    }
+
+    private void broadcastMensaje(MensajeDTO mensaje, ChatDispatchContext dispatchContext) {
+        if (mensaje == null || dispatchContext == null) {
+            return;
+        }
+        if (dispatchContext.groupChat()) {
+            messagingTemplate.convertAndSend(Constantes.TOPIC_CHAT_GRUPAL + dispatchContext.chatId(), mensaje);
+            return;
+        }
+        for (Long userId : dispatchContext.recipients()) {
+            if (userId == null) {
+                continue;
+            }
+            messagingTemplate.convertAndSend(Constantes.TOPIC_CHAT + userId, mensaje);
+        }
+    }
+
+    private record ChatDispatchContext(boolean groupChat, Long chatId, Set<Long> recipients) {
     }
 }

@@ -9,6 +9,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.time.LocalDateTime;
@@ -20,49 +21,99 @@ public interface MensajeRepository extends JpaRepository<MensajeEntity, Long> {
     @Query("select m.chat.id, count(m) " +
             "from MensajeEntity m " +
             "where m.receptor.id = :uid and m.leido = false and m.activo = true " +
+            "and (m.expiraEn is null or m.expiraEn > CURRENT_TIMESTAMP) " +
             "group by m.chat.id")
     List<Object[]> countUnreadByUser(@Param("uid") Long uid);
 
-    MensajeEntity findTopByChatIdOrderByFechaEnvioDesc(Long chatId);
+    @Query(value = "select * from mensajes m " +
+            "where m.chat_id = :chatId " +
+            "order by m.fecha_envio desc, m.id desc " +
+            "limit 1", nativeQuery = true)
+    MensajeEntity findTopByChatIdOrderByFechaEnvioDesc(@Param("chatId") Long chatId);
 
-    long countByChatIdAndActivoTrue(Long chatId);
+    @Query("select count(m) from MensajeEntity m " +
+            "where m.chat.id = :chatId and m.activo = true " +
+            "and (m.expiraEn is null or m.expiraEn > CURRENT_TIMESTAMP)")
+    long countByChatIdAndActivoTrue(@Param("chatId") Long chatId);
 
-    Optional<MensajeEntity> findTopByChatIdAndActivoTrueOrderByFechaEnvioDesc(Long chatId);
+    @Query(value = "select * from mensajes m " +
+            "where m.chat_id = :chatId and m.activo = true " +
+            "order by m.fecha_envio desc, m.id desc " +
+            "limit 1", nativeQuery = true)
+    Optional<MensajeEntity> findTopByChatIdAndActivoTrueOrderByFechaEnvioDesc(@Param("chatId") Long chatId);
 
-    List<MensajeEntity> findByChatIdOrderByFechaEnvioAsc(Long chatId);
+    @Query("select m from MensajeEntity m " +
+            "where m.chat.id = :chatId " +
+            "and (m.expiraEn is null or m.expiraEn > CURRENT_TIMESTAMP) " +
+            "order by m.fechaEnvio asc, m.id asc")
+    List<MensajeEntity> findByChatIdOrderByFechaEnvioAsc(@Param("chatId") Long chatId);
 
-    @Query("select m.chat.id, count(m) from MensajeEntity m where m.chat.id in :chatIds and m.activo = true group by m.chat.id")
+    @Query("select m from MensajeEntity m " +
+            "where m.chat.id = :chatId " +
+            "order by m.fechaEnvio asc, m.id asc")
+    List<MensajeEntity> findByChatIdOrderByFechaEnvioAscIncluyendoExpirados(@Param("chatId") Long chatId);
+
+    @Query("select m.chat.id, count(m) from MensajeEntity m " +
+            "where m.chat.id in :chatIds and m.activo = true " +
+            "and (m.expiraEn is null or m.expiraEn > CURRENT_TIMESTAMP) " +
+            "group by m.chat.id")
     List<Object[]> countActivosByChatIds(@Param("chatIds") List<Long> chatIds);
+
+    @Query("select m.chat.id, count(m) from MensajeEntity m " +
+            "where m.chat.id in :chatIds and m.activo = true " +
+            "group by m.chat.id")
+    List<Object[]> countActivosByChatIdsIncluyendoExpirados(@Param("chatIds") List<Long> chatIds);
+
+    @Query("select m from MensajeEntity m " +
+            "where m.chat.id in :chatIds " +
+            "and (m.expiraEn is null or m.expiraEn > CURRENT_TIMESTAMP) " +
+            "and m.fechaEnvio = (select max(m2.fechaEnvio) from MensajeEntity m2 where m2.chat.id = m.chat.id and (m2.expiraEn is null or m2.expiraEn > CURRENT_TIMESTAMP)) " +
+            "and m.id = (select max(m3.id) from MensajeEntity m3 where m3.chat.id = m.chat.id and m3.fechaEnvio = m.fechaEnvio and (m3.expiraEn is null or m3.expiraEn > CURRENT_TIMESTAMP))")
+    List<MensajeEntity> findLatestByChatIds(@Param("chatIds") List<Long> chatIds);
 
     @Query("select m from MensajeEntity m " +
             "where m.chat.id in :chatIds " +
             "and m.fechaEnvio = (select max(m2.fechaEnvio) from MensajeEntity m2 where m2.chat.id = m.chat.id) " +
             "and m.id = (select max(m3.id) from MensajeEntity m3 where m3.chat.id = m.chat.id and m3.fechaEnvio = m.fechaEnvio)")
-    List<MensajeEntity> findLatestByChatIds(@Param("chatIds") List<Long> chatIds);
+    List<MensajeEntity> findLatestByChatIdsIncluyendoExpirados(@Param("chatIds") List<Long> chatIds);
 
-    Page<MensajeEntity> findByChatId(Long chatId, Pageable pageable);
+    @Query("select m from MensajeEntity m " +
+            "where m.chat.id = :chatId")
+    Page<MensajeEntity> findByChatId(@Param("chatId") Long chatId, Pageable pageable);
 
     @Modifying
-    @Query("update MensajeEntity m set m.leido = true where m.id in :ids")
+    @Transactional
+    @Query("update MensajeEntity m set m.leido = true " +
+            "where m.id in :ids " +
+            "and (m.expiraEn is null or m.expiraEn > CURRENT_TIMESTAMP)")
     int markLeidoByIds(@Param("ids") List<Long> ids);
 
     @Query("select m.emisor.id from MensajeEntity m where m.id = :id")
     Optional<Long> findEmisorIdById(@Param("id") Long id);
 
     @Modifying
-    @Query("update MensajeEntity m set m.activo = false where m.id = :id")
+    @Transactional
+    @Query("update MensajeEntity m set m.activo = false, m.fechaEliminacion = CURRENT_TIMESTAMP " +
+            "where m.id = :id " +
+            "and m.activo = true " +
+            "and (m.expiraEn is null or m.expiraEn > CURRENT_TIMESTAMP)")
     int markInactivoById(@Param("id") Long id);
 
-    @Query("SELECT COUNT(m) FROM MensajeEntity m WHERE m.fechaEnvio >= :inicio AND m.fechaEnvio < :fin")
+    @Query("SELECT COUNT(m) FROM MensajeEntity m " +
+            "WHERE m.fechaEnvio >= :inicio AND m.fechaEnvio < :fin " +
+            "AND (m.expiraEn is null or m.expiraEn > CURRENT_TIMESTAMP)")
     long countMensajesEntreFechas(@Param("inicio") java.time.LocalDateTime inicio,
                                   @Param("fin") java.time.LocalDateTime fin);
 
-    Optional<MensajeEntity> findByIdAndChatId(Long id, Long chatId);
+    @Query("select m from MensajeEntity m " +
+            "where m.id = :id and m.chat.id = :chatId")
+    Optional<MensajeEntity> findByIdAndChatId(@Param("id") Long id, @Param("chatId") Long chatId);
 
     @Query("select m from MensajeEntity m " +
             "left join fetch m.emisor e " +
             "where m.chat.id = :chatId " +
             "and m.activo = true " +
+            "and (m.expiraEn is null or m.expiraEn > CURRENT_TIMESTAMP) " +
             "and m.tipo in :types " +
             "and (:cursorFecha is null or m.fechaEnvio < :cursorFecha or (m.fechaEnvio = :cursorFecha and m.id < :cursorId)) " +
             "order by m.fechaEnvio desc, m.id desc")
@@ -77,9 +128,49 @@ public interface MensajeRepository extends JpaRepository<MensajeEntity, Long> {
             "left join fetch m.emisor " +
             "where m.chat.id = :chatId " +
             "and m.activo = true " +
+            "and (m.expiraEn is null or m.expiraEn > CURRENT_TIMESTAMP) " +
             "and m.tipo = :tipo " +
             "order by m.fechaEnvio desc, m.id desc")
     List<MensajeEntity> findTextActivosByChatIdOrderByFechaEnvioDescIdDesc(
             @Param("chatId") Long chatId,
             @Param("tipo") MessageType tipo);
+
+    @Query("select m from MensajeEntity m " +
+            "where m.mensajeTemporal = true " +
+            "and m.expiraEn is not null " +
+            "and m.expiraEn <= :ahora " +
+            "order by m.expiraEn asc, m.id asc")
+    List<MensajeEntity> findMensajesTemporalesExpirados(@Param("ahora") LocalDateTime ahora, Pageable pageable);
+
+    @Query("select m from MensajeEntity m " +
+            "where m.mensajeTemporal = true " +
+            "and m.expiraEn is not null " +
+            "and m.expiraEn <= :ahora " +
+            "and (m.motivoEliminacion is null or m.motivoEliminacion <> :motivo) " +
+            "order by m.expiraEn asc, m.id asc")
+    List<MensajeEntity> findMensajesTemporalesPendientesExpirar(
+            @Param("ahora") LocalDateTime ahora,
+            @Param("motivo") String motivo,
+            Pageable pageable);
+
+    @Query("select count(m) from MensajeEntity m " +
+            "where m.mensajeTemporal = true " +
+            "and m.expiraEn is not null " +
+            "and m.expiraEn <= :ahora")
+    long countMensajesTemporalesExpirados(@Param("ahora") LocalDateTime ahora);
+
+    @Modifying
+    @Transactional
+    @Query("delete from MensajeEntity m where m.id in :ids")
+    int eliminarPorIds(@Param("ids") List<Long> ids);
+
+    @Query("select m from MensajeEntity m " +
+            "where m.motivoEliminacion = :motivo " +
+            "and m.expiraEn is not null " +
+            "and m.expiraEn <= :cutoff " +
+            "order by m.expiraEn asc, m.id asc")
+    List<MensajeEntity> findPlaceholdersParaLimpiezaTecnica(
+            @Param("motivo") String motivo,
+            @Param("cutoff") LocalDateTime cutoff,
+            Pageable pageable);
 }

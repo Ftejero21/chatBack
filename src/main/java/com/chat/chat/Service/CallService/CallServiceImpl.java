@@ -7,12 +7,15 @@ import com.chat.chat.Call.DTO.CallInviteDTO;
 import com.chat.chat.Entity.UsuarioEntity;
 import com.chat.chat.Repository.UsuarioRepository;
 import com.chat.chat.Utils.Constantes;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 
 @Service
 public class CallServiceImpl implements CallService {
+    private static final Logger LOGGER = LoggerFactory.getLogger(CallServiceImpl.class);
 
     @Autowired
     private SimpMessagingTemplate messagingTemplate;
@@ -25,6 +28,10 @@ public class CallServiceImpl implements CallService {
 
     @Override
     public CallInviteWS startCall(CallInviteDTO dto) {
+        LOGGER.info("[CALL] startCall callerId={} calleeId={} chatId={}",
+                dto == null ? null : dto.getCallerId(),
+                dto == null ? null : dto.getCalleeId(),
+                dto == null ? null : dto.getChatId());
         if (dto == null || dto.getCallerId() == null || dto.getCalleeId() == null) return null;
 
         CallSession session = callManager.create(dto.getCallerId(), dto.getCalleeId());
@@ -65,6 +72,11 @@ public class CallServiceImpl implements CallService {
 
     @Override
     public CallAnswerWS answerCall(CallAnswerDTO dto) {
+        LOGGER.info("[CALL] answerCall callId={} callerId={} calleeId={} accepted={}",
+                dto == null ? null : dto.getCallId(),
+                dto == null ? null : dto.getCallerId(),
+                dto == null ? null : dto.getCalleeId(),
+                dto != null && dto.isAccepted());
         if (dto == null || dto.getCallId() == null) return null;
 
         CallSession session = callManager.get(dto.getCallId());
@@ -91,6 +103,9 @@ public class CallServiceImpl implements CallService {
 
     @Override
     public CallEndWS endCall(CallEndDTO dto) {
+        LOGGER.info("[CALL] endCall callId={} byUserId={}",
+                dto == null ? null : dto.getCallId(),
+                dto == null ? null : dto.getByUserId());
         if (dto == null || dto.getCallId() == null || dto.getByUserId() == null) return null;
 
         CallSession session = callManager.get(dto.getCallId());

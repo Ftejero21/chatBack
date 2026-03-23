@@ -1,8 +1,8 @@
 package com.chat.chat.Service.EmailService;
 
-import java.nio.charset.StandardCharsets;
-import java.util.Map;
-
+import jakarta.mail.internet.MimeMessage;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.mail.javamail.JavaMailSender;
@@ -10,16 +10,20 @@ import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StreamUtils;
 
-import jakarta.mail.internet.MimeMessage;
+import java.nio.charset.StandardCharsets;
+import java.util.Map;
 
 @Service
 public class EmailServiceImpl implements EmailService {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(EmailServiceImpl.class);
 
     @Autowired
     private JavaMailSender mailSender;
 
     @Override
     public void sendHtmlEmail(String to, String subject, String templatePath, Map<String, String> variables) {
+        LOGGER.info("[EMAIL] sendHtmlEmail to={} subject={} template={}", to, subject, templatePath);
         try {
             MimeMessage message = mailSender.createMimeMessage();
             MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
@@ -31,17 +35,17 @@ public class EmailServiceImpl implements EmailService {
             ClassPathResource resource = new ClassPathResource(templatePath);
             String htmlContent = StreamUtils.copyToString(resource.getInputStream(), StandardCharsets.UTF_8);
 
-            // 2. Reemplazar variables dinámicamente: {{variable}} -> valor
+            // 2. Reemplazar variables dinamicamente: {{variable}} -> valor
             for (Map.Entry<String, String> entry : variables.entrySet()) {
                 htmlContent = htmlContent.replace("{{" + entry.getKey() + "}}", entry.getValue());
             }
 
             helper.setText(htmlContent, true);
             mailSender.send(message);
-            
+            LOGGER.info("[EMAIL] enviado to={} subject={}", to, subject);
         } catch (Exception e) {
-            System.err.println("❌ Error enviando email a " + to + ": " + e.getMessage());
-            // No lanzamos excepción para no interrumpir el flujo principal (Baneo en DB)
+            LOGGER.error("[EMAIL] error enviando a {}: {}", to, e.getMessage());
+            // No lanzamos excepcion para no interrumpir el flujo principal (Baneo en DB)
         }
     }
 }

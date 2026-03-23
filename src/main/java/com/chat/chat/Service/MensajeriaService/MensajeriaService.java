@@ -2,6 +2,7 @@ package com.chat.chat.Service.MensajeriaService;
 
 import com.chat.chat.DTO.MensajeDTO;
 import com.chat.chat.DTO.MensajeReaccionDTO;
+import com.chat.chat.DTO.MensajesDestacadosPageDTO;
 import com.chat.chat.DTO.VotoEncuestaDTO;
 
 import java.util.List;
@@ -15,6 +16,9 @@ public interface MensajeriaService {
     ReactionDispatchResult procesarReaccion(MensajeReaccionDTO request);
 
     void marcarMensajesComoLeidos(List<Long> ids);
+    void destacarMensaje(Long mensajeId);
+    void quitarDestacado(Long mensajeId);
+    MensajesDestacadosPageDTO listarMensajesDestacadosUsuario(Integer page, Integer size, String sort);
 
     public boolean eliminarMensajePropio(MensajeDTO mensajeDTO);
     MensajeDTO eliminarMensajePropio(Long mensajeId, String motivoEliminacion);

@@ -6,6 +6,7 @@ public class Constantes {
     public static final String API_CHAT = "/api/chat";
 
     public static final String API_MENSAJERIA = "/api/mensajeria";
+    public static final String API_MENSAJES = "/api/mensajes";
 
     public static final String LISTAR_MENSAJES_CHAT = "/mensajes";
 
@@ -59,6 +60,8 @@ public class Constantes {
     public static final String MENSAJES_GRUPO = "/mensajes/grupo/{chatId}";
     public static final String MENSAJES_BUSCAR_CHAT = "/mensajes/{chatId}/buscar";
     public static final String MENSAJES_MARCAR_LEIDOS = "/mensajes/marcar-leidos";
+    public static final String MENSAJE_DESTACAR = "/{mensajeId}/destacar";
+    public static final String MENSAJES_DESTACADOS = "/destacados";
     public static final String MENSAJES_ELIMINAR = "/mensajes/{mensajeId}/eliminar";
     public static final String MENSAJES_RESTAURAR = "/mensajes/{mensajeId}/restaurar";
     public static final String POLL_VOTE = "/poll/{mensajeId}/vote";
@@ -209,6 +212,7 @@ public class Constantes {
     public static final String MSG_CHAT_INDIVIDUAL_NO_ENCONTRADO = "Chat individual no encontrado";
     public static final String MSG_NO_PUEDE_ENVIAR_MENSAJES = "No puedes enviar mensajes en esta conversación";
     public static final String MSG_CHAT_GRUPAL_NO_ENCONTRADO = "Chat grupal no encontrado";
+    public static final String MSG_SOLO_MENSAJES_RECIBIDOS_DESTACAR = "Solo puedes destacar mensajes recibidos.";
     public static final String KEY_MENSAJE_ID = "mensajeId";
 
     public static final String MSG_USUARIO_NO_ENCONTRADO = "Usuario no encontrado";

@@ -2,6 +2,8 @@ package com.chat.chat.Service.AuthService;
 
 import com.chat.chat.Utils.Constantes;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import org.springframework.stereotype.Service;
 
@@ -14,6 +16,7 @@ import java.util.concurrent.ConcurrentHashMap;
 
 @Service
 public class PasswordResetService {
+    private static final Logger LOGGER = LoggerFactory.getLogger(PasswordResetService.class);
 
     @Autowired
     private EmailService emailService; // <--- Inyectamos la interfaz
@@ -23,6 +26,7 @@ public class PasswordResetService {
     private static final long EXPIRATION_TIME_MS = 300_000;
 
     public void generateAndSendResetCode(String email) {
+        LOGGER.info("[PASSWORD_RESET] generateAndSendResetCode email={}", email);
         String code = generateNumericCode();
         resetCodes.put(email, new CodeDetails(code, System.currentTimeMillis() + EXPIRATION_TIME_MS));
 
@@ -40,6 +44,7 @@ public class PasswordResetService {
     }
 
     public boolean isCodeValid(String email, String rawCode) {
+        LOGGER.info("[PASSWORD_RESET] isCodeValid email={}", email);
         CodeDetails details = resetCodes.get(email);
         if (details == null) return false;
 
@@ -52,6 +57,7 @@ public class PasswordResetService {
     }
 
     public void invalidateCode(String email) {
+        LOGGER.info("[PASSWORD_RESET] invalidateCode email={}", email);
         resetCodes.remove(email);
     }
 

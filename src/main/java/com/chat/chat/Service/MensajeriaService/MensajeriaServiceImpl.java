@@ -1,11 +1,14 @@
 package com.chat.chat.Service.MensajeriaService;
 
+import com.chat.chat.DTO.MensajeDestacadoDTO;
 import com.chat.chat.DTO.MensajeDTO;
 import com.chat.chat.DTO.MensajeReaccionDTO;
+import com.chat.chat.DTO.MensajesDestacadosPageDTO;
 import com.chat.chat.DTO.VotoEncuestaDTO;
 import com.chat.chat.Entity.ChatEntity;
 import com.chat.chat.Entity.ChatGrupalEntity;
 import com.chat.chat.Entity.ChatIndividualEntity;
+import com.chat.chat.Entity.MensajeDestacadoEntity;
 import com.chat.chat.Entity.MensajeEntity;
 import com.chat.chat.Entity.MensajeReaccionEntity;
 import com.chat.chat.Entity.UsuarioEntity;
@@ -18,6 +21,7 @@ import com.chat.chat.Exceptions.RespuestaInvalidaException;
 import com.chat.chat.Exceptions.RespuestaNoAutorizadaException;
 import com.chat.chat.Repository.ChatGrupalRepository;
 import com.chat.chat.Repository.ChatIndividualRepository;
+import com.chat.chat.Repository.MensajeDestacadoRepository;
 import com.chat.chat.Repository.MensajeReaccionRepository;
 import com.chat.chat.Repository.MensajeRepository;
 import com.chat.chat.Repository.MensajeTemporalAuditoriaRepository;
@@ -36,6 +40,10 @@ import com.chat.chat.Utils.Utils;
 import jakarta.transaction.Transactional;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.security.access.AccessDeniedException;
@@ -66,6 +74,9 @@ public class MensajeriaServiceImpl implements MensajeriaService {
     private static final Logger LOGGER = LoggerFactory.getLogger(MensajeriaServiceImpl.class);
     private static final long VENTANA_RESTAURACION_DIAS = 3L;
     private static final String MOTIVO_TEMPORAL_EXPIRADO = "TEMPORAL_EXPIRADO";
+    private static final int DESTACADOS_DEFAULT_PAGE = 0;
+    private static final int DESTACADOS_DEFAULT_SIZE = 10;
+    private static final int DESTACADOS_MAX_SIZE = 50;
     private static final String SQL_MENSAJES_COLUMN_EXISTS =
             "SELECT COUNT(1) FROM information_schema.COLUMNS " +
             "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'mensajes' AND COLUMN_NAME = ?";
@@ -90,6 +101,9 @@ public class MensajeriaServiceImpl implements MensajeriaService {
 
     @Autowired
     private MensajeReaccionRepository mensajeReaccionRepository;
+
+    @Autowired
+    private MensajeDestacadoRepository mensajeDestacadoRepository;
 
     @Autowired
     private MensajeTemporalAuditoriaRepository mensajeTemporalAuditoriaRepository;
@@ -750,6 +764,84 @@ public class MensajeriaServiceImpl implements MensajeriaService {
 
     @Override
     @Transactional
+    public void destacarMensaje(Long mensajeId) {
+        if (mensajeId == null) {
+            throw new IllegalArgumentException("mensajeId es obligatorio");
+        }
+
+        Long authenticatedUserId = securityUtils.getAuthenticatedUserId();
+        MensajeEntity mensaje = mensajeRepository.findById(mensajeId)
+                .orElseThrow(() -> new RecursoNoEncontradoException("Mensaje no encontrado: " + mensajeId));
+        validarPermisoParaDestacado(mensaje, authenticatedUserId, true);
+
+        if (mensajeDestacadoRepository.existsByUsuarioIdAndMensajeId(authenticatedUserId, mensajeId)) {
+            return;
+        }
+
+        UsuarioEntity usuario = usuarioRepository.findById(authenticatedUserId)
+                .orElseThrow(() -> new RecursoNoEncontradoException(Constantes.MSG_USUARIO_AUTENTICADO_NO_ENCONTRADO));
+
+        MensajeDestacadoEntity destacado = new MensajeDestacadoEntity();
+        destacado.setUsuario(usuario);
+        destacado.setMensaje(mensaje);
+
+        try {
+            mensajeDestacadoRepository.save(destacado);
+        } catch (DataIntegrityViolationException ex) {
+            LOGGER.debug("[DESTACADO] duplicado concurrente ignorado usuarioId={} mensajeId={}",
+                    authenticatedUserId,
+                    mensajeId);
+        }
+    }
+
+    @Override
+    @Transactional
+    public void quitarDestacado(Long mensajeId) {
+        if (mensajeId == null) {
+            throw new IllegalArgumentException("mensajeId es obligatorio");
+        }
+
+        Long authenticatedUserId = securityUtils.getAuthenticatedUserId();
+        MensajeEntity mensaje = mensajeRepository.findById(mensajeId)
+                .orElseThrow(() -> new RecursoNoEncontradoException("Mensaje no encontrado: " + mensajeId));
+        validarPermisoParaDestacado(mensaje, authenticatedUserId, false);
+
+        mensajeDestacadoRepository.deleteByUsuarioIdAndMensajeId(authenticatedUserId, mensajeId);
+    }
+
+    @Override
+    @Transactional
+    public MensajesDestacadosPageDTO listarMensajesDestacadosUsuario(Integer page, Integer size, String sort) {
+        Long authenticatedUserId = securityUtils.getAuthenticatedUserId();
+        if (sort != null && !sort.isBlank()) {
+            LOGGER.debug("[DESTACADOS] sort param recibido='{}' (se mantiene orden de negocio por fecha de mensaje)", sort);
+        }
+        int safePage = page == null ? DESTACADOS_DEFAULT_PAGE : Math.max(DESTACADOS_DEFAULT_PAGE, page);
+        int requestedSize = size == null ? DESTACADOS_DEFAULT_SIZE : size;
+        int safeSize = Math.max(1, Math.min(DESTACADOS_MAX_SIZE, requestedSize));
+        Pageable pageable = PageRequest.of(safePage, safeSize);
+
+        Page<MensajeDestacadoEntity> pageResult =
+                mensajeDestacadoRepository.findDestacadosPageByUsuarioIdOrderByFechaMensajeDesc(authenticatedUserId, pageable);
+
+        List<MensajeDestacadoDTO> content = new ArrayList<>();
+        for (MensajeDestacadoEntity destacado : pageResult.getContent()) {
+            content.add(mapDestacadoDto(destacado));
+        }
+
+        MensajesDestacadosPageDTO response = new MensajesDestacadosPageDTO();
+        response.setContent(content);
+        response.setPage(pageResult.getNumber());
+        response.setSize(pageResult.getSize());
+        response.setTotalElements(pageResult.getTotalElements());
+        response.setTotalPages(pageResult.getTotalPages());
+        response.setHasNext(pageResult.hasNext());
+        response.setHasPrevious(pageResult.hasPrevious());
+        return response;
+    }
+
+    @Override
+    @Transactional
     public boolean eliminarMensajePropio(MensajeDTO mensajeDTO) {
         if (mensajeDTO == null || mensajeDTO.getId() == null) {
             LOGGER.warn(Constantes.LOG_WS_DELETE_INVALID);
@@ -936,6 +1028,131 @@ public class MensajeriaServiceImpl implements MensajeriaService {
         mensaje.setMensajeTemporal(true);
         mensaje.setMensajeTemporalSegundos(segundosTemporales);
         mensaje.setExpiraEn(base.plusSeconds(segundosTemporales));
+    }
+
+    private void validarPermisoParaDestacado(MensajeEntity mensaje,
+                                             Long authenticatedUserId,
+                                             boolean validarMensajeRecibido) {
+        if (mensaje == null || !usuarioPerteneceAlChat(authenticatedUserId, mensaje.getChat())) {
+            throw new AccessDeniedException(Constantes.MSG_NO_PERTENECE_CHAT);
+        }
+        if (!validarMensajeRecibido) {
+            return;
+        }
+        Long emisorId = mensaje.getEmisor() == null ? null : mensaje.getEmisor().getId();
+        if (Objects.equals(emisorId, authenticatedUserId)) {
+            throw new AccessDeniedException(Constantes.MSG_SOLO_MENSAJES_RECIBIDOS_DESTACAR);
+        }
+    }
+
+    private boolean usuarioPerteneceAlChat(Long authenticatedUserId, ChatEntity chat) {
+        if (authenticatedUserId == null || chat == null) {
+            return false;
+        }
+        if (chat instanceof ChatIndividualEntity chatIndividual) {
+            Long user1Id = chatIndividual.getUsuario1() == null ? null : chatIndividual.getUsuario1().getId();
+            Long user2Id = chatIndividual.getUsuario2() == null ? null : chatIndividual.getUsuario2().getId();
+            return Objects.equals(user1Id, authenticatedUserId) || Objects.equals(user2Id, authenticatedUserId);
+        }
+        if (chat instanceof ChatGrupalEntity chatGrupal) {
+            if (!chatGrupal.isActivo()) {
+                return false;
+            }
+            return chatGrupal.getUsuarios() != null && chatGrupal.getUsuarios().stream()
+                    .filter(Objects::nonNull)
+                    .anyMatch(u -> Objects.equals(u.getId(), authenticatedUserId) && u.isActivo());
+        }
+        return false;
+    }
+
+    private MensajeDestacadoDTO mapDestacadoDto(MensajeDestacadoEntity destacado) {
+        MensajeEntity mensaje = destacado.getMensaje();
+
+        MensajeDestacadoDTO dto = new MensajeDestacadoDTO();
+        dto.setMensajeId(mensaje.getId());
+        dto.setChatId(mensaje.getChat() == null ? null : mensaje.getChat().getId());
+        dto.setEmisorId(mensaje.getEmisor() == null ? null : mensaje.getEmisor().getId());
+        dto.setTipoMensaje(mensaje.getTipo() == null ? MessageType.TEXT.name() : mensaje.getTipo().name());
+        dto.setFechaMensaje(mensaje.getFechaEnvio() != null ? mensaje.getFechaEnvio() : destacado.getCreatedAt());
+        dto.setDestacadoEn(destacado.getCreatedAt());
+        dto.setPreview(buildPreviewDestacado(mensaje));
+
+        if (mensaje.getChat() instanceof ChatGrupalEntity chatGrupal) {
+            dto.setNombreChat(chatGrupal.getNombreGrupo());
+        }
+
+        if (mensaje.getEmisor() != null) {
+            String nombre = mensaje.getEmisor().getNombre();
+            String apellido = mensaje.getEmisor().getApellido();
+            dto.setNombreEmisor(nombre);
+            dto.setNombreEmisorCompleto(buildNombreCompleto(nombre, apellido));
+        }
+        return dto;
+    }
+
+    private String buildPreviewDestacado(MensajeEntity mensaje) {
+        if (mensaje == null) {
+            return Constantes.MSG_SIN_DATOS;
+        }
+        if (isMensajeExpirado(mensaje)) {
+            return buildPlaceholderTemporal(mensaje);
+        }
+
+        MessageType tipo = mensaje.getTipo() == null ? MessageType.TEXT : mensaje.getTipo();
+        if (tipo == MessageType.IMAGE) {
+            return "Imagen";
+        }
+        if (tipo == MessageType.VIDEO) {
+            return "Video";
+        }
+        if (tipo == MessageType.AUDIO) {
+            String dur = Utils.mmss(mensaje.getMediaDuracionMs());
+            return dur == null || dur.isBlank() ? "Audio" : "Audio (" + dur + ")";
+        }
+        if (tipo == MessageType.FILE) {
+            String nombreArchivo = extractFileName(mensaje.getMediaUrl());
+            return nombreArchivo == null || nombreArchivo.isBlank() ? "Archivo" : "Archivo: " + nombreArchivo;
+        }
+        if (tipo == MessageType.POLL) {
+            return "Encuesta";
+        }
+        if (isEncryptedPayload(mensaje.getContenido())) {
+            return "Mensaje cifrado";
+        }
+        return Utils.truncarSafe(mensaje.getContenido(), 160);
+    }
+
+    private String buildPlaceholderTemporal(MensajeEntity mensaje) {
+        if (mensaje == null) {
+            return Utils.construirPlaceholderTemporal(null);
+        }
+        if (mensaje.getPlaceholderTexto() != null && !mensaje.getPlaceholderTexto().isBlank()) {
+            return mensaje.getPlaceholderTexto();
+        }
+        return Utils.construirPlaceholderTemporal(mensaje.getMensajeTemporalSegundos());
+    }
+
+    private boolean isEncryptedPayload(String contenido) {
+        if (contenido == null || contenido.isBlank()) {
+            return false;
+        }
+        String classification = E2EDiagnosticUtils.analyze(contenido).getClassification();
+        return classification != null && classification.startsWith("JSON_E2E");
+    }
+
+    private String extractFileName(String url) {
+        if (url == null || url.isBlank()) {
+            return null;
+        }
+        int slash = url.lastIndexOf('/');
+        return (slash >= 0 && slash + 1 < url.length()) ? url.substring(slash + 1) : url;
+    }
+
+    private String buildNombreCompleto(String nombre, String apellido) {
+        String n = nombre == null ? "" : nombre.trim();
+        String a = apellido == null ? "" : apellido.trim();
+        String fullName = (n + (a.isEmpty() ? "" : " " + a)).trim();
+        return fullName.isEmpty() ? null : fullName;
     }
 
     private boolean isMensajeExpirado(MensajeEntity mensaje) {

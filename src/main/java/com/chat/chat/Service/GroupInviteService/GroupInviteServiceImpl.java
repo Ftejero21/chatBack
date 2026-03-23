@@ -22,6 +22,8 @@ import com.chat.chat.Utils.Utils;
 import jakarta.transaction.Transactional;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 
@@ -31,6 +33,7 @@ import java.util.Objects;
 
 @Service
 public class GroupInviteServiceImpl implements GroupInviteService {
+    private static final Logger LOGGER = LoggerFactory.getLogger(GroupInviteServiceImpl.class);
 
     @Autowired
     private GroupInviteRepo inviteRepo;
@@ -48,6 +51,7 @@ public class GroupInviteServiceImpl implements GroupInviteService {
     @Override
     @Transactional
     public GroupInviteWS create(Long groupId, Long inviteeId, Long requesterId) {
+        LOGGER.info("[GROUP_INVITE] create groupId={} inviteeId={} requesterId={}", groupId, inviteeId, requesterId);
         if (groupId == null) {
             throw new IllegalArgumentException(Constantes.MSG_GROUP_ID_OBLIGATORIO);
         }
@@ -129,6 +133,7 @@ public class GroupInviteServiceImpl implements GroupInviteService {
     @Override
     @Transactional
     public void accept(Long inviteId, Long userId) {
+        LOGGER.info("[GROUP_INVITE] accept inviteId={} userId={}", inviteId, userId);
         Long authenticatedUserId = securityUtils.getAuthenticatedUserId();
         if (userId == null) {
             throw new IllegalArgumentException(Constantes.KEY_USER_ID + " es obligatorio");
@@ -200,6 +205,7 @@ public class GroupInviteServiceImpl implements GroupInviteService {
     @Override
     @Transactional
     public void decline(Long inviteId, Long userId) {
+        LOGGER.info("[GROUP_INVITE] decline inviteId={} userId={}", inviteId, userId);
         Long authenticatedUserId = securityUtils.getAuthenticatedUserId();
         if (userId == null) {
             throw new IllegalArgumentException(Constantes.KEY_USER_ID + " es obligatorio");

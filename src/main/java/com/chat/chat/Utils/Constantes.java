@@ -24,6 +24,13 @@ public class Constantes {
     public static final String GRUPAL_MIEMBRO_REMOVE = "/grupal/{groupId}/miembros/{userId}";
 
     public static final String LOGIN = "/login";
+    public static final String GOOGLE_AUTH = "/google";
+    public static final String GOOGLE_AUTH_ALIAS = "/google/auth";
+    public static final String GOOGLE_AUTH_POR_MODO = "/{mode}/google";
+    public static final String GOOGLE_AUTH_MODE_PATTERN = "/*/google";
+    public static final String GOOGLE_PROVIDER = "GOOGLE";
+    public static final String GOOGLE_MODE_LOGIN = "login";
+    public static final String GOOGLE_MODE_REGISTER = "register";
 
     public static final String GRUPAL_SALIR = GRUPAL + "/salir";
 
@@ -382,6 +389,10 @@ public class Constantes {
     public static final String ERR_E2E_FILE_PAYLOAD_INVALID = "E2E_FILE_PAYLOAD_INVALID";
     public static final String ERR_UPLOAD_SECURITY_BLOCK = "UPLOAD_SECURITY_BLOCK";
     public static final String ERR_SOLICITUD_DESBANEO_INVALIDA = "SOLICITUD_DESBANEO_INVALIDA";
+    public static final String ERR_GOOGLE_TOKEN_INVALIDO = "GOOGLE_TOKEN_INVALIDO";
+    public static final String ERR_GOOGLE_PROVIDER_INVALIDO = "GOOGLE_PROVIDER_INVALIDO";
+    public static final String ERR_GOOGLE_MODE_INVALIDO = "GOOGLE_MODE_INVALIDO";
+    public static final String ERR_GOOGLE_USUARIO_NO_REGISTRADO = "GOOGLE_USUARIO_NO_REGISTRADO";
 
     // Payload keys
     public static final String KEY_PUBLIC_KEY = "publicKey";
@@ -390,6 +401,10 @@ public class Constantes {
     public static final String KEY_CODE = "code";
     public static final String KEY_NEW_PASSWORD = "newPassword";
     public static final String KEY_MOTIVO = "motivo";
+    public static final String KEY_PROVIDER = "provider";
+    public static final String KEY_MODE = "mode";
+    public static final String KEY_ID_TOKEN = "idToken";
+    public static final String KEY_CREDENTIAL = "credential";
     public static final String KEY_EMISOR_ID = "emisorId";
     public static final String KEY_ESCRIBIENDO = "escribiendo";
     public static final String KEY_GRABANDO_AUDIO = "grabandoAudio";

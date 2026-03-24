@@ -1,5 +1,6 @@
 package com.chat.chat.Exceptions;
 
+import jakarta.servlet.http.HttpServletRequest;
 import com.chat.chat.Utils.Constantes;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -8,6 +9,7 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
+import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -24,6 +26,18 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiError> handlePass(PasswordIncorrectaException ex) {
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                 .body(new ApiError(Constantes.ERR_PASSWORD_INCORRECTA, ex.getMessage()));
+    }
+
+    @ExceptionHandler(EmailYaExisteException.class)
+    public ResponseEntity<Map<String, Object>> handleEmailDuplicado(EmailYaExisteException ex, HttpServletRequest request) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("status", HttpStatus.CONFLICT.value());
+        body.put("error", "CONFLICT");
+        body.put("code", "EMAIL_YA_EXISTE");
+        body.put("mensaje", ex.getMessage());
+        body.put("path", request == null ? null : request.getRequestURI());
+        body.put("timestamp", LocalDateTime.now());
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(body);
     }
 
     @ExceptionHandler(UsuarioInactivoException.class)
@@ -89,6 +103,12 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(ConflictoException.class)
     public ResponseEntity<ApiError> handleConflict(ConflictoException ex) {
         return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(new ApiError(ex.getCode(), ex.getMessage()));
+    }
+
+    @ExceptionHandler(GoogleAuthException.class)
+    public ResponseEntity<ApiError> handleGoogleAuth(GoogleAuthException ex) {
+        return ResponseEntity.status(ex.getStatus())
                 .body(new ApiError(ex.getCode(), ex.getMessage()));
     }
 

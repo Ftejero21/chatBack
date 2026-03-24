@@ -81,6 +81,9 @@ public class SecurityConfig {
                         .requestMatchers(
                                 Constantes.USUARIO_API + Constantes.LOGIN,
                                 Constantes.USUARIO_API + Constantes.REGISTRO,
+                                Constantes.USUARIO_API + Constantes.GOOGLE_AUTH,
+                                Constantes.USUARIO_API + Constantes.GOOGLE_AUTH_ALIAS,
+                                Constantes.USUARIO_API + Constantes.GOOGLE_AUTH_MODE_PATTERN,
                                 Constantes.USUARIO_API,
                                 Constantes.USUARIO_API + Constantes.RECUPERAR_PASSWORD_ALL,
                                 Constantes.USUARIO_API + Constantes.SOLICITUD_DESBANEO_CREATE

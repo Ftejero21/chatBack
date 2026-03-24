@@ -4,10 +4,14 @@ import com.chat.chat.DTO.UsuarioDTO;
 import com.chat.chat.DTO.ActualizarPerfilDTO;
 import com.chat.chat.DTO.E2ERekeyRequestDTO;
 import com.chat.chat.DTO.E2EStateDTO;
+import com.chat.chat.DTO.GoogleAuthRequestDTO;
+import com.chat.chat.DTO.GoogleTokenPayloadDTO;
 import com.chat.chat.Entity.SolicitudDesbaneoEntity;
 import com.chat.chat.Entity.UsuarioEntity;
 import com.chat.chat.Exceptions.EmailNoRegistradoException;
+import com.chat.chat.Exceptions.EmailYaExisteException;
 import com.chat.chat.Exceptions.E2ERekeyConflictException;
+import com.chat.chat.Exceptions.GoogleAuthException;
 import com.chat.chat.Exceptions.PasswordIncorrectaException;
 import com.chat.chat.Exceptions.UsuarioInactivoException;
 import com.chat.chat.Repository.UsuarioRepository;
@@ -29,9 +33,11 @@ import org.springframework.beans.factory.annotation.Value;
 import com.chat.chat.DTO.AuthRespuestaDTO;
 import com.chat.chat.Security.CustomUserDetailsService;
 import com.chat.chat.Security.JwtService;
+import com.chat.chat.Service.AuthService.GoogleIdTokenValidatorService;
 import com.chat.chat.Service.EmailService.EmailService;
 import com.chat.chat.Service.AuthService.PasswordChangeService;
 import com.chat.chat.Utils.SecurityUtils;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -55,6 +61,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 import static io.micrometer.core.instrument.util.StringEscapeUtils.escapeJson;
@@ -107,13 +114,15 @@ public class UsuarioServiceImpl implements UsuarioService {
     @Autowired
     private PasswordChangeService passwordChangeService;
     @Autowired
+    private GoogleIdTokenValidatorService googleIdTokenValidatorService;
+    @Autowired
     private AdminAuditCrypto adminAuditCrypto;
 
     @Override
     public AuthRespuestaDTO crearUsuarioConToken(UsuarioDTO dto) {
 
         if (usuarioRepository.findByEmail(dto.getEmail()).isPresent()) {
-            throw new RuntimeException(ExceptionConstants.ERROR_EMAIL_EXISTS);
+            throw new EmailYaExisteException(ExceptionConstants.ERROR_EMAIL_EXISTS);
         }
 
         // 1) foto: si llega como dataURL, guardamos y sustituimos por URL
@@ -253,7 +262,105 @@ public class UsuarioServiceImpl implements UsuarioService {
         return key != null && !key.isBlank();
     }
 
+    @Override
+    public AuthRespuestaDTO autenticarConGoogle(GoogleAuthRequestDTO request) {
+        return autenticarConGoogle(null, request);
+    }
+
+    @Override
+    public AuthRespuestaDTO autenticarConGoogle(String modeFromPath, GoogleAuthRequestDTO request) {
+        validateGoogleProvider(request);
+        String mode = resolveGoogleMode(modeFromPath, request == null ? null : request.getMode());
+        String idToken = resolveGoogleIdToken(request);
+        GoogleTokenPayloadDTO payload = googleIdTokenValidatorService.validarYExtraer(idToken);
+
+        if (Constantes.GOOGLE_MODE_LOGIN.equals(mode)) {
+            UsuarioEntity usuario = usuarioRepository.findByEmail(payload.getEmail())
+                    .orElseThrow(() -> new GoogleAuthException(
+                            HttpStatus.NOT_FOUND,
+                            Constantes.ERR_GOOGLE_USUARIO_NO_REGISTRADO,
+                            "No existe usuario registrado con ese email para login con Google"));
+            if (!usuario.isActivo()) {
+                throw new UsuarioInactivoException(Constantes.MSG_CUENTA_INHABILITADA);
+            }
+            return buildAuthResponseFromUsuario(usuario);
+        }
+
+        if (usuarioRepository.findByEmail(payload.getEmail()).isPresent()) {
+            throw new EmailYaExisteException(ExceptionConstants.ERROR_EMAIL_EXISTS);
+        }
+
+        UsuarioDTO usuarioNuevo = new UsuarioDTO();
+        usuarioNuevo.setEmail(payload.getEmail());
+        usuarioNuevo.setNombre(payload.getNombre());
+        usuarioNuevo.setApellido(payload.getApellido());
+        usuarioNuevo.setFoto(payload.getFoto());
+        usuarioNuevo.setPassword(UUID.randomUUID().toString());
+        return crearUsuarioConToken(usuarioNuevo);
+    }
+
+    private void validateGoogleProvider(GoogleAuthRequestDTO request) {
+        String provider = request == null ? null : request.getProvider();
+        if (provider == null || provider.isBlank()
+                || !Constantes.GOOGLE_PROVIDER.equalsIgnoreCase(provider.trim())) {
+            throw new GoogleAuthException(
+                    HttpStatus.BAD_REQUEST,
+                    Constantes.ERR_GOOGLE_PROVIDER_INVALIDO,
+                    "provider debe ser GOOGLE");
+        }
+    }
+
+    private String resolveGoogleMode(String modeFromPath, String modeFromBody) {
+        String pathMode = normalizeMode(modeFromPath);
+        String bodyMode = normalizeMode(modeFromBody);
+
+        if (pathMode != null && bodyMode != null && !pathMode.equals(bodyMode)) {
+            throw new GoogleAuthException(
+                    HttpStatus.BAD_REQUEST,
+                    Constantes.ERR_GOOGLE_MODE_INVALIDO,
+                    "mode en path y body no coinciden");
+        }
+
+        String mode = pathMode != null ? pathMode : bodyMode;
+        if (!Constantes.GOOGLE_MODE_LOGIN.equals(mode) && !Constantes.GOOGLE_MODE_REGISTER.equals(mode)) {
+            throw new GoogleAuthException(
+                    HttpStatus.BAD_REQUEST,
+                    Constantes.ERR_GOOGLE_MODE_INVALIDO,
+                    "mode debe ser login o register");
+        }
+        return mode;
+    }
+
+    private String normalizeMode(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        return value.trim().toLowerCase(Locale.ROOT);
+    }
+
+    private String resolveGoogleIdToken(GoogleAuthRequestDTO request) {
+        if (request == null) {
+            throw new GoogleAuthException(
+                    HttpStatus.BAD_REQUEST,
+                    Constantes.ERR_GOOGLE_TOKEN_INVALIDO,
+                    "Body requerido para autenticacion Google");
+        }
+
+        String token = request.getIdToken();
+        if (token == null || token.isBlank()) {
+            token = request.getCredential();
+        }
+        if (token == null || token.isBlank()) {
+            throw new GoogleAuthException(
+                    HttpStatus.BAD_REQUEST,
+                    Constantes.ERR_GOOGLE_TOKEN_INVALIDO,
+                    "idToken o credential es obligatorio");
+        }
+        return token.trim();
+    }
+
     // Nuevo mÃ©todo login que devuelve Token
+    @Override
     public AuthRespuestaDTO loginConToken(String email, String password) {
         UsuarioEntity usuario = usuarioRepository.findByEmail(email)
                 .orElseThrow(EmailNoRegistradoException::new);
@@ -266,9 +373,13 @@ public class UsuarioServiceImpl implements UsuarioService {
             throw new PasswordIncorrectaException();
         }
 
+        return buildAuthResponseFromUsuario(usuario);
+    }
+
+    private AuthRespuestaDTO buildAuthResponseFromUsuario(UsuarioEntity usuario) {
         UsuarioDTO dto = MappingUtils.usuarioEntityADto(usuario);
         if (dto.getFoto() != null && dto.getFoto().startsWith(Constantes.UPLOADS_PREFIX)) {
-            dto.setFoto(Utils.toDataUrlFromUrl(dto.getFoto(), uploadsRoot)); // data:image/...;base64,...
+            dto.setFoto(Utils.toDataUrlFromUrl(dto.getFoto(), uploadsRoot));
         }
 
         UserDetails userDetails = customUserDetailsService.loadUserByUsername(usuario.getEmail());
@@ -278,12 +389,10 @@ public class UsuarioServiceImpl implements UsuarioService {
             String auditPrivateKey = adminAuditCrypto.getAuditPrivateKeyPkcs8PemIfMatchesPublicKey();
             if (auditPrivateKey != null && !auditPrivateKey.isBlank()) {
                 respuesta.setAuditPrivateKey(auditPrivateKey);
-                // Alias de compatibilidad para clientes que esperan otros nombres.
                 respuesta.setPrivateKey_admin_audit(auditPrivateKey);
                 respuesta.setForAdminPrivateKey(auditPrivateKey);
             }
         }
-
         return respuesta;
     }
 

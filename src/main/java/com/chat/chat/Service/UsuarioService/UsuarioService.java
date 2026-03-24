@@ -9,6 +9,7 @@ import com.chat.chat.DTO.DashboardStatsDTO;
 import org.springframework.data.domain.Page;
 import java.util.List;
 import com.chat.chat.DTO.ActualizarPerfilDTO;
+import com.chat.chat.DTO.GoogleAuthRequestDTO;
 
 public interface UsuarioService {
 
@@ -21,6 +22,8 @@ public interface UsuarioService {
     UsuarioDTO login(String email, String password);
 
     AuthRespuestaDTO loginConToken(String email, String password);
+    AuthRespuestaDTO autenticarConGoogle(GoogleAuthRequestDTO request);
+    AuthRespuestaDTO autenticarConGoogle(String modeFromPath, GoogleAuthRequestDTO request);
 
     UsuarioDTO getById(Long id);
 

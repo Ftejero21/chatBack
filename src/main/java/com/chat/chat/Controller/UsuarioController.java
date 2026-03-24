@@ -5,6 +5,7 @@ import com.chat.chat.DTO.AuthRespuestaDTO;
 import com.chat.chat.DTO.DashboardStatsDTO;
 import com.chat.chat.DTO.E2ERekeyRequestDTO;
 import com.chat.chat.DTO.E2EStateDTO;
+import com.chat.chat.DTO.GoogleAuthRequestDTO;
 import com.chat.chat.DTO.LoginRequestDTO;
 import com.chat.chat.DTO.PasswordChangeConfirmDTO;
 import com.chat.chat.DTO.UsuarioDTO;
@@ -69,10 +70,36 @@ public class UsuarioController {
     @Operation(summary = "Registrar usuario", description = "Crea una cuenta nueva y devuelve token JWT para sesion inicial.", security = {})
     @ApiResponses(value = {
             @ApiResponse(responseCode = "200", description = "Usuario registrado", content = @Content(schema = @Schema(implementation = AuthRespuestaDTO.class))),
-            @ApiResponse(responseCode = "400", description = "Datos invalidos o email duplicado", content = @Content(schema = @Schema(implementation = ApiError.class)))
+            @ApiResponse(responseCode = "400", description = "Datos invalidos", content = @Content(schema = @Schema(implementation = ApiError.class))),
+            @ApiResponse(responseCode = "409", description = "Email ya registrado", content = @Content(schema = @Schema(implementation = Map.class)))
     })
     public AuthRespuestaDTO crearUsuario(@RequestBody UsuarioDTO dto) {
         return usuarioService.crearUsuarioConToken(dto);
+    }
+
+    @PostMapping(Constantes.GOOGLE_AUTH)
+    @Operation(summary = "Autenticacion con Google", description = "Autentica o registra con Google ID token segun mode.", security = {})
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Operacion correcta", content = @Content(schema = @Schema(implementation = AuthRespuestaDTO.class))),
+            @ApiResponse(responseCode = "400", description = "Solicitud invalida", content = @Content(schema = @Schema(implementation = ApiError.class))),
+            @ApiResponse(responseCode = "401", description = "Google token invalido", content = @Content(schema = @Schema(implementation = ApiError.class))),
+            @ApiResponse(responseCode = "404", description = "Usuario no registrado para login", content = @Content(schema = @Schema(implementation = ApiError.class))),
+            @ApiResponse(responseCode = "409", description = "Email ya registrado", content = @Content(schema = @Schema(implementation = Map.class)))
+    })
+    public AuthRespuestaDTO autenticarGoogle(@RequestBody GoogleAuthRequestDTO dto) {
+        return usuarioService.autenticarConGoogle(dto);
+    }
+
+    @PostMapping(Constantes.GOOGLE_AUTH_ALIAS)
+    @Operation(summary = "Alias autenticacion Google", description = "Alias compatible de /google.", security = {})
+    public AuthRespuestaDTO autenticarGoogleAlias(@RequestBody GoogleAuthRequestDTO dto) {
+        return usuarioService.autenticarConGoogle(dto);
+    }
+
+    @PostMapping(Constantes.GOOGLE_AUTH_POR_MODO)
+    @Operation(summary = "Alias autenticacion Google por modo", description = "Alias compatible /{mode}/google.", security = {})
+    public AuthRespuestaDTO autenticarGooglePorModo(@PathVariable("mode") String mode, @RequestBody GoogleAuthRequestDTO dto) {
+        return usuarioService.autenticarConGoogle(mode, dto);
     }
 
     @GetMapping(Constantes.USUARIOS_ACTIVOS)

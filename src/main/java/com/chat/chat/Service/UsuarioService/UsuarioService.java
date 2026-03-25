@@ -4,6 +4,7 @@ import com.chat.chat.DTO.AuthRespuestaDTO;
 import com.chat.chat.DTO.UsuarioDTO;
 import com.chat.chat.DTO.E2EStateDTO;
 import com.chat.chat.DTO.E2ERekeyRequestDTO;
+import com.chat.chat.DTO.E2EPrivateKeyBackupDTO;
 
 import com.chat.chat.DTO.DashboardStatsDTO;
 import org.springframework.data.domain.Page;
@@ -32,6 +33,8 @@ public interface UsuarioService {
     void updatePublicKey(Long id, String publicKey);
     E2EStateDTO getE2EState(Long id);
     E2EStateDTO rekeyE2E(Long id, E2ERekeyRequestDTO request);
+    void upsertE2EPrivateKeyBackup(Long userId, E2EPrivateKeyBackupDTO request);
+    E2EPrivateKeyBackupDTO getE2EPrivateKeyBackup(Long userId);
 
     void bloquearUsuario(Long bloqueadoId);
 

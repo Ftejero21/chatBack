@@ -2,10 +2,12 @@ package com.chat.chat.Service.UsuarioService;
 
 import com.chat.chat.DTO.UsuarioDTO;
 import com.chat.chat.DTO.ActualizarPerfilDTO;
+import com.chat.chat.DTO.E2EPrivateKeyBackupDTO;
 import com.chat.chat.DTO.E2ERekeyRequestDTO;
 import com.chat.chat.DTO.E2EStateDTO;
 import com.chat.chat.DTO.GoogleAuthRequestDTO;
 import com.chat.chat.DTO.GoogleTokenPayloadDTO;
+import com.chat.chat.Entity.E2EPrivateKeyBackupEntity;
 import com.chat.chat.Entity.SolicitudDesbaneoEntity;
 import com.chat.chat.Entity.UsuarioEntity;
 import com.chat.chat.Exceptions.EmailNoRegistradoException;
@@ -13,7 +15,9 @@ import com.chat.chat.Exceptions.EmailYaExisteException;
 import com.chat.chat.Exceptions.E2ERekeyConflictException;
 import com.chat.chat.Exceptions.GoogleAuthException;
 import com.chat.chat.Exceptions.PasswordIncorrectaException;
+import com.chat.chat.Exceptions.SemanticApiException;
 import com.chat.chat.Exceptions.UsuarioInactivoException;
+import com.chat.chat.Repository.E2EPrivateKeyBackupRepository;
 import com.chat.chat.Repository.UsuarioRepository;
 import com.chat.chat.Repository.SolicitudDesbaneoRepository;
 import com.chat.chat.Utils.Constantes;
@@ -69,6 +73,17 @@ import static io.micrometer.core.instrument.util.StringEscapeUtils.escapeJson;
 @Service
 public class UsuarioServiceImpl implements UsuarioService {
     private static final Logger LOGGER = LoggerFactory.getLogger(UsuarioServiceImpl.class);
+    private static final int MAX_ENCRYPTED_PRIVATE_KEY_LEN = 65535;
+    private static final int MAX_IV_LEN = 1024;
+    private static final int MAX_SALT_LEN = 1024;
+    private static final int MAX_KDF_LEN = 32;
+    private static final int MAX_KDF_HASH_LEN = 32;
+    private static final int MAX_PUBLIC_KEY_LEN = 65535;
+    private static final int MAX_PUBLIC_KEY_FINGERPRINT_LEN = 256;
+    private static final int MIN_KDF_ITERATIONS = 10000;
+    private static final int MAX_KDF_ITERATIONS = 10000000;
+    private static final int MIN_KEY_LENGTH_BITS = 128;
+    private static final int MAX_KEY_LENGTH_BITS = 8192;
 
     @Autowired
     private UsuarioRepository usuarioRepository;
@@ -87,6 +102,9 @@ public class UsuarioServiceImpl implements UsuarioService {
 
     @Autowired
     private SolicitudDesbaneoRepository solicitudDesbaneoRepository;
+
+    @Autowired
+    private E2EPrivateKeyBackupRepository e2EPrivateKeyBackupRepository;
 
     @Value("${app.uploads.root:uploads}") // carpeta base
     private String uploadsRoot;
@@ -238,6 +256,38 @@ public class UsuarioServiceImpl implements UsuarioService {
         }
     }
 
+    private void validateSelfOrAdminForBackup(Long targetUserId) {
+        Long authenticatedUserId = securityUtils.getAuthenticatedUserId();
+        boolean self = authenticatedUserId != null && targetUserId != null
+                && authenticatedUserId.longValue() == targetUserId.longValue();
+        if (self) {
+            return;
+        }
+        boolean admin = securityUtils.hasRole(Constantes.ADMIN)
+                || securityUtils.hasRole(Constantes.ROLE_ADMIN)
+                || usuarioRepository.findById(authenticatedUserId)
+                .map(u -> isAdminUser(u.getRoles()))
+                .orElse(false);
+        if (admin) {
+            return;
+        }
+        throw semanticError(HttpStatus.FORBIDDEN, Constantes.ERR_NO_AUTORIZADO, "No autorizado para operar este backup E2E");
+    }
+
+    private void validateUserExists(Long userId) {
+        boolean exists = usuarioRepository.findFreshById(userId)
+                .or(() -> usuarioRepository.findById(userId))
+                .isPresent();
+        if (!exists) {
+            throw semanticError(HttpStatus.NOT_FOUND, Constantes.ERR_NO_ENCONTRADO, Constantes.MSG_USUARIO_NO_ENCONTRADO);
+        }
+    }
+
+    private SemanticApiException semanticError(HttpStatus status, String code, String message) {
+        String traceId = Optional.ofNullable(E2EDiagnosticUtils.currentTraceId()).orElse(E2EDiagnosticUtils.newTraceId());
+        return new SemanticApiException(status, code, message, traceId);
+    }
+
     private E2EStateDTO toE2EState(UsuarioEntity usuario) {
         E2EStateDTO state = new E2EStateDTO();
         boolean hasKey = hasPublicKey(usuario == null ? null : usuario.getPublicKey());
@@ -260,6 +310,84 @@ public class UsuarioServiceImpl implements UsuarioService {
 
     private boolean hasPublicKey(String key) {
         return key != null && !key.isBlank();
+    }
+
+    private String requireNonBlankWithinLimit(String value, String fieldName, int maxLen) {
+        if (value == null || value.isBlank()) {
+            throw semanticError(HttpStatus.BAD_REQUEST, Constantes.ERR_E2E_BACKUP_INVALID, fieldName + " es obligatorio");
+        }
+        if (value.length() > maxLen) {
+            throw semanticError(HttpStatus.BAD_REQUEST, Constantes.ERR_E2E_BACKUP_INVALID,
+                    fieldName + " supera longitud maxima permitida");
+        }
+        return value;
+    }
+
+    private int requireIntRange(Integer value, String fieldName, int min, int max) {
+        if (value == null) {
+            throw semanticError(HttpStatus.BAD_REQUEST, Constantes.ERR_E2E_BACKUP_INVALID, fieldName + " es obligatorio");
+        }
+        if (value < min || value > max) {
+            throw semanticError(HttpStatus.BAD_REQUEST, Constantes.ERR_E2E_BACKUP_INVALID,
+                    fieldName + " fuera de rango permitido");
+        }
+        return value;
+    }
+
+    private void validateBackupPayload(E2EPrivateKeyBackupDTO request) {
+        if (request == null) {
+            throw semanticError(HttpStatus.BAD_REQUEST, Constantes.ERR_E2E_BACKUP_INVALID, "Body requerido");
+        }
+
+        String kdf = requireNonBlankWithinLimit(request.getKdf(), "kdf", MAX_KDF_LEN).trim();
+        if (!"PBKDF2".equalsIgnoreCase(kdf)) {
+            throw semanticError(HttpStatus.BAD_REQUEST, Constantes.ERR_E2E_BACKUP_INVALID, "kdf debe ser PBKDF2");
+        }
+
+        String kdfHash = requireNonBlankWithinLimit(request.getKdfHash(), "kdfHash", MAX_KDF_HASH_LEN).trim();
+        if (!"SHA-256".equalsIgnoreCase(kdfHash)) {
+            throw semanticError(HttpStatus.BAD_REQUEST, Constantes.ERR_E2E_BACKUP_INVALID, "kdfHash debe ser SHA-256");
+        }
+
+        requireNonBlankWithinLimit(request.getEncryptedPrivateKey(), "encryptedPrivateKey", MAX_ENCRYPTED_PRIVATE_KEY_LEN);
+        requireNonBlankWithinLimit(request.getIv(), "iv", MAX_IV_LEN);
+        requireNonBlankWithinLimit(request.getSalt(), "salt", MAX_SALT_LEN);
+        requireNonBlankWithinLimit(request.getPublicKey(), "publicKey", MAX_PUBLIC_KEY_LEN);
+        requireNonBlankWithinLimit(request.getPublicKeyFingerprint(), "publicKeyFingerprint", MAX_PUBLIC_KEY_FINGERPRINT_LEN);
+        requireIntRange(request.getKdfIterations(), "kdfIterations", MIN_KDF_ITERATIONS, MAX_KDF_ITERATIONS);
+        requireIntRange(request.getKeyLengthBits(), "keyLengthBits", MIN_KEY_LENGTH_BITS, MAX_KEY_LENGTH_BITS);
+    }
+
+    private E2EPrivateKeyBackupEntity toBackupEntity(Long userId,
+                                                     E2EPrivateKeyBackupDTO request,
+                                                     E2EPrivateKeyBackupEntity existing) {
+        E2EPrivateKeyBackupEntity entity = existing == null ? new E2EPrivateKeyBackupEntity() : existing;
+        entity.setUserId(userId);
+        entity.setEncryptedPrivateKey(request.getEncryptedPrivateKey());
+        entity.setIv(request.getIv());
+        entity.setSalt(request.getSalt());
+        entity.setKdf(request.getKdf().trim().toUpperCase(Locale.ROOT));
+        entity.setKdfHash(request.getKdfHash().trim().toUpperCase(Locale.ROOT));
+        entity.setKdfIterations(request.getKdfIterations());
+        entity.setKeyLengthBits(request.getKeyLengthBits());
+        entity.setPublicKey(request.getPublicKey());
+        entity.setPublicKeyFingerprint(request.getPublicKeyFingerprint());
+        entity.setUpdatedAt(LocalDateTime.now());
+        return entity;
+    }
+
+    private E2EPrivateKeyBackupDTO toBackupDto(E2EPrivateKeyBackupEntity entity) {
+        E2EPrivateKeyBackupDTO dto = new E2EPrivateKeyBackupDTO();
+        dto.setEncryptedPrivateKey(entity.getEncryptedPrivateKey());
+        dto.setIv(entity.getIv());
+        dto.setSalt(entity.getSalt());
+        dto.setKdf(entity.getKdf());
+        dto.setKdfHash(entity.getKdfHash());
+        dto.setKdfIterations(entity.getKdfIterations());
+        dto.setKeyLengthBits(entity.getKeyLengthBits());
+        dto.setPublicKey(entity.getPublicKey());
+        dto.setPublicKeyFingerprint(entity.getPublicKeyFingerprint());
+        return dto;
     }
 
     @Override
@@ -476,6 +604,41 @@ public class UsuarioServiceImpl implements UsuarioService {
         }
 
         return toE2EState(usuario);
+    }
+
+    @Override
+    @Transactional
+    public void upsertE2EPrivateKeyBackup(Long userId, E2EPrivateKeyBackupDTO request) {
+        validateSelfOrAdminForBackup(userId);
+        validateUserExists(userId);
+        validateBackupPayload(request);
+
+        E2EPrivateKeyBackupEntity existing = e2EPrivateKeyBackupRepository.findByUserId(userId).orElse(null);
+        E2EPrivateKeyBackupEntity entity = toBackupEntity(userId, request, existing);
+        e2EPrivateKeyBackupRepository.save(entity);
+
+        String traceId = Optional.ofNullable(E2EDiagnosticUtils.currentTraceId()).orElse(E2EDiagnosticUtils.newTraceId());
+        LOGGER.info("[E2E_BACKUP] stage=UPSERT ts={} traceId={} userId={} existed={} keyFp={} encryptedLen={}",
+                Instant.now(),
+                traceId,
+                userId,
+                existing != null,
+                E2EDiagnosticUtils.fingerprint12(entity.getPublicKeyFingerprint()),
+                entity.getEncryptedPrivateKey() == null ? 0 : entity.getEncryptedPrivateKey().length());
+    }
+
+    @Override
+    public E2EPrivateKeyBackupDTO getE2EPrivateKeyBackup(Long userId) {
+        validateSelfOrAdminForBackup(userId);
+        validateUserExists(userId);
+
+        E2EPrivateKeyBackupEntity entity = e2EPrivateKeyBackupRepository.findByUserId(userId)
+                .orElseThrow(() -> semanticError(
+                        HttpStatus.NOT_FOUND,
+                        Constantes.ERR_E2E_BACKUP_NOT_FOUND,
+                        "No existe backup E2E para el usuario"));
+
+        return toBackupDto(entity);
     }
 
     @Override

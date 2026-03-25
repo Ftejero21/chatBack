@@ -112,6 +112,15 @@ public class GlobalExceptionHandler {
                 .body(new ApiError(ex.getCode(), ex.getMessage()));
     }
 
+    @ExceptionHandler(SemanticApiException.class)
+    public ResponseEntity<Map<String, Object>> handleSemanticApiException(SemanticApiException ex) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("code", ex.getCode());
+        body.put("message", ex.getMessage());
+        body.put("traceId", ex.getTraceId());
+        return ResponseEntity.status(ex.getStatus()).body(body);
+    }
+
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<ApiError> handleIllegalArgument(IllegalArgumentException ex) {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)

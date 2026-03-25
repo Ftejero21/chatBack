@@ -17,6 +17,7 @@ import com.chat.chat.Exceptions.GoogleAuthException;
 import com.chat.chat.Exceptions.PasswordIncorrectaException;
 import com.chat.chat.Exceptions.SemanticApiException;
 import com.chat.chat.Exceptions.UsuarioInactivoException;
+import com.chat.chat.Mapper.E2EPrivateKeyBackupMapper;
 import com.chat.chat.Repository.E2EPrivateKeyBackupRepository;
 import com.chat.chat.Repository.UsuarioRepository;
 import com.chat.chat.Repository.SolicitudDesbaneoRepository;
@@ -135,6 +136,9 @@ public class UsuarioServiceImpl implements UsuarioService {
     private GoogleIdTokenValidatorService googleIdTokenValidatorService;
     @Autowired
     private AdminAuditCrypto adminAuditCrypto;
+
+    @Autowired
+    private E2EPrivateKeyBackupMapper e2EPrivateKeyBackupMapper;
 
     @Override
     public AuthRespuestaDTO crearUsuarioConToken(UsuarioDTO dto) {
@@ -356,38 +360,6 @@ public class UsuarioServiceImpl implements UsuarioService {
         requireNonBlankWithinLimit(request.getPublicKeyFingerprint(), "publicKeyFingerprint", MAX_PUBLIC_KEY_FINGERPRINT_LEN);
         requireIntRange(request.getKdfIterations(), "kdfIterations", MIN_KDF_ITERATIONS, MAX_KDF_ITERATIONS);
         requireIntRange(request.getKeyLengthBits(), "keyLengthBits", MIN_KEY_LENGTH_BITS, MAX_KEY_LENGTH_BITS);
-    }
-
-    private E2EPrivateKeyBackupEntity toBackupEntity(Long userId,
-                                                     E2EPrivateKeyBackupDTO request,
-                                                     E2EPrivateKeyBackupEntity existing) {
-        E2EPrivateKeyBackupEntity entity = existing == null ? new E2EPrivateKeyBackupEntity() : existing;
-        entity.setUserId(userId);
-        entity.setEncryptedPrivateKey(request.getEncryptedPrivateKey());
-        entity.setIv(request.getIv());
-        entity.setSalt(request.getSalt());
-        entity.setKdf(request.getKdf().trim().toUpperCase(Locale.ROOT));
-        entity.setKdfHash(request.getKdfHash().trim().toUpperCase(Locale.ROOT));
-        entity.setKdfIterations(request.getKdfIterations());
-        entity.setKeyLengthBits(request.getKeyLengthBits());
-        entity.setPublicKey(request.getPublicKey());
-        entity.setPublicKeyFingerprint(request.getPublicKeyFingerprint());
-        entity.setUpdatedAt(LocalDateTime.now());
-        return entity;
-    }
-
-    private E2EPrivateKeyBackupDTO toBackupDto(E2EPrivateKeyBackupEntity entity) {
-        E2EPrivateKeyBackupDTO dto = new E2EPrivateKeyBackupDTO();
-        dto.setEncryptedPrivateKey(entity.getEncryptedPrivateKey());
-        dto.setIv(entity.getIv());
-        dto.setSalt(entity.getSalt());
-        dto.setKdf(entity.getKdf());
-        dto.setKdfHash(entity.getKdfHash());
-        dto.setKdfIterations(entity.getKdfIterations());
-        dto.setKeyLengthBits(entity.getKeyLengthBits());
-        dto.setPublicKey(entity.getPublicKey());
-        dto.setPublicKeyFingerprint(entity.getPublicKeyFingerprint());
-        return dto;
     }
 
     @Override
@@ -614,7 +586,11 @@ public class UsuarioServiceImpl implements UsuarioService {
         validateBackupPayload(request);
 
         E2EPrivateKeyBackupEntity existing = e2EPrivateKeyBackupRepository.findByUserId(userId).orElse(null);
-        E2EPrivateKeyBackupEntity entity = toBackupEntity(userId, request, existing);
+        E2EPrivateKeyBackupEntity entity = e2EPrivateKeyBackupMapper.toEntity(
+                userId,
+                request,
+                existing,
+                LocalDateTime.now());
         e2EPrivateKeyBackupRepository.save(entity);
 
         String traceId = Optional.ofNullable(E2EDiagnosticUtils.currentTraceId()).orElse(E2EDiagnosticUtils.newTraceId());
@@ -638,7 +614,7 @@ public class UsuarioServiceImpl implements UsuarioService {
                         Constantes.ERR_E2E_BACKUP_NOT_FOUND,
                         "No existe backup E2E para el usuario"));
 
-        return toBackupDto(entity);
+        return e2EPrivateKeyBackupMapper.toDto(entity);
     }
 
     @Override

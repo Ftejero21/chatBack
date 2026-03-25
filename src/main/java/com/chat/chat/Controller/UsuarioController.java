@@ -3,6 +3,7 @@ package com.chat.chat.Controller;
 import com.chat.chat.DTO.ActualizarPerfilDTO;
 import com.chat.chat.DTO.AuthRespuestaDTO;
 import com.chat.chat.DTO.DashboardStatsDTO;
+import com.chat.chat.DTO.E2EPrivateKeyBackupDTO;
 import com.chat.chat.DTO.E2ERekeyRequestDTO;
 import com.chat.chat.DTO.E2EStateDTO;
 import com.chat.chat.DTO.GoogleAuthRequestDTO;
@@ -157,6 +158,34 @@ public class UsuarioController {
     })
     public E2EStateDTO rekeyE2E(@PathVariable("id") Long id, @RequestBody E2ERekeyRequestDTO request) {
         return usuarioService.rekeyE2E(id, request);
+    }
+
+    @PutMapping(Constantes.USUARIO_E2E_PRIVATE_KEY_BACKUP)
+    @Operation(summary = "Guardar backup de clave privada E2E", description = "Crea o actualiza el backup cifrado de la clave privada del usuario.")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "204", description = "Backup guardado o actualizado"),
+            @ApiResponse(responseCode = "400", description = "Payload invalido", content = @Content(schema = @Schema(implementation = ApiError.class))),
+            @ApiResponse(responseCode = "403", description = "No autorizado", content = @Content(schema = @Schema(implementation = ApiError.class)))
+    })
+    public ResponseEntity<Void> upsertE2EPrivateKeyBackup(
+            @PathVariable("userId") Long userId,
+            @RequestBody E2EPrivateKeyBackupDTO request,
+            HttpServletRequest httpRequest) {
+        usuarioService.upsertE2EPrivateKeyBackup(userId, request);
+        return ResponseEntity.noContent().build();
+    }
+
+    @GetMapping(Constantes.USUARIO_E2E_PRIVATE_KEY_BACKUP)
+    @Operation(summary = "Obtener backup de clave privada E2E", description = "Devuelve el backup cifrado de la clave privada del usuario.")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Backup encontrado", content = @Content(schema = @Schema(implementation = E2EPrivateKeyBackupDTO.class))),
+            @ApiResponse(responseCode = "404", description = "Backup no encontrado", content = @Content(schema = @Schema(implementation = ApiError.class))),
+            @ApiResponse(responseCode = "403", description = "No autorizado", content = @Content(schema = @Schema(implementation = ApiError.class)))
+    })
+    public E2EPrivateKeyBackupDTO getE2EPrivateKeyBackup(
+            @PathVariable("userId") Long userId,
+            HttpServletRequest httpRequest) {
+        return usuarioService.getE2EPrivateKeyBackup(userId);
     }
 
     @PostMapping(Constantes.USUARIO_BLOQUEAR)

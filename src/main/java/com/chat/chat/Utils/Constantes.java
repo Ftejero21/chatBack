@@ -52,6 +52,7 @@ public class Constantes {
     public static final String USUARIO_PUBLIC_KEY = "/{id}/public-key";
     public static final String USUARIO_E2E_STATE = "/{id}/e2e/state";
     public static final String USUARIO_E2E_REKEY = "/{id}/e2e/rekey";
+    public static final String USUARIO_E2E_PRIVATE_KEY_BACKUP = "/{userId}/e2e/private-key-backup";
     public static final String USUARIO_ADMIN_PATTERN = "/admin/**";
     public static final String USUARIO_PERFIL = "/perfil";
     public static final String USUARIO_PERFIL_PASSWORD_CODE = "/perfil/password/solicitar-codigo";
@@ -387,6 +388,8 @@ public class Constantes {
     public static final String ERR_E2E_GROUP_IMAGE_PAYLOAD_INVALID = "E2E_GROUP_IMAGE_PAYLOAD_INVALID";
     public static final String ERR_E2E_PAYLOAD_INVALID = "E2E_PAYLOAD_INVALID";
     public static final String ERR_E2E_FILE_PAYLOAD_INVALID = "E2E_FILE_PAYLOAD_INVALID";
+    public static final String ERR_E2E_BACKUP_NOT_FOUND = "E2E_BACKUP_NOT_FOUND";
+    public static final String ERR_E2E_BACKUP_INVALID = "E2E_BACKUP_INVALID";
     public static final String ERR_UPLOAD_SECURITY_BLOCK = "UPLOAD_SECURITY_BLOCK";
     public static final String ERR_SOLICITUD_DESBANEO_INVALIDA = "SOLICITUD_DESBANEO_INVALIDA";
     public static final String ERR_GOOGLE_TOKEN_INVALIDO = "GOOGLE_TOKEN_INVALIDO";

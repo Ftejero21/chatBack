@@ -275,18 +275,6 @@ public class MappingUtils {
         return dto;
     }
 
-    public static ChatGrupalEntity chatGrupalDtoAEntity(ChatGrupalDTO dto) {
-        ChatGrupalEntity e = new ChatGrupalEntity();
-        dto.setId(e.getId());
-        dto.setNombreGrupo(e.getNombreGrupo());
-        List<UsuarioDTO> usuarios = e.getUsuarios().stream()
-                .map(MappingUtils::usuarioEntityADto)
-                .collect(Collectors.toList());
-        dto.setUsuarios(usuarios);
-        dto.setFotoGrupo(safeFotoUrl(e.getFotoUrl()));
-        return e;
-    }
-
     public static ChatGrupalDTO chatGrupalEntityADto(ChatGrupalEntity entity) {
         ChatGrupalDTO dto = new ChatGrupalDTO();
         dto.setId(entity.getId());

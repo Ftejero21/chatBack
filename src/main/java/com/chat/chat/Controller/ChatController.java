@@ -6,6 +6,8 @@ import com.chat.chat.DTO.ChatGrupalDTO;
 import com.chat.chat.DTO.ChatIndividualCreateDTO;
 import com.chat.chat.DTO.ChatIndividualDTO;
 import com.chat.chat.DTO.ChatMensajeBusquedaPageDTO;
+import com.chat.chat.DTO.ChatPinMessageRequestDTO;
+import com.chat.chat.DTO.ChatPinnedMessageDTO;
 import com.chat.chat.DTO.ChatResumenDTO;
 import com.chat.chat.DTO.EsMiembroDTO;
 import com.chat.chat.DTO.GroupDetailDTO;
@@ -231,6 +233,40 @@ public class ChatController {
             @RequestParam(value = "page", defaultValue = "0") Integer page,
             @RequestParam(value = "size", defaultValue = "50") Integer size) {
         return ResponseEntity.ok(chatService.listarMensajesPorChatGrupal(chatId, page, size));
+    }
+
+    @GetMapping(Constantes.CHAT_PINNED_MESSAGE)
+    @Operation(summary = "Obtener mensaje fijado del chat", description = "Devuelve el mensaje fijado activo del chat o 404 si no existe/expiró.")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Mensaje fijado obtenido", content = @Content(schema = @Schema(implementation = ChatPinnedMessageDTO.class))),
+            @ApiResponse(responseCode = "404", description = "No hay fijado activo", content = @Content(schema = @Schema(implementation = ApiError.class)))
+    })
+    public ChatPinnedMessageDTO getPinnedMessage(@PathVariable("chatId") Long chatId) {
+        return chatService.getPinnedMessage(chatId);
+    }
+
+    @PostMapping(Constantes.CHAT_PINNED_MESSAGE)
+    @Operation(summary = "Fijar mensaje en chat", description = "Fija un mensaje activo del chat por 24h, 7d o 30d, reemplazando el fijado anterior.")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Mensaje fijado", content = @Content(schema = @Schema(implementation = ChatPinnedMessageDTO.class))),
+            @ApiResponse(responseCode = "400", description = "Duración o payload inválido", content = @Content(schema = @Schema(implementation = ApiError.class))),
+            @ApiResponse(responseCode = "403", description = "Sin permisos sobre el chat", content = @Content(schema = @Schema(implementation = ApiError.class))),
+            @ApiResponse(responseCode = "404", description = "Mensaje/chat no válido para fijar", content = @Content(schema = @Schema(implementation = ApiError.class)))
+    })
+    public ChatPinnedMessageDTO pinMessage(@PathVariable("chatId") Long chatId,
+                                           @RequestBody ChatPinMessageRequestDTO request) {
+        return chatService.pinMessage(chatId, request);
+    }
+
+    @DeleteMapping(Constantes.CHAT_PINNED_MESSAGE)
+    @Operation(summary = "Desfijar mensaje del chat", description = "Desfija el mensaje activo del chat.")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "204", description = "Desfijado"),
+            @ApiResponse(responseCode = "404", description = "No había fijado activo", content = @Content(schema = @Schema(implementation = ApiError.class)))
+    })
+    public ResponseEntity<Void> unpinMessage(@PathVariable("chatId") Long chatId) {
+        chatService.unpinMessage(chatId);
+        return ResponseEntity.noContent().build();
     }
 
     @PostMapping(Constantes.MENSAJES_ELIMINAR)

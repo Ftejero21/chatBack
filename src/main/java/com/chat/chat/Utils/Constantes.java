@@ -76,6 +76,7 @@ public class Constantes {
     public static final String MENSAJES_PROGRAMADOS = "/scheduled";
     public static final String MENSAJES_PROGRAMADOS_CANCELAR = "/scheduled/{id}/cancel";
     public static final String GRUPAL_ADD_USUARIOS = "/{groupId}/usuarios";
+    public static final String CHAT_PINNED_MESSAGE = "/{chatId}/pinned-message";
 
     // Rutas Base Restantes (RequestMapping)
     public static final String API_UPLOADS = "/api/uploads";
@@ -390,6 +391,10 @@ public class Constantes {
     public static final String ERR_E2E_FILE_PAYLOAD_INVALID = "E2E_FILE_PAYLOAD_INVALID";
     public static final String ERR_E2E_BACKUP_NOT_FOUND = "E2E_BACKUP_NOT_FOUND";
     public static final String ERR_E2E_BACKUP_INVALID = "E2E_BACKUP_INVALID";
+    public static final String ERR_CHAT_PINNED_NOT_FOUND = "CHAT_PINNED_NOT_FOUND";
+    public static final String ERR_CHAT_PIN_INVALID_DURATION = "CHAT_PIN_INVALID_DURATION";
+    public static final String ERR_CHAT_PIN_MESSAGE_NOT_IN_CHAT = "CHAT_PIN_MESSAGE_NOT_IN_CHAT";
+    public static final String ERR_CHAT_PIN_FORBIDDEN = "CHAT_PIN_FORBIDDEN";
     public static final String ERR_UPLOAD_SECURITY_BLOCK = "UPLOAD_SECURITY_BLOCK";
     public static final String ERR_SOLICITUD_DESBANEO_INVALIDA = "SOLICITUD_DESBANEO_INVALIDA";
     public static final String ERR_GOOGLE_TOKEN_INVALIDO = "GOOGLE_TOKEN_INVALIDO";

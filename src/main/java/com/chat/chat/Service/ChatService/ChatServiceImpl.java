@@ -3,6 +3,7 @@ package com.chat.chat.Service.ChatService;
 import com.chat.chat.DTO.*;
 import com.chat.chat.DTO.*;
 import com.chat.chat.Entity.*;
+import com.chat.chat.Exceptions.SemanticApiException;
 import com.chat.chat.Exceptions.RecursoNoEncontradoException;
 import com.chat.chat.Repository.*;
 import com.chat.chat.Service.EncuestaService.EncuestaService;
@@ -18,6 +19,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
+import org.springframework.http.HttpStatus;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
@@ -50,7 +52,17 @@ public class ChatServiceImpl implements ChatService {
     private static final int MAX_GROUP_NAME_LENGTH = 120;
     private static final int MAX_GROUP_DESCRIPTION_LENGTH = 500;
     private static final int SEARCH_SNIPPET_CONTEXT_CHARS = 40;
+    private static final int PINNED_PREVIEW_MAX_LEN = 180;
+    private static final long PIN_DURATION_24H_SECONDS = 86400L;
+    private static final long PIN_DURATION_7D_SECONDS = 604800L;
+    private static final long PIN_DURATION_30D_SECONDS = 2592000L;
     private static final String CURSOR_SEPARATOR = "_";
+    private static final String PIN_PREVIEW_AUDIO = "[Audio]";
+    private static final String PIN_PREVIEW_IMAGE = "[Imagen]";
+    private static final String PIN_PREVIEW_FILE = "[Archivo]";
+    private static final String PIN_PREVIEW_POLL = "[Encuesta]";
+    private static final String PIN_PREVIEW_SYSTEM = "[Sistema]";
+    private static final String PIN_PREVIEW_ENCRYPTED = "[Mensaje cifrado]";
     private static final Pattern DIACRITICS_PATTERN = Pattern.compile("\\p{M}+");
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
@@ -77,6 +89,9 @@ public class ChatServiceImpl implements ChatService {
 
     @Autowired
     private MensajeTemporalAuditoriaRepository mensajeTemporalAuditoriaRepository;
+
+    @Autowired
+    private ChatPinnedMessageRepository chatPinnedMessageRepository;
 
     @Autowired
     private ChatRepository chatRepository;
@@ -1126,6 +1141,79 @@ public class ChatServiceImpl implements ChatService {
     }
 
     @Override
+    @Transactional
+    public ChatPinnedMessageDTO getPinnedMessage(Long chatId) {
+        Long requesterId = securityUtils.getAuthenticatedUserId();
+        validatePinnedChatAccess(chatId, requesterId);
+
+        LocalDateTime now = LocalDateTime.now();
+        ChatPinnedMessageEntity pin = findActivePinOrThrow(chatId, now);
+        MensajeEntity mensaje = findActiveMessageForPin(chatId, pin.getMessageId(), now);
+        if (mensaje == null) {
+            pin.setActivo(false);
+            pin.setUnpinnedAt(now);
+            pin.setUpdatedAt(now);
+            chatPinnedMessageRepository.save(pin);
+            throw semanticError(HttpStatus.NOT_FOUND, Constantes.ERR_CHAT_PINNED_NOT_FOUND, "No hay mensaje fijado activo");
+        }
+
+        return toPinnedDto(chatId, pin, mensaje);
+    }
+
+    @Override
+    @Transactional
+    public ChatPinnedMessageDTO pinMessage(Long chatId, ChatPinMessageRequestDTO request) {
+        Long requesterId = securityUtils.getAuthenticatedUserId();
+        validatePinnedChatAccess(chatId, requesterId);
+
+        if (request == null || request.getMessageId() == null) {
+            throw semanticError(HttpStatus.BAD_REQUEST, Constantes.ERR_RESPUESTA_INVALIDA, "messageId es obligatorio");
+        }
+
+        long durationSeconds = validatePinDurationOrThrow(request.getDurationSeconds());
+        LocalDateTime now = LocalDateTime.now();
+        MensajeEntity mensaje = findActiveMessageForPin(chatId, request.getMessageId(), now);
+        if (mensaje == null) {
+            throw semanticError(HttpStatus.BAD_REQUEST, Constantes.ERR_CHAT_PIN_MESSAGE_NOT_IN_CHAT,
+                    "El mensaje no pertenece al chat o no esta activo");
+        }
+
+        ChatPinnedMessageEntity pin = chatPinnedMessageRepository.findByChatId(chatId)
+                .orElseGet(ChatPinnedMessageEntity::new);
+
+        pin.setChatId(chatId);
+        pin.setMessageId(mensaje.getId());
+        Long senderId = mensaje.getEmisor() == null ? requesterId : mensaje.getEmisor().getId();
+        pin.setSenderId(senderId);
+        pin.setPinnedByUserId(requesterId);
+        pin.setPinnedAt(now);
+        pin.setExpiresAt(now.plusSeconds(durationSeconds));
+        pin.setUnpinnedAt(null);
+        pin.setActivo(true);
+        if (pin.getCreatedAt() == null) {
+            pin.setCreatedAt(now);
+        }
+        pin.setUpdatedAt(now);
+
+        ChatPinnedMessageEntity saved = chatPinnedMessageRepository.save(pin);
+        return toPinnedDto(chatId, saved, mensaje);
+    }
+
+    @Override
+    @Transactional
+    public void unpinMessage(Long chatId) {
+        Long requesterId = securityUtils.getAuthenticatedUserId();
+        validatePinnedChatAccess(chatId, requesterId);
+
+        LocalDateTime now = LocalDateTime.now();
+        ChatPinnedMessageEntity pin = findActivePinOrThrow(chatId, now);
+        pin.setActivo(false);
+        pin.setUnpinnedAt(now);
+        pin.setUpdatedAt(now);
+        chatPinnedMessageRepository.save(pin);
+    }
+
+    @Override
     public GroupMediaPageDTO listarMediaPorChatGrupal(Long chatId, String cursor, Integer size, String types) {
         Long requesterId = securityUtils.getAuthenticatedUserId();
         ChatGrupalEntity chat = chatGrupalRepo.findByIdWithUsuarios(chatId)
@@ -1664,6 +1752,214 @@ public class ChatServiceImpl implements ChatService {
         }
 
         throw new AccessDeniedException(Constantes.ERR_NO_AUTORIZADO);
+    }
+
+    private ChatPinnedMessageEntity findActivePinOrThrow(Long chatId, LocalDateTime now) {
+        return chatPinnedMessageRepository.findByChatIdAndActivoTrueAndUnpinnedAtIsNullAndExpiresAtAfter(chatId, now)
+                .orElseThrow(() -> semanticError(
+                        HttpStatus.NOT_FOUND,
+                        Constantes.ERR_CHAT_PINNED_NOT_FOUND,
+                        "No hay mensaje fijado activo"));
+    }
+
+    private ChatEntity validatePinnedChatAccess(Long chatId, Long requesterId) {
+        if (chatId == null) {
+            throw semanticError(HttpStatus.BAD_REQUEST, Constantes.ERR_RESPUESTA_INVALIDA, "chatId es obligatorio");
+        }
+
+        ChatEntity chat = chatRepository.findById(chatId)
+                .orElseThrow(() -> semanticError(
+                        HttpStatus.NOT_FOUND,
+                        Constantes.ERR_NO_ENCONTRADO,
+                        Constantes.MSG_CHAT_NO_ENCONTRADO_ID + chatId));
+
+        boolean requesterIsAdmin = securityUtils.hasRole(Constantes.ADMIN) || securityUtils.hasRole(Constantes.ROLE_ADMIN);
+        if (chat instanceof ChatIndividualEntity individual) {
+            boolean isMember = (individual.getUsuario1() != null && Objects.equals(individual.getUsuario1().getId(), requesterId))
+                    || (individual.getUsuario2() != null && Objects.equals(individual.getUsuario2().getId(), requesterId));
+            if (!isMember && !requesterIsAdmin) {
+                throw semanticError(HttpStatus.FORBIDDEN, Constantes.ERR_CHAT_PIN_FORBIDDEN, "No autorizado para fijar mensajes en este chat");
+            }
+            return chat;
+        }
+
+        if (chat instanceof ChatGrupalEntity) {
+            ChatGrupalEntity group = chatGrupalRepo.findByIdWithUsuarios(chatId)
+                    .orElseThrow(() -> semanticError(
+                            HttpStatus.NOT_FOUND,
+                            Constantes.ERR_NO_ENCONTRADO,
+                            Constantes.MSG_CHAT_GRUPAL_NO_ENCONTRADO_ID + chatId));
+            if (!group.isActivo()) {
+                throw semanticError(HttpStatus.NOT_FOUND, Constantes.ERR_NO_ENCONTRADO, Constantes.MSG_CHAT_GRUPAL_NO_ENCONTRADO_ID + chatId);
+            }
+            if (!isActiveGroupMember(group, requesterId) && !requesterIsAdmin) {
+                throw semanticError(HttpStatus.FORBIDDEN, Constantes.ERR_CHAT_PIN_FORBIDDEN, "No autorizado para fijar mensajes en este chat");
+            }
+            return group;
+        }
+
+        if (!requesterIsAdmin) {
+            throw semanticError(HttpStatus.FORBIDDEN, Constantes.ERR_CHAT_PIN_FORBIDDEN, "No autorizado para fijar mensajes en este chat");
+        }
+        return chat;
+    }
+
+    private long validatePinDurationOrThrow(Long durationSeconds) {
+        if (durationSeconds == null) {
+            throw semanticError(HttpStatus.BAD_REQUEST, Constantes.ERR_CHAT_PIN_INVALID_DURATION, "durationSeconds es obligatorio");
+        }
+        if (durationSeconds != PIN_DURATION_24H_SECONDS
+                && durationSeconds != PIN_DURATION_7D_SECONDS
+                && durationSeconds != PIN_DURATION_30D_SECONDS) {
+            throw semanticError(HttpStatus.BAD_REQUEST, Constantes.ERR_CHAT_PIN_INVALID_DURATION,
+                    "durationSeconds debe ser 86400, 604800 o 2592000");
+        }
+        return durationSeconds;
+    }
+
+    private MensajeEntity findActiveMessageForPin(Long chatId, Long messageId, LocalDateTime now) {
+        return mensajeRepository.findByIdAndChatId(messageId, chatId)
+                .filter(m -> isPinCandidateMessageActive(m, now))
+                .orElse(null);
+    }
+
+    private boolean isPinCandidateMessageActive(MensajeEntity mensaje, LocalDateTime now) {
+        if (mensaje == null || !mensaje.isActivo()) {
+            return false;
+        }
+        LocalDateTime expiresAt = mensaje.getExpiraEn();
+        return expiresAt == null || expiresAt.isAfter(now);
+    }
+
+    private ChatPinnedMessageDTO toPinnedDto(Long chatId, ChatPinnedMessageEntity pin, MensajeEntity mensaje) {
+        ChatPinnedMessageDTO dto = new ChatPinnedMessageDTO();
+        dto.setChatId(chatId);
+        dto.setMessageId(pin.getMessageId());
+
+        Long senderId = pin.getSenderId();
+        String senderName = PIN_PREVIEW_SYSTEM;
+        if (mensaje != null && mensaje.getEmisor() != null) {
+            senderId = mensaje.getEmisor().getId();
+            senderName = buildNombreCompleto(mensaje.getEmisor().getNombre(), mensaje.getEmisor().getApellido());
+        }
+
+        dto.setSenderId(senderId);
+        dto.setSenderName(senderName);
+        dto.setMessageType(mapPinnedMessageType(mensaje == null ? null : mensaje.getTipo()));
+        dto.setPreview(buildPinnedPreview(mensaje));
+        dto.setPinnedAt(pin.getPinnedAt());
+        dto.setPinnedByUserId(pin.getPinnedByUserId());
+        dto.setExpiresAt(pin.getExpiresAt());
+        return dto;
+    }
+
+    private String mapPinnedMessageType(MessageType type) {
+        if (type == null) {
+            return Constantes.TIPO_TEXT;
+        }
+        if (type == MessageType.VIDEO) {
+            return Constantes.TIPO_FILE;
+        }
+        return type.name();
+    }
+
+    private String buildPinnedPreview(MensajeEntity mensaje) {
+        if (mensaje == null || mensaje.getTipo() == null) {
+            return "";
+        }
+        return switch (mensaje.getTipo()) {
+            case AUDIO -> PIN_PREVIEW_AUDIO;
+            case IMAGE -> PIN_PREVIEW_IMAGE;
+            case FILE, VIDEO -> {
+                String fileName = extractPinnedFileNameFromMessage(mensaje);
+                yield fileName == null ? PIN_PREVIEW_FILE : truncatePreview(PIN_PREVIEW_FILE + " " + fileName);
+            }
+            case POLL -> PIN_PREVIEW_POLL;
+            case SYSTEM -> {
+                String text = sanitizePreviewText(mensaje.getContenido());
+                yield text.isBlank() ? PIN_PREVIEW_SYSTEM : text;
+            }
+            case TEXT -> sanitizePreviewText(mensaje.getContenido());
+        };
+    }
+
+    private String extractPinnedFileNameFromMessage(MensajeEntity mensaje) {
+        if (mensaje == null) {
+            return null;
+        }
+
+        String mediaUrl = mensaje.getMediaUrl();
+        if (mediaUrl != null && !mediaUrl.isBlank()) {
+            int slash = mediaUrl.lastIndexOf('/');
+            if (slash >= 0 && slash + 1 < mediaUrl.length()) {
+                return mediaUrl.substring(slash + 1);
+            }
+            return mediaUrl;
+        }
+
+        String raw = mensaje.getContenido();
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+
+        try {
+            JsonNode root = OBJECT_MAPPER.readTree(raw);
+            String name = firstNonBlank(
+                    root.path("fileNombre").asText(null),
+                    root.path("fileName").asText(null),
+                    root.path("imageNombre").asText(null));
+            if (name != null && !name.isBlank()) {
+                return name;
+            }
+            String url = firstNonBlank(
+                    root.path("fileUrl").asText(null),
+                    root.path("url").asText(null),
+                    root.path("imageUrl").asText(null));
+            if (url == null || url.isBlank()) {
+                return null;
+            }
+            int slash = url.lastIndexOf('/');
+            return slash >= 0 && slash + 1 < url.length() ? url.substring(slash + 1) : url;
+        } catch (Exception ex) {
+            return null;
+        }
+    }
+
+    private String sanitizePreviewText(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return "";
+        }
+        if (isLikelyEncryptedPayload(raw)) {
+            return PIN_PREVIEW_ENCRYPTED;
+        }
+        String normalized = raw.replaceAll("\\s+", " ").trim();
+        return truncatePreview(normalized);
+    }
+
+    private boolean isLikelyEncryptedPayload(String raw) {
+        String trimmed = raw == null ? "" : raw.trim();
+        if (!trimmed.startsWith("{")) {
+            return false;
+        }
+        return trimmed.contains("\"ciphertext\"")
+                || trimmed.contains("\"forReceptor\"")
+                || trimmed.contains("\"forReceptores\"")
+                || trimmed.contains("\"forEmisor\"");
+    }
+
+    private String truncatePreview(String value) {
+        if (value == null) {
+            return "";
+        }
+        if (value.length() <= PINNED_PREVIEW_MAX_LEN) {
+            return value;
+        }
+        return value.substring(0, PINNED_PREVIEW_MAX_LEN - 3) + "...";
+    }
+
+    private SemanticApiException semanticError(HttpStatus status, String code, String message) {
+        String traceId = Optional.ofNullable(E2EDiagnosticUtils.currentTraceId()).orElse(E2EDiagnosticUtils.newTraceId());
+        return new SemanticApiException(status, code, message, traceId);
     }
 
     private String resolveSearchableContent(String rawContent) {

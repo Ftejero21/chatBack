@@ -31,6 +31,9 @@ public interface ChatService {
     }
 
     ChatMensajeBusquedaPageDTO buscarMensajesEnChat(Long chatId, String q, Integer page, Integer size);
+    ChatPinnedMessageDTO getPinnedMessage(Long chatId);
+    ChatPinnedMessageDTO pinMessage(Long chatId, ChatPinMessageRequestDTO request);
+    void unpinMessage(Long chatId);
 
     GroupMediaPageDTO listarMediaPorChatGrupal(Long chatId, String cursor, Integer size, String types);
 

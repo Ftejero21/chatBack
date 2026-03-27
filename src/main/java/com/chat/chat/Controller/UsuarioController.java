@@ -171,6 +171,7 @@ public class UsuarioController {
             @PathVariable("userId") Long userId,
             @RequestBody E2EPrivateKeyBackupDTO request,
             HttpServletRequest httpRequest) {
+        httpRateLimitService.checkE2EPrivateKeyBackupPut(httpRequest, userId);
         usuarioService.upsertE2EPrivateKeyBackup(userId, request);
         return ResponseEntity.noContent().build();
     }
@@ -185,6 +186,7 @@ public class UsuarioController {
     public E2EPrivateKeyBackupDTO getE2EPrivateKeyBackup(
             @PathVariable("userId") Long userId,
             HttpServletRequest httpRequest) {
+        httpRateLimitService.checkE2EPrivateKeyBackupGet(httpRequest, userId);
         return usuarioService.getE2EPrivateKeyBackup(userId);
     }
 

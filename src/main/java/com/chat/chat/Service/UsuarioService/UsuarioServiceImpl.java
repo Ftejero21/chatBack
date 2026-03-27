@@ -113,12 +113,6 @@ public class UsuarioServiceImpl implements UsuarioService {
     @Value("${app.uploads.base-url:/uploads}") // prefijo pÃºblico
     private String uploadsBaseUrl;
 
-    @Value("${app.audit.expose-private-key-on-login-local:false}")
-    private boolean exposeAuditPrivateKeyOnLoginLocal;
-
-    @Value("${spring.datasource.url:}")
-    private String datasourceUrl;
-
     @Autowired
     private SimpMessagingTemplate messagingTemplate;
 
@@ -226,22 +220,6 @@ public class UsuarioServiceImpl implements UsuarioService {
             return false;
         }
         return roles.stream().anyMatch(role -> Constantes.ADMIN.equalsIgnoreCase(role) || Constantes.ROLE_ADMIN.equalsIgnoreCase(role));
-    }
-
-    private boolean shouldIncludeAuditPrivateKeyOnLogin(UsuarioEntity usuario) {
-        if (usuario == null || !isAdminUser(usuario.getRoles())) {
-            return false;
-        }
-        if (!exposeAuditPrivateKeyOnLoginLocal) {
-            return false;
-        }
-        if (datasourceUrl == null || datasourceUrl.isBlank()) {
-            return false;
-        }
-
-        String normalizedDatasourceUrl = datasourceUrl.toLowerCase(Locale.ROOT);
-        return normalizedDatasourceUrl.contains("localhost")
-                || normalizedDatasourceUrl.contains("127.0.0.1");
     }
 
     private void validateSelfOrAdmin(Long targetUserId) {
@@ -484,16 +462,7 @@ public class UsuarioServiceImpl implements UsuarioService {
 
         UserDetails userDetails = customUserDetailsService.loadUserByUsername(usuario.getEmail());
         String jwtToken = jwtService.generateToken(userDetails);
-        AuthRespuestaDTO respuesta = new AuthRespuestaDTO(jwtToken, dto, adminAuditCrypto.getAuditPublicKeySpkiBase64());
-        if (shouldIncludeAuditPrivateKeyOnLogin(usuario)) {
-            String auditPrivateKey = adminAuditCrypto.getAuditPrivateKeyPkcs8PemIfMatchesPublicKey();
-            if (auditPrivateKey != null && !auditPrivateKey.isBlank()) {
-                respuesta.setAuditPrivateKey(auditPrivateKey);
-                respuesta.setPrivateKey_admin_audit(auditPrivateKey);
-                respuesta.setForAdminPrivateKey(auditPrivateKey);
-            }
-        }
-        return respuesta;
+        return new AuthRespuestaDTO(jwtToken, dto, adminAuditCrypto.getAuditPublicKeySpkiBase64());
     }
 
     @Override

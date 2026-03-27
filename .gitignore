@@ -31,3 +31,13 @@ build/
 
 ### VS Code ###
 .vscode/
+
+### Local secrets and runtime artifacts ###
+*.pem
+*.key
+*.p12
+admin_public_key_spki.b64
+backend_start.out.log
+backend_start.err.log
+uploads/
+.m2/

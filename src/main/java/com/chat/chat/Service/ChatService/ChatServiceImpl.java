@@ -57,6 +57,8 @@ public class ChatServiceImpl implements ChatService {
     private static final long PIN_DURATION_24H_SECONDS = 86400L;
     private static final long PIN_DURATION_7D_SECONDS = 604800L;
     private static final long PIN_DURATION_30D_SECONDS = 2592000L;
+    private static final long MUTE_DURATION_8H_SECONDS = 28800L;
+    private static final long MUTE_DURATION_1W_SECONDS = 604800L;
     private static final String CURSOR_SEPARATOR = "_";
     private static final Pattern DIACRITICS_PATTERN = Pattern.compile("\\p{M}+");
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
@@ -89,6 +91,9 @@ public class ChatServiceImpl implements ChatService {
     private ChatPinnedMessageRepository chatPinnedMessageRepository;
 
     @Autowired
+    private UserPinnedChatRepository userPinnedChatRepository;
+
+    @Autowired
     private ChatRepository chatRepository;
 
     @Autowired
@@ -116,6 +121,9 @@ public class ChatServiceImpl implements ChatService {
 
     @Autowired
     private EstadoUsuarioManager estadoUsuarioManager;
+
+    @Autowired
+    private ChatUserStateService chatUserStateService;
 
     @Override
     public ChatIndividualDTO crearChatIndividual(Long usuario1Id, Long usuario2Id) {
@@ -441,7 +449,19 @@ public class ChatServiceImpl implements ChatService {
 
     @Override
     public List<Object> listarTodosLosChatsDeUsuario(Long usuarioId) {
-        UsuarioEntity usuario = usuarioRepo.findById(usuarioId).orElseThrow();
+        usuarioRepo.findById(usuarioId).orElseThrow();
+        UserPinnedChatEntity pinned = userPinnedChatRepository.findById(usuarioId).orElse(null);
+        Long pinnedChatId = pinned == null ? null : pinned.getChatId();
+        LocalDateTime pinnedAt = pinned == null ? null : pinned.getPinnedAt();
+
+        List<ChatIndividualEntity> individualChats = chatIndRepo.findAllByUsuario1IdOrUsuario2Id(usuarioId, usuarioId);
+        List<ChatGrupalEntity> groupChats = chatGrupalRepo.findAllByUsuariosId(usuarioId).stream()
+                .filter(ChatGrupalEntity::isActivo)
+                .collect(Collectors.toList());
+        List<Long> chatIds = new ArrayList<>();
+        individualChats.stream().map(ChatEntity::getId).forEach(chatIds::add);
+        groupChats.stream().map(ChatEntity::getId).forEach(chatIds::add);
+        Map<Long, Long> cutoffByChatId = chatUserStateService.resolveCutoffs(usuarioId, chatIds);
 
         Map<Long, Long> unreadMap = mensajeRepository.countUnreadByUser(usuarioId)
                 .stream()
@@ -451,9 +471,7 @@ public class ChatServiceImpl implements ChatService {
                 ));
 
         // === INDIVIDUALES ===
-        List<ChatIndividualDTO> individuales = chatIndRepo.findAll().stream()
-                .filter(chat -> chat.getUsuario1().getId().equals(usuarioId)
-                        || chat.getUsuario2().getId().equals(usuarioId))
+        List<ChatIndividualDTO> individuales = individualChats.stream()
                 .map(chat -> {
                     // Decide quiÃ©n es el receptor basado en el usuario actual
                     boolean soyUser1 = chat.getUsuario1().getId().equals(usuarioId);
@@ -462,6 +480,9 @@ public class ChatServiceImpl implements ChatService {
                     // Si por algÃºn motivo era un chat conmigo mismo, peer = yo mismo
                     ChatIndividualDTO dto = MappingUtils.chatIndividualEntityADto(chat,
                             soyUser1 ? chat.getUsuario1() : chat.getUsuario2());
+                    boolean isPinned = pinnedChatId != null && Objects.equals(dto.getId(), pinnedChatId);
+                    dto.setIsPinned(isPinned);
+                    dto.setPinnedAt(isPinned ? pinnedAt : null);
                     dto.setReceptor(MappingUtils.usuarioEntityADto(peer));
 
                     // ðŸ‘‡ convertir la foto del receptor a Base64 (dataURL) para el front
@@ -473,7 +494,10 @@ public class ChatServiceImpl implements ChatService {
                     dto.setUnreadCount(unreadMap.getOrDefault(dto.getId(), 0L));
 
                     // Ãšltimo mensaje por chatId
-                    MensajeEntity last = mensajeRepository.findTopByChatIdOrderByFechaEnvioDesc(dto.getId());
+                    Long cutoff = cutoffByChatId.get(dto.getId());
+                    MensajeEntity last = mensajeRepository
+                            .findTopVisibleByChatIdOrderByFechaEnvioDesc(dto.getId(), cutoff)
+                            .orElse(null);
 
                     if (last == null) {
                         dto.setUltimaMensaje(ChatConstants.MSG_SIN_MENSAJES);
@@ -494,11 +518,12 @@ public class ChatServiceImpl implements ChatService {
                 .collect(Collectors.toList());
 
         // === GRUPALES ===
-        List<ChatGrupalDTO> grupales = chatGrupalRepo.findAll().stream()
-                .filter(ChatGrupalEntity::isActivo)
-                .filter(chat -> chat.getUsuarios().contains(usuario))
+        List<ChatGrupalDTO> grupales = groupChats.stream()
                 .map(chat -> {
                     ChatGrupalDTO dto = MappingUtils.chatGrupalEntityADto(chat);
+                    boolean isPinned = pinnedChatId != null && Objects.equals(dto.getId(), pinnedChatId);
+                    dto.setIsPinned(isPinned);
+                    dto.setPinnedAt(isPinned ? pinnedAt : null);
 
                     // Foto del GRUPO (soporta fotoGrupo o foto, segÃºn tu DTO)
                     String fg = dto.getFotoGrupo();
@@ -533,7 +558,10 @@ public class ChatServiceImpl implements ChatService {
                     }
 
                     // Ãšltimo mensaje por chatId
-                    MensajeEntity last = mensajeRepository.findTopByChatIdOrderByFechaEnvioDesc(dto.getId());
+                    Long cutoff = cutoffByChatId.get(dto.getId());
+                    MensajeEntity last = mensajeRepository
+                            .findTopVisibleByChatIdOrderByFechaEnvioDesc(dto.getId(), cutoff)
+                            .orElse(null);
 
                     if (last == null) {
                         dto.setUltimaMensaje(ChatConstants.MSG_SIN_MENSAJES);
@@ -559,12 +587,14 @@ public class ChatServiceImpl implements ChatService {
         resultado.addAll(grupales);
 
         resultado.sort((a, b) -> {
-            LocalDateTime fa = (a instanceof ChatIndividualDTO)
-                    ? ((ChatIndividualDTO) a).getUltimaFecha()
-                    : ((ChatGrupalDTO) a).getUltimaFecha();
-            LocalDateTime fb = (b instanceof ChatIndividualDTO)
-                    ? ((ChatIndividualDTO) b).getUltimaFecha()
-                    : ((ChatGrupalDTO) b).getUltimaFecha();
+            boolean pinnedA = isPinnedChat(a);
+            boolean pinnedB = isPinnedChat(b);
+            if (pinnedA != pinnedB) {
+                return pinnedA ? -1 : 1;
+            }
+
+            LocalDateTime fa = resolveLastMessageDate(a);
+            LocalDateTime fb = resolveLastMessageDate(b);
 
             if (fa == null && fb == null)
                 return 0;
@@ -576,6 +606,26 @@ public class ChatServiceImpl implements ChatService {
         });
 
         return resultado;
+    }
+
+    private boolean isPinnedChat(Object chatDto) {
+        if (chatDto instanceof ChatIndividualDTO individual) {
+            return Boolean.TRUE.equals(individual.getIsPinned());
+        }
+        if (chatDto instanceof ChatGrupalDTO grupal) {
+            return Boolean.TRUE.equals(grupal.getIsPinned());
+        }
+        return false;
+    }
+
+    private LocalDateTime resolveLastMessageDate(Object chatDto) {
+        if (chatDto instanceof ChatIndividualDTO individual) {
+            return individual.getUltimaFecha();
+        }
+        if (chatDto instanceof ChatGrupalDTO grupal) {
+            return grupal.getUltimaFecha();
+        }
+        return null;
     }
 
     private String buildIndividualPreview(MensajeEntity last, Long viewerId) {
@@ -922,13 +972,12 @@ public class ChatServiceImpl implements ChatService {
 
     @Override
     public List<MensajeDTO> listarMensajesPorChatId(Long chatId, Integer page, Integer size) {
-        ChatEntity chat = chatRepository.findById(chatId)
-                .orElseThrow(() -> new RuntimeException(Constantes.MSG_CHAT_NO_ENCONTRADO_ID + chatId));
+        Long requesterId = securityUtils.getAuthenticatedUserId();
+        ChatEntity chat = validateUserPinnedChatAccess(chatId, requesterId);
         String traceId = Optional.ofNullable(E2EDiagnosticUtils.currentTraceId()).orElse(E2EDiagnosticUtils.newTraceId());
         boolean groupChat = chat instanceof ChatGrupalEntity;
-        Long requesterId = securityUtils.getAuthenticatedUserId();
-
-        List<MensajeEntity> mensajes = fetchMessagesPageChronological(chatId, page, size);
+        Long cutoff = chatUserStateService.resolveCutoff(chatId, requesterId);
+        List<MensajeEntity> mensajes = fetchMessagesPageChronological(chatId, cutoff, page, size);
         Map<Long, List<MensajeReaccionEntity>> reaccionesPorMensaje = loadReaccionesPorMensaje(mensajes);
 
         List<MensajeDTO> salida = mensajes.stream()
@@ -982,15 +1031,18 @@ public class ChatServiceImpl implements ChatService {
 
     @Override
     public List<MensajeDTO> listarMensajesPorChatGrupal(Long chatId, Integer page, Integer size) {
-        ChatGrupalEntity chat = chatGrupalRepo.findById(chatId)
-                .orElseThrow(() -> new RuntimeException(Constantes.MSG_CHAT_GRUPAL_NO_ENCONTRADO_ID + chatId));
-        String traceId = Optional.ofNullable(E2EDiagnosticUtils.currentTraceId()).orElse(E2EDiagnosticUtils.newTraceId());
         Long requesterId = securityUtils.getAuthenticatedUserId();
+        ChatEntity validatedChat = validateUserPinnedChatAccess(chatId, requesterId);
+        if (!(validatedChat instanceof ChatGrupalEntity chat)) {
+            throw new RuntimeException(Constantes.MSG_CHAT_GRUPAL_NO_ENCONTRADO_ID + chatId);
+        }
+        String traceId = Optional.ofNullable(E2EDiagnosticUtils.currentTraceId()).orElse(E2EDiagnosticUtils.newTraceId());
 
         // Si tienes un repo con este mÃ©todo, Ãºsalo; si no, ordenamos en memoria:
         // List<MensajeEntity> mensajes =
         // mensajeRepository.findByChatIdOrderByFechaEnvioAsc(chatId);
-        List<MensajeEntity> mensajes = fetchMessagesPageChronological(chatId, page, size);
+        Long cutoff = chatUserStateService.resolveCutoff(chatId, requesterId);
+        List<MensajeEntity> mensajes = fetchMessagesPageChronological(chatId, cutoff, page, size);
         Map<Long, List<MensajeReaccionEntity>> reaccionesPorMensaje = loadReaccionesPorMensaje(mensajes);
         Map<Long, String> currentMemberKeyFp = new LinkedHashMap<>();
         if (chat.getUsuarios() != null) {
@@ -1087,7 +1139,11 @@ public class ChatServiceImpl implements ChatService {
             return response;
         }
 
-        List<MensajeEntity> candidates = mensajeRepository.findTextActivosByChatIdOrderByFechaEnvioDescIdDesc(chatId, MessageType.TEXT);
+        Long cutoff = chatUserStateService.resolveCutoff(chatId, requesterId);
+        List<MensajeEntity> candidates = mensajeRepository.findTextActivosByChatIdOrderByFechaEnvioDescIdDesc(
+                chatId,
+                MessageType.TEXT,
+                cutoff);
         List<SearchMatchCandidate> matches = new ArrayList<>();
         for (MensajeEntity mensaje : candidates) {
             String searchableContent = resolveSearchableContent(mensaje.getContenido());
@@ -1143,6 +1199,106 @@ public class ChatServiceImpl implements ChatService {
 
     @Override
     @Transactional
+    public ChatClearResponseDTO clearChat(Long chatId) {
+        Long requesterId = securityUtils.getAuthenticatedUserId();
+        ChatEntity chat = validateUserPinnedChatAccess(chatId, requesterId);
+        UsuarioEntity user = usuarioRepo.findById(requesterId)
+                .orElseThrow(() -> new RuntimeException(Constantes.MSG_USUARIO_AUTENTICADO_NO_ENCONTRADO));
+
+        Long cutoff = mensajeRepository.findMaxIdByChatId(chat.getId()).orElse(null);
+        LocalDateTime clearedAt = LocalDateTime.now(ZoneOffset.UTC);
+        ChatUserStateEntity state = chatUserStateService.upsertClearState(chat, user, cutoff, clearedAt);
+
+        ChatClearResponseDTO response = new ChatClearResponseDTO();
+        response.setOk(true);
+        response.setChatId(chat.getId());
+        response.setUserId(requesterId);
+        response.setClearedBeforeMessageId(state.getClearedBeforeMessageId());
+        response.setClearedAt(state.getClearedAt());
+        return response;
+    }
+
+    @Override
+    @Transactional
+    public ChatMuteStateDTO muteChat(Long chatId, ChatMuteRequestDTO request) {
+        Long requesterId = securityUtils.getAuthenticatedUserId();
+        ChatEntity chat = validateUserPinnedChatAccess(chatId, requesterId);
+        UsuarioEntity user = usuarioRepo.findById(requesterId)
+                .orElseThrow(() -> new RuntimeException(Constantes.MSG_USUARIO_AUTENTICADO_NO_ENCONTRADO));
+
+        MuteConfig config = validateMuteRequestOrThrow(request);
+        LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+        LocalDateTime mutedUntil = config.mutedForever() ? null : now.plusSeconds(config.durationSeconds());
+        ChatUserStateEntity state = chatUserStateService.upsertMuteState(chat, user, config.mutedForever(), mutedUntil, now);
+        return toMuteStateDto(state, now);
+    }
+
+    @Override
+    @Transactional
+    public ChatMuteStateDTO unmuteChat(Long chatId) {
+        Long requesterId = securityUtils.getAuthenticatedUserId();
+        ChatEntity chat = validateUserPinnedChatAccess(chatId, requesterId);
+        UsuarioEntity user = usuarioRepo.findById(requesterId)
+                .orElseThrow(() -> new RuntimeException(Constantes.MSG_USUARIO_AUTENTICADO_NO_ENCONTRADO));
+
+        LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+        ChatUserStateEntity state = chatUserStateService.clearMuteState(chat, user, now);
+        return toMuteStateDto(state, now);
+    }
+
+    @Override
+    public List<ChatMuteStateDTO> listarChatsMuteadosActivos() {
+        Long requesterId = securityUtils.getAuthenticatedUserId();
+        LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+        return chatUserStateService.findActiveMutesByUser(requesterId, now).stream()
+                .map(state -> toMuteStateDto(state, now))
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    @Transactional
+    public UserPinnedChatResponseDTO setPinnedChat(UserPinnedChatRequestDTO request) {
+        Long requesterId = securityUtils.getAuthenticatedUserId();
+        Long chatId = request == null ? null : request.getChatId();
+
+        if (chatId == null) {
+            userPinnedChatRepository.deleteById(requesterId);
+            return new UserPinnedChatResponseDTO(null, null);
+        }
+
+        validateUserPinnedChatAccess(chatId, requesterId);
+
+        UserPinnedChatEntity pinned = userPinnedChatRepository.findById(requesterId)
+                .orElseGet(UserPinnedChatEntity::new);
+        LocalDateTime now = LocalDateTime.now();
+        pinned.setUserId(requesterId);
+        pinned.setChatId(chatId);
+        pinned.setPinnedAt(now);
+
+        UserPinnedChatEntity saved = userPinnedChatRepository.save(pinned);
+        return new UserPinnedChatResponseDTO(saved.getChatId(), saved.getPinnedAt());
+    }
+
+    @Override
+    @Transactional
+    public UserPinnedChatResponseDTO getPinnedChat() {
+        Long requesterId = securityUtils.getAuthenticatedUserId();
+        UserPinnedChatEntity pinned = userPinnedChatRepository.findById(requesterId).orElse(null);
+        if (pinned == null) {
+            return new UserPinnedChatResponseDTO(null, null);
+        }
+
+        try {
+            validateUserPinnedChatAccess(pinned.getChatId(), requesterId);
+        } catch (AccessDeniedException | RecursoNoEncontradoException ex) {
+            userPinnedChatRepository.deleteById(requesterId);
+            return new UserPinnedChatResponseDTO(null, null);
+        }
+        return new UserPinnedChatResponseDTO(pinned.getChatId(), pinned.getPinnedAt());
+    }
+
+    @Override
+    @Transactional
     public ChatPinnedMessageDTO getPinnedMessage(Long chatId) {
         Long requesterId = securityUtils.getAuthenticatedUserId();
         validatePinnedChatAccess(chatId, requesterId);
@@ -1155,6 +1311,10 @@ public class ChatServiceImpl implements ChatService {
             pin.setUnpinnedAt(now);
             pin.setUpdatedAt(now);
             chatPinnedMessageRepository.save(pin);
+            throw semanticError(HttpStatus.NOT_FOUND, Constantes.ERR_CHAT_PINNED_NOT_FOUND, "No hay mensaje fijado activo");
+        }
+        Long cutoff = chatUserStateService.resolveCutoff(chatId, requesterId);
+        if (cutoff != null && mensaje.getId() != null && mensaje.getId() <= cutoff) {
             throw semanticError(HttpStatus.NOT_FOUND, Constantes.ERR_CHAT_PINNED_NOT_FOUND, "No hay mensaje fijado activo");
         }
 
@@ -1175,6 +1335,11 @@ public class ChatServiceImpl implements ChatService {
         LocalDateTime now = LocalDateTime.now();
         MensajeEntity mensaje = findActiveMessageForPin(chatId, request.getMessageId(), now);
         if (mensaje == null) {
+            throw semanticError(HttpStatus.BAD_REQUEST, Constantes.ERR_CHAT_PIN_MESSAGE_NOT_IN_CHAT,
+                    "El mensaje no pertenece al chat o no esta activo");
+        }
+        Long cutoff = chatUserStateService.resolveCutoff(chatId, requesterId);
+        if (cutoff != null && mensaje.getId() != null && mensaje.getId() <= cutoff) {
             throw semanticError(HttpStatus.BAD_REQUEST, Constantes.ERR_CHAT_PIN_MESSAGE_NOT_IN_CHAT,
                     "El mensaje no pertenece al chat o no esta activo");
         }
@@ -1233,11 +1398,13 @@ public class ChatServiceImpl implements ChatService {
         int safeSize = size == null ? DEFAULT_MEDIA_SIZE : Math.max(1, Math.min(MAX_MEDIA_SIZE, size));
         List<MessageType> mediaTypes = parseMediaTypes(types);
         CursorPosition cursorPosition = parseCursor(cursor, chatId);
+        Long cutoff = chatUserStateService.resolveCutoff(chatId, requesterId);
 
         Pageable pageable = PageRequest.of(0, safeSize + 1);
         List<MensajeEntity> fetched = mensajeRepository.findGroupMediaPage(
                 chatId,
                 mediaTypes,
+                cutoff,
                 cursorPosition.fechaEnvio(),
                 cursorPosition.messageId(),
                 pageable);
@@ -1719,9 +1886,9 @@ public class ChatServiceImpl implements ChatService {
         return true;
     }
 
-    private List<MensajeEntity> fetchMessagesPageChronological(Long chatId, Integer page, Integer size) {
+    private List<MensajeEntity> fetchMessagesPageChronological(Long chatId, Long cutoff, Integer page, Integer size) {
         Pageable pageable = buildMessagesPageable(page, size);
-        List<MensajeEntity> content = new ArrayList<>(mensajeRepository.findByChatId(chatId, pageable).getContent());
+        List<MensajeEntity> content = new ArrayList<>(mensajeRepository.findByChatIdVisibleAfter(chatId, cutoff, pageable).getContent());
         content.sort(Comparator.comparing(MensajeEntity::getFechaEnvio).thenComparing(MensajeEntity::getId));
         return content;
     }
@@ -1766,6 +1933,38 @@ public class ChatServiceImpl implements ChatService {
                         HttpStatus.NOT_FOUND,
                         Constantes.ERR_CHAT_PINNED_NOT_FOUND,
                         "No hay mensaje fijado activo"));
+    }
+
+    private ChatEntity validateUserPinnedChatAccess(Long chatId, Long requesterId) {
+        if (chatId == null) {
+            throw new IllegalArgumentException("chatId es obligatorio");
+        }
+
+        ChatEntity chat = chatRepository.findById(chatId)
+                .orElseThrow(() -> new RecursoNoEncontradoException(Constantes.MSG_CHAT_NO_ENCONTRADO_ID + chatId));
+
+        if (chat instanceof ChatIndividualEntity individual) {
+            boolean isMember = (individual.getUsuario1() != null && Objects.equals(individual.getUsuario1().getId(), requesterId))
+                    || (individual.getUsuario2() != null && Objects.equals(individual.getUsuario2().getId(), requesterId));
+            if (!isMember) {
+                throw new AccessDeniedException(Constantes.MSG_NO_PERTENECE_CHAT);
+            }
+            return chat;
+        }
+
+        if (chat instanceof ChatGrupalEntity) {
+            ChatGrupalEntity group = chatGrupalRepo.findByIdWithUsuarios(chatId)
+                    .orElseThrow(() -> new RecursoNoEncontradoException(Constantes.MSG_CHAT_GRUPAL_NO_ENCONTRADO_ID + chatId));
+            if (!group.isActivo()) {
+                throw new RecursoNoEncontradoException(Constantes.MSG_CHAT_GRUPAL_NO_ENCONTRADO_ID + chatId);
+            }
+            if (!isActiveGroupMember(group, requesterId)) {
+                throw new AccessDeniedException(Constantes.MSG_NO_PERTENECE_CHAT);
+            }
+            return group;
+        }
+
+        throw new AccessDeniedException(Constantes.ERR_NO_AUTORIZADO);
     }
 
     private ChatEntity validatePinnedChatAccess(Long chatId, Long requesterId) {
@@ -1821,6 +2020,41 @@ public class ChatServiceImpl implements ChatService {
                     "durationSeconds debe ser 86400, 604800 o 2592000");
         }
         return durationSeconds;
+    }
+
+    private MuteConfig validateMuteRequestOrThrow(ChatMuteRequestDTO request) {
+        if (request == null) {
+            throw new IllegalArgumentException("Payload de mute invalido: mutedForever o durationSeconds es obligatorio");
+        }
+        boolean mutedForever = Boolean.TRUE.equals(request.getMutedForever());
+        Long durationSeconds = request.getDurationSeconds();
+        if (mutedForever) {
+            return new MuteConfig(true, null);
+        }
+        if (durationSeconds == null || durationSeconds <= 0) {
+            throw new IllegalArgumentException("durationSeconds debe ser > 0 cuando mutedForever no es true");
+        }
+        if (durationSeconds != MUTE_DURATION_8H_SECONDS && durationSeconds != MUTE_DURATION_1W_SECONDS) {
+            throw new IllegalArgumentException("durationSeconds solo permite 28800 (8h) o 604800 (1 semana)");
+        }
+        return new MuteConfig(false, durationSeconds);
+    }
+
+    private ChatMuteStateDTO toMuteStateDto(ChatUserStateEntity state, LocalDateTime now) {
+        ChatMuteStateDTO dto = new ChatMuteStateDTO();
+        dto.setOk(true);
+        dto.setChatId(state == null || state.getChat() == null ? null : state.getChat().getId());
+        dto.setUserId(state == null || state.getUser() == null ? null : state.getUser().getId());
+        boolean active = chatUserStateService.isMuteActive(state, now);
+        dto.setMuted(active);
+        if (!active) {
+            dto.setMutedForever(false);
+            dto.setMutedUntil(null);
+            return dto;
+        }
+        dto.setMutedForever(state.isMutedForever());
+        dto.setMutedUntil(state.isMutedForever() ? null : state.getMutedUntil());
+        return dto;
     }
 
     private MensajeEntity findActiveMessageForPin(Long chatId, Long messageId, LocalDateTime now) {
@@ -2407,6 +2641,9 @@ public class ChatServiceImpl implements ChatService {
             }
         }
         return null;
+    }
+
+    private record MuteConfig(boolean mutedForever, Long durationSeconds) {
     }
 
     private record SearchMatchCandidate(boolean startsWithQuery,

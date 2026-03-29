@@ -49,7 +49,7 @@ public interface UsuarioService {
 
     Page<UsuarioDTO> listarRecientes(int page, int size);
     UsuarioDTO actualizarPerfil(ActualizarPerfilDTO dto);
-    void solicitarCodigoCambioPassword();
+    void solicitarCodigoCambioPassword(String currentPassword, String newPassword);
     void cambiarPasswordConCodigo(String code, String newPassword);
 
     void banearUsuario(Long id, String motivo);

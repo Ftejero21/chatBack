@@ -1,15 +1,20 @@
 package com.chat.chat.Configuracion;
 
+import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.JavaMailSenderImpl;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.util.StringUtils;
 
 import java.util.Properties;
 
 @Configuration
 public class MailConfig {
+    private static final Logger LOGGER = LoggerFactory.getLogger(MailConfig.class);
     private static final String MAIL_HOST_PROP = "${spring.mail.host:smtp.gmail.com}";
     private static final String MAIL_PORT_PROP = "${spring.mail.port:587}";
     private static final String MAIL_USERNAME_PROP = "${spring.mail.username:}";
@@ -31,6 +36,13 @@ public class MailConfig {
 
     @Value(MAIL_PASSWORD_PROP)
     private String password;
+
+    @PostConstruct
+    public void validateMailConfig() {
+        if (!StringUtils.hasText(username) || !StringUtils.hasText(password)) {
+            LOGGER.warn("[MAIL_CONFIG] Credenciales SMTP vacias. Define SPRING_MAIL_USERNAME y SPRING_MAIL_PASSWORD.");
+        }
+    }
 
     @Bean
     public JavaMailSender javaMailSender() {

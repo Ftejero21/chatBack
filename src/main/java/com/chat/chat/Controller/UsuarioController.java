@@ -9,8 +9,10 @@ import com.chat.chat.DTO.E2EStateDTO;
 import com.chat.chat.DTO.GoogleAuthRequestDTO;
 import com.chat.chat.DTO.LoginRequestDTO;
 import com.chat.chat.DTO.PasswordChangeConfirmDTO;
+import com.chat.chat.DTO.PasswordChangeCodeRequestDTO;
 import com.chat.chat.DTO.UsuarioDTO;
 import com.chat.chat.Exceptions.ApiError;
+import com.chat.chat.Exceptions.PasswordIncorrectaException;
 import com.chat.chat.Service.AuthService.PasswordResetService;
 import com.chat.chat.Security.HttpRateLimitService;
 import com.chat.chat.Service.UsuarioService.UsuarioService;
@@ -306,11 +308,28 @@ public class UsuarioController {
     @Operation(summary = "Solicitar codigo para cambio de password", description = "Envia un codigo temporal al correo del usuario autenticado.")
     @ApiResponses(value = {
             @ApiResponse(responseCode = "200", description = "Codigo enviado", content = @Content(schema = @Schema(implementation = Map.class))),
-            @ApiResponse(responseCode = "400", description = "No se pudo generar codigo", content = @Content(schema = @Schema(implementation = ApiError.class)))
+            @ApiResponse(responseCode = "400", description = "Solicitud invalida", content = @Content(schema = @Schema(implementation = ApiError.class))),
+            @ApiResponse(responseCode = "401", description = "Contrasena actual incorrecta", content = @Content(schema = @Schema(implementation = ApiError.class)))
     })
-    public ResponseEntity<Map<String, String>> solicitarCodigoCambioPassword() {
-        usuarioService.solicitarCodigoCambioPassword();
-        return ResponseEntity.ok(Map.of(Constantes.KEY_MENSAJE, Constantes.MSG_CODIGO_ENVIADO));
+    public ResponseEntity<Map<String, String>> solicitarCodigoCambioPassword(@RequestBody PasswordChangeCodeRequestDTO dto) {
+        if (dto == null) {
+            return ResponseEntity.badRequest()
+                    .body(Map.of(Constantes.KEY_MENSAJE, Constantes.MSG_FALTAN_DATOS_REQUERIDOS));
+        }
+        try {
+            usuarioService.solicitarCodigoCambioPassword(dto.getCurrentPassword(), dto.getNewPassword());
+            return ResponseEntity.ok(Map.of(Constantes.KEY_MENSAJE, Constantes.MSG_CODIGO_ENVIADO));
+        } catch (PasswordIncorrectaException e) {
+            return ResponseEntity.status(401).body(Map.of(Constantes.KEY_MENSAJE, e.getMessage()));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(Map.of(Constantes.KEY_MENSAJE, e.getMessage()));
+        } catch (IllegalStateException e) {
+            return ResponseEntity.internalServerError()
+                    .body(Map.of(Constantes.KEY_MENSAJE, Constantes.MSG_ERROR_ENVIANDO_CORREO));
+        } catch (Exception e) {
+            return ResponseEntity.internalServerError()
+                    .body(Map.of(Constantes.KEY_MENSAJE, Constantes.MSG_ERROR_ENVIANDO_CORREO));
+        }
     }
 
     @PostMapping(Constantes.USUARIO_PERFIL_PASSWORD_CHANGE)

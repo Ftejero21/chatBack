@@ -22,6 +22,8 @@ public class ChatIndividualDTO {
     private String ultimaMensajeFileNombre;
     private Long ultimaMensajeFileSizeBytes;
     private LocalDateTime ultimaFecha;
+    private Boolean isPinned;
+    private LocalDateTime pinnedAt;
 
     private Long unreadCount;
 
@@ -175,5 +177,21 @@ public class ChatIndividualDTO {
 
     public void setReceptor(UsuarioDTO receptor) {
         this.receptor = receptor;
+    }
+
+    public Boolean getIsPinned() {
+        return isPinned;
+    }
+
+    public void setIsPinned(Boolean isPinned) {
+        this.isPinned = isPinned;
+    }
+
+    public LocalDateTime getPinnedAt() {
+        return pinnedAt;
+    }
+
+    public void setPinnedAt(LocalDateTime pinnedAt) {
+        this.pinnedAt = pinnedAt;
     }
 }

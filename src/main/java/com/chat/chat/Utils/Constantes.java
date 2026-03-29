@@ -76,6 +76,10 @@ public class Constantes {
     public static final String MENSAJES_PROGRAMADOS = "/scheduled";
     public static final String MENSAJES_PROGRAMADOS_CANCELAR = "/scheduled/{id}/cancel";
     public static final String GRUPAL_ADD_USUARIOS = "/{groupId}/usuarios";
+    public static final String CHAT_PINNED = "/pinned";
+    public static final String CHAT_CLEAR = "/{chatId}/clear";
+    public static final String CHAT_MUTE = "/{chatId}/mute";
+    public static final String CHAT_MUTED = "/muted";
     public static final String CHAT_PINNED_MESSAGE = "/{chatId}/pinned-message";
 
     // Rutas Base Restantes (RequestMapping)

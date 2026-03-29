@@ -28,10 +28,8 @@ public class PasswordResetService {
     public void generateAndSendResetCode(String email) {
         LOGGER.info("[PASSWORD_RESET] generateAndSendResetCode email={}", email);
         String code = generateNumericCode();
-        resetCodes.put(email, new CodeDetails(code, System.currentTimeMillis() + EXPIRATION_TIME_MS));
 
-        // Usamos el nuevo servicio de email de forma limpia
-        emailService.sendHtmlEmail(
+        emailService.sendHtmlEmailOrThrow(
             email, 
             Constantes.EMAIL_SUBJECT_PASSWORD_RESET, 
             Constantes.EMAIL_TEMPLATE_PASSWORD_RESET, 
@@ -41,6 +39,8 @@ public class PasswordResetService {
                 Constantes.KEY_TITLE, Constantes.TITLE_PASSWORD_RESET
             )
         );
+
+        resetCodes.put(email, new CodeDetails(code, System.currentTimeMillis() + EXPIRATION_TIME_MS));
     }
 
     public boolean isCodeValid(String email, String rawCode) {

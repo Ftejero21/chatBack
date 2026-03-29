@@ -20,8 +20,10 @@ public interface MensajeRepository extends JpaRepository<MensajeEntity, Long> {
 
     @Query("select m.chat.id, count(m) " +
             "from MensajeEntity m " +
+            "left join ChatUserStateEntity s on s.chat.id = m.chat.id and s.user.id = :uid " +
             "where m.receptor.id = :uid and m.leido = false and m.activo = true " +
             "and (m.expiraEn is null or m.expiraEn > CURRENT_TIMESTAMP) " +
+            "and (s.clearedBeforeMessageId is null or m.id > s.clearedBeforeMessageId) " +
             "group by m.chat.id")
     List<Object[]> countUnreadByUser(@Param("uid") Long uid);
 
@@ -30,6 +32,14 @@ public interface MensajeRepository extends JpaRepository<MensajeEntity, Long> {
             "order by m.fecha_envio desc, m.id desc " +
             "limit 1", nativeQuery = true)
     MensajeEntity findTopByChatIdOrderByFechaEnvioDesc(@Param("chatId") Long chatId);
+
+    @Query(value = "select * from mensajes m " +
+            "where m.chat_id = :chatId " +
+            "and (:cutoff is null or m.id > :cutoff) " +
+            "order by m.fecha_envio desc, m.id desc " +
+            "limit 1", nativeQuery = true)
+    Optional<MensajeEntity> findTopVisibleByChatIdOrderByFechaEnvioDesc(@Param("chatId") Long chatId,
+                                                                         @Param("cutoff") Long cutoff);
 
     @Query("select count(m) from MensajeEntity m " +
             "where m.chat.id = :chatId and m.activo = true " +
@@ -81,6 +91,16 @@ public interface MensajeRepository extends JpaRepository<MensajeEntity, Long> {
             "where m.chat.id = :chatId")
     Page<MensajeEntity> findByChatId(@Param("chatId") Long chatId, Pageable pageable);
 
+    @Query("select m from MensajeEntity m " +
+            "where m.chat.id = :chatId " +
+            "and (:cutoff is null or m.id > :cutoff)")
+    Page<MensajeEntity> findByChatIdVisibleAfter(@Param("chatId") Long chatId,
+                                                  @Param("cutoff") Long cutoff,
+                                                  Pageable pageable);
+
+    @Query("select max(m.id) from MensajeEntity m where m.chat.id = :chatId")
+    Optional<Long> findMaxIdByChatId(@Param("chatId") Long chatId);
+
     @Modifying
     @Transactional
     @Query("update MensajeEntity m set m.leido = true " +
@@ -115,11 +135,13 @@ public interface MensajeRepository extends JpaRepository<MensajeEntity, Long> {
             "and m.activo = true " +
             "and (m.expiraEn is null or m.expiraEn > CURRENT_TIMESTAMP) " +
             "and m.tipo in :types " +
+            "and (:cutoff is null or m.id > :cutoff) " +
             "and (:cursorFecha is null or m.fechaEnvio < :cursorFecha or (m.fechaEnvio = :cursorFecha and m.id < :cursorId)) " +
             "order by m.fechaEnvio desc, m.id desc")
     List<MensajeEntity> findGroupMediaPage(
             @Param("chatId") Long chatId,
             @Param("types") List<MessageType> types,
+            @Param("cutoff") Long cutoff,
             @Param("cursorFecha") LocalDateTime cursorFecha,
             @Param("cursorId") Long cursorId,
             Pageable pageable);
@@ -130,10 +152,12 @@ public interface MensajeRepository extends JpaRepository<MensajeEntity, Long> {
             "and m.activo = true " +
             "and (m.expiraEn is null or m.expiraEn > CURRENT_TIMESTAMP) " +
             "and m.tipo = :tipo " +
+            "and (:cutoff is null or m.id > :cutoff) " +
             "order by m.fechaEnvio desc, m.id desc")
     List<MensajeEntity> findTextActivosByChatIdOrderByFechaEnvioDescIdDesc(
             @Param("chatId") Long chatId,
-            @Param("tipo") MessageType tipo);
+            @Param("tipo") MessageType tipo,
+            @Param("cutoff") Long cutoff);
 
     @Query("select m from MensajeEntity m " +
             "where m.mensajeTemporal = true " +

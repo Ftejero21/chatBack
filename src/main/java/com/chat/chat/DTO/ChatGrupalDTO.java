@@ -29,6 +29,8 @@ public class ChatGrupalDTO {
     private String ultimaMensajeFileNombre;
     private Long ultimaMensajeFileSizeBytes;
     private LocalDateTime ultimaFecha;
+    private Boolean isPinned;
+    private LocalDateTime pinnedAt;
 
     public Long getId() {
         return id;
@@ -212,5 +214,21 @@ public class ChatGrupalDTO {
 
     public void setUltimaFecha(LocalDateTime ultimaFecha) {
         this.ultimaFecha = ultimaFecha;
+    }
+
+    public Boolean getIsPinned() {
+        return isPinned;
+    }
+
+    public void setIsPinned(Boolean isPinned) {
+        this.isPinned = isPinned;
+    }
+
+    public LocalDateTime getPinnedAt() {
+        return pinnedAt;
+    }
+
+    public void setPinnedAt(LocalDateTime pinnedAt) {
+        this.pinnedAt = pinnedAt;
     }
 }

@@ -8,6 +8,7 @@ import org.springframework.core.io.ClassPathResource;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
 import org.springframework.util.StreamUtils;
 
 import java.nio.charset.StandardCharsets;
@@ -23,8 +24,22 @@ public class EmailServiceImpl implements EmailService {
 
     @Override
     public void sendHtmlEmail(String to, String subject, String templatePath, Map<String, String> variables) {
+        try {
+            sendHtmlEmailOrThrow(to, subject, templatePath, variables);
+        } catch (Exception e) {
+            LOGGER.error("[EMAIL] error enviando a {}: {}", to, e.getMessage(), e);
+            // Flujo tolerante a fallos para usos no criticos (ban/unban, etc.)
+        }
+    }
+
+    @Override
+    public void sendHtmlEmailOrThrow(String to, String subject, String templatePath, Map<String, String> variables) {
         LOGGER.info("[EMAIL] sendHtmlEmail to={} subject={} template={}", to, subject, templatePath);
         try {
+            if (!isMailCredentialsConfigured()) {
+                throw new IllegalStateException("[EMAIL] SMTP no configurado: faltan SPRING_MAIL_USERNAME/SPRING_MAIL_PASSWORD");
+            }
+
             MimeMessage message = mailSender.createMimeMessage();
             MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
 
@@ -44,8 +59,17 @@ public class EmailServiceImpl implements EmailService {
             mailSender.send(message);
             LOGGER.info("[EMAIL] enviado to={} subject={}", to, subject);
         } catch (Exception e) {
-            LOGGER.error("[EMAIL] error enviando a {}: {}", to, e.getMessage());
-            // No lanzamos excepcion para no interrumpir el flujo principal (Baneo en DB)
+            if (e instanceof IllegalStateException illegalStateException) {
+                throw illegalStateException;
+            }
+            throw new IllegalStateException("[EMAIL] Fallo enviando correo a " + to, e);
         }
+    }
+
+    private boolean isMailCredentialsConfigured() {
+        if (!(mailSender instanceof org.springframework.mail.javamail.JavaMailSenderImpl senderImpl)) {
+            return true;
+        }
+        return StringUtils.hasText(senderImpl.getUsername()) && StringUtils.hasText(senderImpl.getPassword());
     }
 }

@@ -30,6 +30,12 @@ public interface ChatService {
     }
 
     ChatMensajeBusquedaPageDTO buscarMensajesEnChat(Long chatId, String q, Integer page, Integer size);
+    ChatClearResponseDTO clearChat(Long chatId);
+    ChatMuteStateDTO muteChat(Long chatId, ChatMuteRequestDTO request);
+    ChatMuteStateDTO unmuteChat(Long chatId);
+    List<ChatMuteStateDTO> listarChatsMuteadosActivos();
+    UserPinnedChatResponseDTO setPinnedChat(UserPinnedChatRequestDTO request);
+    UserPinnedChatResponseDTO getPinnedChat();
     ChatPinnedMessageDTO getPinnedMessage(Long chatId);
     ChatPinnedMessageDTO pinMessage(Long chatId, ChatPinMessageRequestDTO request);
     void unpinMessage(Long chatId);

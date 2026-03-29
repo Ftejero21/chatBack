@@ -843,10 +843,20 @@ public class UsuarioServiceImpl implements UsuarioService {
     }
 
     @Override
-    public void solicitarCodigoCambioPassword() {
+    public void solicitarCodigoCambioPassword(String currentPassword, String newPassword) {
         Long authenticatedUserId = securityUtils.getAuthenticatedUserId();
         UsuarioEntity usuario = usuarioRepository.findById(authenticatedUserId)
                 .orElseThrow(() -> new RuntimeException(Constantes.MSG_USUARIO_NO_ENCONTRADO));
+        if (currentPassword == null || currentPassword.isBlank()) {
+            throw new IllegalArgumentException("La contrase\u00f1a actual es obligatoria.");
+        }
+        if (!passwordEncoder.matches(currentPassword, usuario.getPassword())) {
+            throw new PasswordIncorrectaException("La contrase\u00f1a actual es incorrecta.");
+        }
+        if (newPassword != null && !newPassword.isBlank()
+                && passwordEncoder.matches(newPassword, usuario.getPassword())) {
+            throw new IllegalArgumentException("La nueva contrase\u00f1a no puede ser igual a la actual.");
+        }
         passwordChangeService.generateAndSendChangeCode(usuario.getEmail(), usuario.getNombre());
     }
 
@@ -858,12 +868,16 @@ public class UsuarioServiceImpl implements UsuarioService {
                 .orElseThrow(() -> new RuntimeException(Constantes.MSG_USUARIO_NO_ENCONTRADO));
 
         if (code == null || code.isBlank() || newPassword == null || newPassword.isBlank()) {
-            throw new RuntimeException(Constantes.MSG_FALTAN_DATOS_REQUERIDOS);
+            throw new IllegalArgumentException(Constantes.MSG_FALTAN_DATOS_REQUERIDOS);
         }
 
         boolean isValid = passwordChangeService.isCodeValid(usuario.getEmail(), code);
         if (!isValid) {
-            throw new RuntimeException(Constantes.MSG_CODIGO_INVALIDO_O_EXPIRADO);
+            throw new IllegalArgumentException(Constantes.MSG_CODIGO_INVALIDO_O_EXPIRADO);
+        }
+
+        if (passwordEncoder.matches(newPassword, usuario.getPassword())) {
+            throw new IllegalArgumentException("La nueva contrase\u00f1a no puede ser igual a la actual.");
         }
 
         String encryptedPassword = passwordEncoder.encode(newPassword);

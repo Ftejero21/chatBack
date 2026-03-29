@@ -5,7 +5,10 @@ import com.chat.chat.DTO.AddUsuariosGrupoWSResponse;
 import com.chat.chat.DTO.ChatGrupalDTO;
 import com.chat.chat.DTO.ChatIndividualCreateDTO;
 import com.chat.chat.DTO.ChatIndividualDTO;
+import com.chat.chat.DTO.ChatClearResponseDTO;
 import com.chat.chat.DTO.ChatMensajeBusquedaPageDTO;
+import com.chat.chat.DTO.ChatMuteRequestDTO;
+import com.chat.chat.DTO.ChatMuteStateDTO;
 import com.chat.chat.DTO.ChatPinMessageRequestDTO;
 import com.chat.chat.DTO.ChatPinnedMessageDTO;
 import com.chat.chat.DTO.ChatResumenDTO;
@@ -20,6 +23,8 @@ import com.chat.chat.DTO.MensajeProgramadoDTO;
 import com.chat.chat.DTO.MessagueSalirGrupoDTO;
 import com.chat.chat.DTO.ProgramarMensajeRequestDTO;
 import com.chat.chat.DTO.ProgramarMensajeResponseDTO;
+import com.chat.chat.DTO.UserPinnedChatRequestDTO;
+import com.chat.chat.DTO.UserPinnedChatResponseDTO;
 import com.chat.chat.DTO.VotoEncuestaDTO;
 import com.chat.chat.Exceptions.ApiError;
 import com.chat.chat.Service.ChatService.ChatService;
@@ -43,6 +48,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -206,6 +212,66 @@ public class ChatController {
     @ApiResponse(responseCode = "200", description = "Chats obtenidos")
     public List<Object> listarTodosLosChats(@PathVariable("usuarioId") Long usuarioId) {
         return chatService.listarTodosLosChatsDeUsuario(usuarioId);
+    }
+
+    @PutMapping(Constantes.CHAT_PINNED)
+    @Operation(summary = "Fijar chat de usuario", description = "Fija un chat para el usuario autenticado o lo desfija si chatId es null.")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Estado de chat fijado actualizado"),
+            @ApiResponse(responseCode = "403", description = "No pertenece al chat", content = @Content(schema = @Schema(implementation = ApiError.class))),
+            @ApiResponse(responseCode = "404", description = "Chat no encontrado", content = @Content(schema = @Schema(implementation = ApiError.class)))
+    })
+    public UserPinnedChatResponseDTO setPinnedChat(@RequestBody UserPinnedChatRequestDTO request) {
+        return chatService.setPinnedChat(request);
+    }
+
+    @PostMapping(Constantes.CHAT_CLEAR)
+    @Operation(summary = "Vaciar chat para el usuario autenticado", description = "Oculta el historial previo para el usuario autenticado sin borrar mensajes globalmente.")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Chat vaciado para el usuario"),
+            @ApiResponse(responseCode = "403", description = "No pertenece al chat", content = @Content(schema = @Schema(implementation = ApiError.class))),
+            @ApiResponse(responseCode = "404", description = "Chat no encontrado", content = @Content(schema = @Schema(implementation = ApiError.class)))
+    })
+    public ResponseEntity<ChatClearResponseDTO> clearChat(@PathVariable("chatId") Long chatId) {
+        return ResponseEntity.ok(chatService.clearChat(chatId));
+    }
+
+    @PostMapping(Constantes.CHAT_MUTE)
+    @Operation(summary = "Silenciar chat para el usuario autenticado", description = "Configura mute por 8h, 1 semana o para siempre en un chat individual o grupal.")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Mute aplicado"),
+            @ApiResponse(responseCode = "400", description = "Duracion/payload invalido", content = @Content(schema = @Schema(implementation = ApiError.class))),
+            @ApiResponse(responseCode = "403", description = "No pertenece al chat", content = @Content(schema = @Schema(implementation = ApiError.class))),
+            @ApiResponse(responseCode = "404", description = "Chat no encontrado", content = @Content(schema = @Schema(implementation = ApiError.class)))
+    })
+    public ResponseEntity<ChatMuteStateDTO> muteChat(@PathVariable("chatId") Long chatId,
+                                                      @RequestBody(required = false) ChatMuteRequestDTO request) {
+        return ResponseEntity.ok(chatService.muteChat(chatId, request));
+    }
+
+    @DeleteMapping(Constantes.CHAT_MUTE)
+    @Operation(summary = "Quitar silencio de chat", description = "Desactiva mute para el usuario autenticado en el chat indicado.")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Mute desactivado"),
+            @ApiResponse(responseCode = "403", description = "No pertenece al chat", content = @Content(schema = @Schema(implementation = ApiError.class))),
+            @ApiResponse(responseCode = "404", description = "Chat no encontrado", content = @Content(schema = @Schema(implementation = ApiError.class)))
+    })
+    public ResponseEntity<ChatMuteStateDTO> unmuteChat(@PathVariable("chatId") Long chatId) {
+        return ResponseEntity.ok(chatService.unmuteChat(chatId));
+    }
+
+    @GetMapping(Constantes.CHAT_MUTED)
+    @Operation(summary = "Listar chats silenciados activos", description = "Devuelve los mutes activos del usuario autenticado para hidratar estado en frontend.")
+    @ApiResponse(responseCode = "200", description = "Mutes activos obtenidos")
+    public ResponseEntity<List<ChatMuteStateDTO>> listarMutesActivos() {
+        return ResponseEntity.ok(chatService.listarChatsMuteadosActivos());
+    }
+
+    @GetMapping(Constantes.CHAT_PINNED)
+    @Operation(summary = "Obtener chat fijado de usuario", description = "Devuelve el chat fijado del usuario autenticado o null si no tiene.")
+    @ApiResponse(responseCode = "200", description = "Estado de chat fijado")
+    public UserPinnedChatResponseDTO getPinnedChat() {
+        return chatService.getPinnedChat();
     }
 
     @GetMapping(Constantes.LISTAR_MENSAJES_CHAT + "/{chatId}")

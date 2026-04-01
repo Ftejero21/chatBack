@@ -302,10 +302,9 @@ public class ChatController {
     }
 
     @GetMapping(Constantes.CHAT_PINNED_MESSAGE)
-    @Operation(summary = "Obtener mensaje fijado del chat", description = "Devuelve el mensaje fijado activo del chat o 404 si no existe/expiró.")
+    @Operation(summary = "Obtener mensaje fijado del chat", description = "Devuelve el mensaje fijado activo del chat o null si no existe/expiró.")
     @ApiResponses(value = {
-            @ApiResponse(responseCode = "200", description = "Mensaje fijado obtenido", content = @Content(schema = @Schema(implementation = ChatPinnedMessageDTO.class))),
-            @ApiResponse(responseCode = "404", description = "No hay fijado activo", content = @Content(schema = @Schema(implementation = ApiError.class)))
+            @ApiResponse(responseCode = "200", description = "Mensaje fijado obtenido o null si no hay fijado activo", content = @Content(schema = @Schema(implementation = ChatPinnedMessageDTO.class)))
     })
     public ChatPinnedMessageDTO getPinnedMessage(@PathVariable("chatId") Long chatId) {
         return chatService.getPinnedMessage(chatId);

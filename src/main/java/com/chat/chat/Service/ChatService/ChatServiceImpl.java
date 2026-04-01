@@ -1304,18 +1304,23 @@ public class ChatServiceImpl implements ChatService {
         validatePinnedChatAccess(chatId, requesterId);
 
         LocalDateTime now = LocalDateTime.now();
-        ChatPinnedMessageEntity pin = findActivePinOrThrow(chatId, now);
+        ChatPinnedMessageEntity pin = chatPinnedMessageRepository
+                .findByChatIdAndActivoTrueAndUnpinnedAtIsNullAndExpiresAtAfter(chatId, now)
+                .orElse(null);
+        if (pin == null) {
+            return null;
+        }
         MensajeEntity mensaje = findActiveMessageForPin(chatId, pin.getMessageId(), now);
         if (mensaje == null) {
             pin.setActivo(false);
             pin.setUnpinnedAt(now);
             pin.setUpdatedAt(now);
             chatPinnedMessageRepository.save(pin);
-            throw semanticError(HttpStatus.NOT_FOUND, Constantes.ERR_CHAT_PINNED_NOT_FOUND, "No hay mensaje fijado activo");
+            return null;
         }
         Long cutoff = chatUserStateService.resolveCutoff(chatId, requesterId);
         if (cutoff != null && mensaje.getId() != null && mensaje.getId() <= cutoff) {
-            throw semanticError(HttpStatus.NOT_FOUND, Constantes.ERR_CHAT_PINNED_NOT_FOUND, "No hay mensaje fijado activo");
+            return null;
         }
 
         return chatPinnedMessageMapper.toDto(chatId, pin, mensaje);

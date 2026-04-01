@@ -39,6 +39,8 @@ public class SecurityConfig {
     private static final String API_UPLOADS_FILE = "/api/uploads/file";
     private static final String API_UPLOADS_MEDIA = "/api/uploads/media";
     private static final String API_UPLOADS_AUDIO = "/api/uploads/audio";
+    private static final String PUBLIC_AVATARS_PATTERN = "/uploads/avatars/**";
+    private static final String PUBLIC_GROUP_PHOTOS_PATTERN = "/uploads/group-photos/**";
     private static final String CORS_METHOD_POST = "POST";
     private static final String CORS_METHOD_OPTIONS = "OPTIONS";
     private static final String CORS_HEADER_CONTENT_TYPE = "Content-Type";
@@ -89,7 +91,10 @@ public class SecurityConfig {
                                 Constantes.USUARIO_API + Constantes.SOLICITUD_DESBANEO_CREATE
                         ).permitAll()
                         .requestMatchers(Constantes.WS_ENDPOINT_PATTERN).permitAll()
-                        .requestMatchers(Constantes.UPLOADS_PATTERN).permitAll()
+                        .requestMatchers(PUBLIC_AVATARS_PATTERN, PUBLIC_GROUP_PHOTOS_PATTERN).permitAll()
+                        .requestMatchers("/error").permitAll()
+                        .requestMatchers(HttpMethod.GET, Constantes.API_MENSAJES + Constantes.MENSAJES_DESTACADOS).authenticated()
+                        .requestMatchers(Constantes.API_MENSAJES + "/**").authenticated()
                         .requestMatchers(Constantes.USUARIO_API + Constantes.USUARIO_ADMIN_PATTERN).hasRole(Constantes.ADMIN)
                         .requestMatchers(Constantes.API_AI_PATTERN).hasRole(Constantes.ADMIN)
                         .anyRequest().authenticated())

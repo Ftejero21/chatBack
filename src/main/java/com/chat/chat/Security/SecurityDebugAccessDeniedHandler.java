@@ -27,20 +27,25 @@ public class SecurityDebugAccessDeniedHandler implements AccessDeniedHandler {
     public void handle(HttpServletRequest request,
                        HttpServletResponse response,
                        AccessDeniedException accessDeniedException) throws IOException {
+        String traceId = SecurityTraceSupport.resolveOrCreateTraceId(request);
+        SecurityTraceSupport.attachTraceId(response, traceId);
         String cause = resolveCause(request, accessDeniedException);
 
-        if (isUploadsApi(request)) {
-            LOGGER.warn("[SEC_403_DEBUG] type=FORBIDDEN method={} uri={} cause={} origin={} authPresent={}",
-                    request.getMethod(),
-                    request.getRequestURI(),
-                    cause,
-                    request.getHeader("Origin"),
-                    isAuthenticated());
-        }
+        LOGGER.warn("[SEC_AUTH] traceId={} type=FORBIDDEN method={} uri={} cause={} origin={} authPresent={}",
+                traceId,
+                request.getMethod(),
+                request.getRequestURI(),
+                cause,
+                request.getHeader("Origin"),
+                isAuthenticated());
 
         response.setStatus(HttpServletResponse.SC_FORBIDDEN);
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
-        response.getWriter().write("{\"code\":\"" + Constantes.ERR_NO_AUTORIZADO + "\",\"message\":\"Acceso denegado\"}");
+        response.getWriter().write(
+                "{\"code\":\"" + Constantes.ERR_NO_AUTORIZADO
+                        + "\",\"message\":\"Acceso denegado\""
+                        + ",\"reason\":\"" + cause + "\""
+                        + ",\"traceId\":\"" + traceId + "\"}");
     }
 
     private String resolveCause(HttpServletRequest request, AccessDeniedException ex) {
@@ -72,8 +77,4 @@ public class SecurityDebugAccessDeniedHandler implements AccessDeniedHandler {
                 && !(authentication instanceof AnonymousAuthenticationToken);
     }
 
-    private boolean isUploadsApi(HttpServletRequest request) {
-        String uri = request.getRequestURI();
-        return uri != null && uri.startsWith(Constantes.API_UPLOADS_ALL);
-    }
 }

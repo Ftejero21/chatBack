@@ -812,21 +812,34 @@ public class MensajeriaServiceImpl implements MensajeriaService {
     @Override
     @Transactional
     public MensajesDestacadosPageDTO listarMensajesDestacadosUsuario(Integer page, Integer size, String sort) {
-        Long authenticatedUserId = securityUtils.getAuthenticatedUserId();
-        if (sort != null && !sort.isBlank()) {
-            LOGGER.debug("[DESTACADOS] sort param recibido='{}' (se mantiene orden de negocio por fecha de mensaje)", sort);
-        }
         int safePage = page == null ? DESTACADOS_DEFAULT_PAGE : Math.max(DESTACADOS_DEFAULT_PAGE, page);
         int requestedSize = size == null ? DESTACADOS_DEFAULT_SIZE : size;
         int safeSize = Math.max(1, Math.min(DESTACADOS_MAX_SIZE, requestedSize));
+        LOGGER.info("[DESTACADOS_SVC] op=LISTAR stage=START page={} size={} sort={}",
+                safePage,
+                safeSize,
+                sort);
+
+        Long authenticatedUserId = securityUtils.getAuthenticatedUserId();
+        LOGGER.info("[DESTACADOS_SVC] op=LISTAR stage=AUTH_OK userId={} page={} size={}",
+                authenticatedUserId,
+                safePage,
+                safeSize);
+        if (sort != null && !sort.isBlank()) {
+            LOGGER.debug("[DESTACADOS] sort param recibido='{}' (se mantiene orden de negocio por fecha de mensaje)", sort);
+        }
         Pageable pageable = PageRequest.of(safePage, safeSize);
 
-        Page<MensajeDestacadoEntity> pageResult =
-                mensajeDestacadoRepository.findDestacadosPageByUsuarioIdOrderByFechaMensajeDesc(authenticatedUserId, pageable);
+        Page<MensajeDestacadoRepository.DestacadoRow> pageResult =
+                mensajeDestacadoRepository.findDestacadosRowsByUsuarioId(authenticatedUserId, pageable);
+        LOGGER.info("[DESTACADOS_SVC] op=LISTAR stage=QUERY_OK userId={} totalElements={} returned={}",
+                authenticatedUserId,
+                pageResult.getTotalElements(),
+                pageResult.getNumberOfElements());
 
         List<MensajeDestacadoDTO> content = new ArrayList<>();
-        for (MensajeDestacadoEntity destacado : pageResult.getContent()) {
-            content.add(mapDestacadoDto(destacado));
+        for (MensajeDestacadoRepository.DestacadoRow row : pageResult.getContent()) {
+            content.add(mapDestacadoDto(row));
         }
 
         MensajesDestacadosPageDTO response = new MensajesDestacadosPageDTO();
@@ -837,7 +850,83 @@ public class MensajeriaServiceImpl implements MensajeriaService {
         response.setTotalPages(pageResult.getTotalPages());
         response.setHasNext(pageResult.hasNext());
         response.setHasPrevious(pageResult.hasPrevious());
+        LOGGER.info("[DESTACADOS_SVC] op=LISTAR stage=END userId={} page={} size={} total={} hasNext={} hasPrevious={}",
+                authenticatedUserId,
+                response.getPage(),
+                response.getSize(),
+                response.getTotalElements(),
+                response.isHasNext(),
+                response.isHasPrevious());
         return response;
+    }
+
+    private MensajeDestacadoDTO mapDestacadoDto(MensajeDestacadoRepository.DestacadoRow row) {
+        MensajeDestacadoDTO dto = new MensajeDestacadoDTO();
+        dto.setMensajeId(row.getMensajeId());
+        dto.setChatId(row.getChatId());
+        dto.setEmisorId(row.getEmisorId());
+        dto.setTipoMensaje(row.getTipoMensaje() == null ? MessageType.TEXT.name() : row.getTipoMensaje());
+        dto.setFechaMensaje(row.getFechaMensaje() != null ? row.getFechaMensaje() : row.getDestacadoEn());
+        dto.setDestacadoEn(row.getDestacadoEn());
+        dto.setPreview(buildPreviewDestacado(row));
+        dto.setNombreChat(row.getNombreGrupo());
+        dto.setNombreEmisor(row.getEmisorNombre());
+        dto.setNombreEmisorCompleto(buildNombreCompleto(row.getEmisorNombre(), row.getEmisorApellido()));
+        return dto;
+    }
+
+    private String buildPreviewDestacado(MensajeDestacadoRepository.DestacadoRow row) {
+        if (row == null) {
+            return Constantes.MSG_SIN_DATOS;
+        }
+        if (isMensajeExpirado(row.getExpiraEn())) {
+            return buildPlaceholderTemporal(row.getPlaceholderTexto(), row.getMensajeTemporalSegundos());
+        }
+        if (Boolean.FALSE.equals(row.getActivo())) {
+            return "Mensaje eliminado";
+        }
+
+        MessageType tipo;
+        try {
+            tipo = row.getTipoMensaje() == null ? MessageType.TEXT : MessageType.valueOf(row.getTipoMensaje().toUpperCase());
+        } catch (Exception ex) {
+            tipo = MessageType.TEXT;
+        }
+        if (tipo == MessageType.IMAGE) {
+            return "Imagen";
+        }
+        if (tipo == MessageType.VIDEO) {
+            return "Video";
+        }
+        if (tipo == MessageType.AUDIO) {
+            String dur = Utils.mmss(row.getMediaDuracionMs());
+            return dur == null || dur.isBlank() ? "Audio" : "Audio (" + dur + ")";
+        }
+        if (tipo == MessageType.FILE) {
+            String nombreArchivo = extractFileName(row.getMediaUrl());
+            return nombreArchivo == null || nombreArchivo.isBlank() ? "Archivo" : "Archivo: " + nombreArchivo;
+        }
+        if (tipo == MessageType.POLL) {
+            return "Encuesta";
+        }
+        if (isEncryptedPayload(row.getContenido())) {
+            return "Mensaje cifrado";
+        }
+        return Utils.truncarSafe(row.getContenido(), 160);
+    }
+
+    private boolean isMensajeExpirado(LocalDateTime expiraEn) {
+        if (expiraEn == null) {
+            return false;
+        }
+        return !expiraEn.isAfter(LocalDateTime.now());
+    }
+
+    private String buildPlaceholderTemporal(String placeholderTexto, Long mensajeTemporalSegundos) {
+        if (placeholderTexto != null && !placeholderTexto.isBlank()) {
+            return placeholderTexto;
+        }
+        return Utils.construirPlaceholderTemporal(mensajeTemporalSegundos);
     }
 
     @Override

@@ -21,25 +21,30 @@ public class SecurityDebugAuthenticationEntryPoint implements AuthenticationEntr
     public void commence(HttpServletRequest request,
                          HttpServletResponse response,
                          AuthenticationException authException) throws IOException {
+        String traceId = SecurityTraceSupport.resolveOrCreateTraceId(request);
+        SecurityTraceSupport.attachTraceId(response, traceId);
         String jwtReason = (String) request.getAttribute(JwtAuthFilter.ATTR_AUTH_FAILURE_REASON);
+        String jwtDetail = (String) request.getAttribute(JwtAuthFilter.ATTR_AUTH_FAILURE_DETAIL);
         String corsReason = (String) request.getAttribute(CorsPreflightDebugFilter.ATTR_CORS_FAILURE_REASON);
         String reason = jwtReason != null ? jwtReason : (corsReason != null ? "CORS_PREFLIGHT_" + corsReason : "AUTH_REQUIRED");
+        boolean hasAuthorizationHeader = request.getHeader(Constantes.HEADER_AUTHORIZATION) != null;
 
-        if (isUploadsApi(request)) {
-            LOGGER.warn("[SEC_403_DEBUG] type=AUTH_FAIL method={} uri={} reason={} message={}",
-                    request.getMethod(),
-                    request.getRequestURI(),
-                    reason,
-                    authException.getClass().getSimpleName());
-        }
+        LOGGER.warn("[SEC_AUTH] traceId={} type=AUTH_FAIL method={} uri={} reason={} detail={} hasAuthHeader={} message={}",
+                traceId,
+                request.getMethod(),
+                request.getRequestURI(),
+                reason,
+                jwtDetail,
+                hasAuthorizationHeader,
+                authException.getClass().getSimpleName());
 
         response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
-        response.getWriter().write("{\"code\":\"" + Constantes.ERR_NO_AUTORIZADO + "\",\"message\":\"Autenticacion requerida o JWT invalido/expirado\"}");
-    }
-
-    private boolean isUploadsApi(HttpServletRequest request) {
-        String uri = request.getRequestURI();
-        return uri != null && uri.startsWith(Constantes.API_UPLOADS_ALL);
+        response.getWriter().write(
+                "{\"code\":\"" + Constantes.ERR_NO_AUTORIZADO
+                        + "\",\"message\":\"Autenticacion requerida o JWT invalido/expirado\""
+                        + ",\"reason\":\"" + reason + "\""
+                        + ",\"hasAuthHeader\":" + hasAuthorizationHeader
+                        + ",\"traceId\":\"" + traceId + "\"}");
     }
 }

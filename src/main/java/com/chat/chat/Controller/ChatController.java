@@ -236,6 +236,17 @@ public class ChatController {
         return ResponseEntity.ok(chatService.clearChat(chatId));
     }
 
+    @PatchMapping(Constantes.CHAT_HIDE_FOR_ME)
+    @Operation(summary = "Ocultar chat para mi", description = "Alias de compatibilidad para ocultar el chat solo al usuario autenticado.")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Chat ocultado para el usuario"),
+            @ApiResponse(responseCode = "403", description = "No pertenece al chat", content = @Content(schema = @Schema(implementation = ApiError.class))),
+            @ApiResponse(responseCode = "404", description = "Chat no encontrado", content = @Content(schema = @Schema(implementation = ApiError.class)))
+    })
+    public ResponseEntity<ChatClearResponseDTO> hideChatForMe(@PathVariable("chatId") Long chatId) {
+        return ResponseEntity.ok(chatService.clearChat(chatId));
+    }
+
     @PostMapping(Constantes.CHAT_MUTE)
     @Operation(summary = "Silenciar chat para el usuario autenticado", description = "Configura mute por 8h, 1 semana o para siempre en un chat individual o grupal.")
     @ApiResponses(value = {

@@ -172,10 +172,10 @@ public class ChatController {
     public AddUsuariosGrupoWSResponse anadirUsuariosAGrupo(
             @PathVariable("groupId") Long groupId,
             @RequestBody AddUsuariosGrupoDTO dto) {
-
-        dto.setGroupId(groupId);
-
-        return chatService.anadirUsuariosAGrupo(dto);
+        AddUsuariosGrupoDTO safeDto = dto == null ? new AddUsuariosGrupoDTO() : dto;
+        safeDto.setGroupId(groupId);
+        safeDto.setInviterId(securityUtils.getAuthenticatedUserId());
+        return chatService.anadirUsuariosAGrupo(safeDto);
     }
 
     @GetMapping(Constantes.ADMIN_USUARIO_CHATS)

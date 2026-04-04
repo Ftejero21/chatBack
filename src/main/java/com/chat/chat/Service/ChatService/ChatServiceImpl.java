@@ -326,6 +326,7 @@ public class ChatServiceImpl implements ChatService {
 
     @Override
     public List<ChatGrupalDTO> listarChatsGrupalesPorUsuario(Long usuarioId) {
+        validateSelfOrAdminAuditor(usuarioId);
         UsuarioEntity usuario = usuarioRepo.findById(usuarioId).orElseThrow();
         return chatGrupalRepo.findAll().stream()
                 .filter(ChatGrupalEntity::isActivo)
@@ -337,12 +338,18 @@ public class ChatServiceImpl implements ChatService {
     @Override
     @Transactional
     public AddUsuariosGrupoWSResponse anadirUsuariosAGrupo(AddUsuariosGrupoDTO dto) {
+        if (dto == null || dto.getGroupId() == null) {
+            throw new IllegalArgumentException(Constantes.MSG_GROUP_ID_OBLIGATORIO);
+        }
+
+        Long authenticatedUserId = securityUtils.getAuthenticatedUserId();
+
         // 1) Validar grupo e invitador
         ChatGrupalEntity chat = chatGrupalRepo.findById(dto.getGroupId())
                 .orElseThrow(() -> new IllegalArgumentException(Constantes.MSG_CHAT_GRUPAL_NO_EXISTE + dto.getGroupId()));
 
-        UsuarioEntity inviter = usuarioRepo.findById(dto.getInviterId())
-                .orElseThrow(() -> new IllegalArgumentException(Constantes.MSG_INVITADOR_NO_EXISTE + dto.getInviterId()));
+        UsuarioEntity inviter = usuarioRepo.findById(authenticatedUserId)
+                .orElseThrow(() -> new IllegalArgumentException(Constantes.MSG_INVITADOR_NO_EXISTE + authenticatedUserId));
 
         // Comprobar que el invitador pertenece al grupo
         boolean inviterEsMiembro = chat.getUsuarios() != null
@@ -449,6 +456,7 @@ public class ChatServiceImpl implements ChatService {
 
     @Override
     public List<Object> listarTodosLosChatsDeUsuario(Long usuarioId) {
+        validateSelfOrAdminAuditor(usuarioId);
         usuarioRepo.findById(usuarioId).orElseThrow();
         UserPinnedChatEntity pinned = userPinnedChatRepository.findById(usuarioId).orElse(null);
         Long pinnedChatId = pinned == null ? null : pinned.getChatId();
@@ -2689,6 +2697,19 @@ public class ChatServiceImpl implements ChatService {
                         || Constantes.ROLE_ADMIN.equalsIgnoreCase(rol)
                         || "AUDITOR".equalsIgnoreCase(rol)
                         || "ROLE_AUDITOR".equalsIgnoreCase(rol));
+    }
+
+    private void validateSelfOrAdminAuditor(Long targetUserId) {
+        Long requesterId = securityUtils.getAuthenticatedUserId();
+        if (Objects.equals(requesterId, targetUserId)) {
+            return;
+        }
+        boolean requesterPuedeAuditar = usuarioRepo.findById(requesterId)
+                .map(this::esAdminOAuditor)
+                .orElse(false);
+        if (!requesterPuedeAuditar) {
+            throw new AccessDeniedException(Constantes.MSG_SOLO_ADMIN);
+        }
     }
 
 

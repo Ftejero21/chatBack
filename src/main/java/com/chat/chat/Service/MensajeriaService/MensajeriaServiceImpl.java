@@ -52,6 +52,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 
+import java.text.Normalizer;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.LocalDateTime;
@@ -61,11 +62,13 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 @Service
@@ -77,6 +80,7 @@ public class MensajeriaServiceImpl implements MensajeriaService {
     private static final int DESTACADOS_DEFAULT_PAGE = 0;
     private static final int DESTACADOS_DEFAULT_SIZE = 10;
     private static final int DESTACADOS_MAX_SIZE = 50;
+    private static final Pattern DIACRITICS_PATTERN = Pattern.compile("\\p{M}+");
     private static final String SQL_MENSAJES_COLUMN_EXISTS =
             "SELECT COUNT(1) FROM information_schema.COLUMNS " +
             "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'mensajes' AND COLUMN_NAME = ?";
@@ -212,6 +216,7 @@ public class MensajeriaServiceImpl implements MensajeriaService {
         } else {
             mensaje.setContenido(E2EPayloadUtils.normalizeForStorage(mensaje.getContenido()));
         }
+        mensaje.setContenidoBusqueda(normalizeSearchableText(dto.getContenidoBusqueda()));
         LocalDateTime fechaEnvio = LocalDateTime.now();
         mensaje.setChat(chat);
         mensaje.setFechaEnvio(fechaEnvio);
@@ -447,6 +452,7 @@ public class MensajeriaServiceImpl implements MensajeriaService {
             }
 
             mensaje.setContenido(normalizedContent);
+            mensaje.setContenidoBusqueda(normalizeSearchableText(dto.getContenidoBusqueda()));
             LocalDateTime fechaEnvio = LocalDateTime.now();
             mensaje.setChat(chatGrupal);
             mensaje.setFechaEnvio(fechaEnvio);
@@ -573,6 +579,7 @@ public class MensajeriaServiceImpl implements MensajeriaService {
                 ? dto.getEditedAt()
                 : (dto.getFechaEdicion() != null ? dto.getFechaEdicion() : LocalDateTime.now());
         mensaje.setContenido(E2EPayloadUtils.normalizeForStorage(dto.getContenido()));
+        mensaje.setContenidoBusqueda(normalizeSearchableText(dto.getContenidoBusqueda()));
         mensaje.setEditado(true);
         mensaje.setFechaEdicion(editionTimestamp);
 
@@ -1440,6 +1447,17 @@ public class MensajeriaServiceImpl implements MensajeriaService {
         }
         String normalized = value.trim();
         return normalized.isEmpty() ? null : normalized;
+    }
+
+    private String normalizeSearchableText(String value) {
+        String normalized = normalizeNullableText(value);
+        if (normalized == null) {
+            return null;
+        }
+        String lower = normalized.toLowerCase(Locale.ROOT);
+        String noDiacritics = Normalizer.normalize(lower, Normalizer.Form.NFD);
+        String folded = DIACRITICS_PATTERN.matcher(noDiacritics).replaceAll("");
+        return folded.isBlank() ? null : folded;
     }
 
     private void broadcastMensaje(MensajeDTO mensaje, ChatDispatchContext dispatchContext) {

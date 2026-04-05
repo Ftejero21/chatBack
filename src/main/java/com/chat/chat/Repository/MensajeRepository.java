@@ -159,6 +159,26 @@ public interface MensajeRepository extends JpaRepository<MensajeEntity, Long> {
             @Param("tipo") MessageType tipo,
             @Param("cutoff") Long cutoff);
 
+    @Query(value = "select m from MensajeEntity m " +
+            "where m.chat.id = :chatId " +
+            "and m.activo = true " +
+            "and (m.expiraEn is null or m.expiraEn > CURRENT_TIMESTAMP) " +
+            "and m.contenidoBusqueda is not null " +
+            "and m.contenidoBusqueda like concat('%', :query, '%') " +
+            "and (:cutoff is null or m.id > :cutoff)",
+            countQuery = "select count(m) from MensajeEntity m " +
+                    "where m.chat.id = :chatId " +
+                    "and m.activo = true " +
+                    "and (m.expiraEn is null or m.expiraEn > CURRENT_TIMESTAMP) " +
+                    "and m.contenidoBusqueda is not null " +
+                    "and m.contenidoBusqueda like concat('%', :query, '%') " +
+                    "and (:cutoff is null or m.id > :cutoff)")
+    Page<MensajeEntity> searchByContenidoBusqueda(
+            @Param("chatId") Long chatId,
+            @Param("query") String query,
+            @Param("cutoff") Long cutoff,
+            Pageable pageable);
+
     @Query("select m from MensajeEntity m " +
             "where m.mensajeTemporal = true " +
             "and m.expiraEn is not null " +

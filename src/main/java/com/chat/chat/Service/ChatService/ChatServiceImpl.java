@@ -18,6 +18,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.transaction.Transactional;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
@@ -109,9 +110,6 @@ public class ChatServiceImpl implements ChatService {
 
     @Autowired
     private EncuestaService encuestaService;
-
-    @Autowired
-    private AdminAuditCrypto adminAuditCrypto;
 
     @Autowired
     private ChatPinnedMessageMapper chatPinnedMessageMapper;
@@ -506,6 +504,10 @@ public class ChatServiceImpl implements ChatService {
                     MensajeEntity last = mensajeRepository
                             .findTopVisibleByChatIdOrderByFechaEnvioDesc(dto.getId(), cutoff)
                             .orElse(null);
+                    if (cutoff != null && last == null) {
+                        // Chat ocultado para el usuario y sin mensajes nuevos desde el ocultado.
+                        return null;
+                    }
 
                     if (last == null) {
                         dto.setUltimaMensaje(ChatConstants.MSG_SIN_MENSAJES);
@@ -523,6 +525,7 @@ public class ChatServiceImpl implements ChatService {
                     }
                     return dto;
                 })
+                .filter(Objects::nonNull)
                 .collect(Collectors.toList());
 
         // === GRUPALES ===
@@ -570,6 +573,10 @@ public class ChatServiceImpl implements ChatService {
                     MensajeEntity last = mensajeRepository
                             .findTopVisibleByChatIdOrderByFechaEnvioDesc(dto.getId(), cutoff)
                             .orElse(null);
+                    if (cutoff != null && last == null) {
+                        // Grupo ocultado para el usuario y sin mensajes nuevos desde el ocultado.
+                        return null;
+                    }
 
                     if (last == null) {
                         dto.setUltimaMensaje(ChatConstants.MSG_SIN_MENSAJES);
@@ -587,6 +594,7 @@ public class ChatServiceImpl implements ChatService {
                     }
                     return dto;
                 })
+                .filter(Objects::nonNull)
                 .collect(Collectors.toList());
 
         // === COMBINAR Y ORDENAR POR FECHA DESC ===
@@ -1148,60 +1156,44 @@ public class ChatServiceImpl implements ChatService {
         }
 
         Long cutoff = chatUserStateService.resolveCutoff(chatId, requesterId);
-        List<MensajeEntity> candidates = mensajeRepository.findTextActivosByChatIdOrderByFechaEnvioDescIdDesc(
+        Pageable pageable = PageRequest.of(
+                safePage,
+                safeSize,
+                Sort.by(Sort.Order.desc("fechaEnvio"), Sort.Order.desc("id")));
+        Page<MensajeEntity> resultPage = mensajeRepository.searchByContenidoBusqueda(
                 chatId,
-                MessageType.TEXT,
-                cutoff);
-        List<SearchMatchCandidate> matches = new ArrayList<>();
-        for (MensajeEntity mensaje : candidates) {
-            String searchableContent = resolveSearchableContent(mensaje.getContenido());
-            if (searchableContent == null || searchableContent.isBlank()) {
-                continue;
-            }
+                normalizedQuery,
+                cutoff,
+                pageable);
 
-            MatchWindow window = findFirstMatchWindow(searchableContent, normalizedQuery);
-            if (window == null) {
-                continue;
-            }
+        List<ChatMensajeBusquedaItemDTO> items = resultPage.getContent().stream()
+                .map(mensaje -> {
+                    String searchableContent = mensaje.getContenidoBusqueda();
+                    MatchWindow window = findFirstMatchWindow(searchableContent, normalizedQuery);
+                    String snippet = window == null
+                            ? Utils.truncarSafe(searchableContent, 180)
+                            : window.snippet();
 
-            ChatMensajeBusquedaItemDTO item = new ChatMensajeBusquedaItemDTO();
-            item.setId(mensaje.getId());
-            item.setChatId(mensaje.getChat() == null ? null : mensaje.getChat().getId());
-            item.setEmisorId(mensaje.getEmisor() == null ? null : mensaje.getEmisor().getId());
-            item.setEmisorNombre(mensaje.getEmisor() == null ? null : mensaje.getEmisor().getNombre());
-            item.setEmisorApellido(mensaje.getEmisor() == null ? null : mensaje.getEmisor().getApellido());
-            item.setFechaEnvio(mensaje.getFechaEnvio());
-            item.setSnippet(window.snippet());
-            item.setContenido(window.snippet());
-            item.setMatchStart(window.matchStart());
-            item.setMatchEnd(window.matchEnd());
-
-            matches.add(new SearchMatchCandidate(
-                    window.startsWithQuery(),
-                    mensaje.getFechaEnvio(),
-                    mensaje.getId(),
-                    item));
-        }
-
-        matches.sort(
-                Comparator.comparing((SearchMatchCandidate c) -> c.startsWithQuery() ? 0 : 1)
-                        .thenComparing(SearchMatchCandidate::fechaEnvio, Comparator.nullsLast(Comparator.reverseOrder()))
-                        .thenComparing(SearchMatchCandidate::id, Comparator.nullsLast(Comparator.reverseOrder()))
-        );
-
-        long total = matches.size();
-        long offset = (long) safePage * safeSize;
-        int fromIndex = (int) Math.min(offset, total);
-        int toIndex = (int) Math.min(offset + safeSize, total);
-
-        List<ChatMensajeBusquedaItemDTO> items = matches.subList(fromIndex, toIndex)
-                .stream()
-                .map(SearchMatchCandidate::item)
+                    ChatMensajeBusquedaItemDTO item = new ChatMensajeBusquedaItemDTO();
+                    item.setId(mensaje.getId());
+                    item.setChatId(mensaje.getChat() == null ? null : mensaje.getChat().getId());
+                    item.setEmisorId(mensaje.getEmisor() == null ? null : mensaje.getEmisor().getId());
+                    item.setEmisorNombre(mensaje.getEmisor() == null ? null : mensaje.getEmisor().getNombre());
+                    item.setEmisorApellido(mensaje.getEmisor() == null ? null : mensaje.getEmisor().getApellido());
+                    item.setFechaEnvio(mensaje.getFechaEnvio());
+                    item.setSnippet(snippet);
+                    item.setContenido(snippet);
+                    if (window != null) {
+                        item.setMatchStart(window.matchStart());
+                        item.setMatchEnd(window.matchEnd());
+                    }
+                    return item;
+                })
                 .collect(Collectors.toList());
 
         response.setItems(items);
-        response.setTotal(total);
-        response.setHasMore(toIndex < total);
+        response.setTotal(resultPage.getTotalElements());
+        response.setHasMore(resultPage.hasNext());
         return response;
     }
 
@@ -2089,28 +2081,6 @@ public class ChatServiceImpl implements ChatService {
         return new SemanticApiException(status, code, message, traceId);
     }
 
-    private String resolveSearchableContent(String rawContent) {
-        if (rawContent == null || rawContent.isBlank()) {
-            return null;
-        }
-
-        E2EDiagnosticUtils.ContentDiagnostic diagnostic = E2EDiagnosticUtils.analyze(rawContent, Constantes.TIPO_TEXT);
-        String classification = diagnostic.getClassification();
-        if (classification != null && classification.startsWith("JSON_E2E")) {
-            // Estrategia segura forAdmin: descifrado controlado en memoria, sin persistir ni loggear plaintext.
-            String forAdminEnvelope = E2EPayloadUtils.getAdminEnvelope(rawContent);
-            if (forAdminEnvelope == null || forAdminEnvelope.isBlank()) {
-                return null;
-            }
-            String decrypted = adminAuditCrypto.decryptBase64Envelope(forAdminEnvelope);
-            if (decrypted == null || decrypted.isBlank()) {
-                return null;
-            }
-            return decrypted;
-        }
-        return rawContent;
-    }
-
     private MatchWindow findFirstMatchWindow(String sourceText, String normalizedQuery) {
         if (sourceText == null || sourceText.isBlank() || normalizedQuery == null || normalizedQuery.isBlank()) {
             return null;
@@ -2657,12 +2627,6 @@ public class ChatServiceImpl implements ChatService {
     }
 
     private record MuteConfig(boolean mutedForever, Long durationSeconds) {
-    }
-
-    private record SearchMatchCandidate(boolean startsWithQuery,
-                                        LocalDateTime fechaEnvio,
-                                        Long id,
-                                        ChatMensajeBusquedaItemDTO item) {
     }
 
     private record MatchWindow(String snippet,

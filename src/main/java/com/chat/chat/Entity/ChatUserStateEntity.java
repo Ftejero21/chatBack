@@ -54,6 +54,9 @@ public class ChatUserStateEntity {
     @Column(name = "muted_forever", nullable = false)
     private boolean mutedForever = false;
 
+    @Column(name = "activo", nullable = false)
+    private boolean activo = true;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
@@ -136,6 +139,14 @@ public class ChatUserStateEntity {
 
     public void setMutedForever(boolean mutedForever) {
         this.mutedForever = mutedForever;
+    }
+
+    public boolean isActivo() {
+        return activo;
+    }
+
+    public void setActivo(boolean activo) {
+        this.activo = activo;
     }
 
     public LocalDateTime getUpdatedAt() {

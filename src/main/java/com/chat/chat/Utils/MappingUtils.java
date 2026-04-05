@@ -94,6 +94,7 @@ public class MappingUtils {
         e.setEmisor(emisor);
         e.setReceptor(receptor);
         e.setContenido(dto.getContenido());
+        e.setContenidoBusqueda(dto.getContenidoBusqueda());
         e.setReenviado(dto.isReenviado());
         e.setMensajeOriginalId(dto.getMensajeOriginalId());
         e.setReplyToMessageId(dto.getReplyToMessageId());
@@ -161,6 +162,7 @@ public class MappingUtils {
         dto.setEmisorId(e.getEmisor() != null ? e.getEmisor().getId() : null);
         dto.setReceptorId(e.getReceptor() != null ? e.getReceptor().getId() : null);
         dto.setContenido(e.getContenido());
+        dto.setContenidoBusqueda(e.getContenidoBusqueda());
         dto.setTipo(e.getTipo().name());
 
         if (e.getTipo() == MessageType.AUDIO) {

@@ -60,6 +60,10 @@ public class MensajeEntity {
     @Column(columnDefinition = "TEXT")
     private String contenido;
 
+    @Lob
+    @Column(name = "contenido_busqueda", columnDefinition = "TEXT")
+    private String contenidoBusqueda;
+
     private LocalDateTime fechaEnvio;
 
     @Column(nullable = false)
@@ -185,6 +189,14 @@ public class MensajeEntity {
 
     public void setContenido(String contenido) {
         this.contenido = contenido;
+    }
+
+    public String getContenidoBusqueda() {
+        return contenidoBusqueda;
+    }
+
+    public void setContenidoBusqueda(String contenidoBusqueda) {
+        this.contenidoBusqueda = contenidoBusqueda;
     }
 
     public LocalDateTime getFechaEnvio() {

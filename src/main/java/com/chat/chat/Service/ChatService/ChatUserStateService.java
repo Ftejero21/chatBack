@@ -150,6 +150,7 @@ public class ChatUserStateService {
         ChatUserStateEntity created = new ChatUserStateEntity();
         created.setChat(chat);
         created.setUser(user);
+        created.setActivo(true);
         created.setMutedForever(false);
         created.setMutedUntil(null);
         try {

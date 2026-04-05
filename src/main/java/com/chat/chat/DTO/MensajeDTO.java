@@ -12,6 +12,8 @@ public class MensajeDTO {
     private Long emisorId;
     private Long receptorId;
     private String contenido;
+    @JsonAlias({"contenido_busqueda"})
+    private String contenidoBusqueda;
     private LocalDateTime fechaEnvio;
     private boolean activo;
 
@@ -502,6 +504,14 @@ public class MensajeDTO {
 
     public void setContenido(String contenido) {
         this.contenido = contenido;
+    }
+
+    public String getContenidoBusqueda() {
+        return contenidoBusqueda;
+    }
+
+    public void setContenidoBusqueda(String contenidoBusqueda) {
+        this.contenidoBusqueda = contenidoBusqueda;
     }
 
     public LocalDateTime getFechaEnvio() {

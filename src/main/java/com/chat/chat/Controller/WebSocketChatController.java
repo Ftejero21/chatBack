@@ -164,7 +164,16 @@ public class WebSocketChatController {
                     dto == null ? null : dto.getReceptorId());
             return;
         }
-        Long authenticatedUserId = securityUtils.getAuthenticatedUserId();
+        Long authenticatedUserId;
+        try {
+            authenticatedUserId = securityUtils.getAuthenticatedUserId();
+        } catch (RuntimeException ex) {
+            LOGGER.warn("[WS_TYPING] op=INDIVIDUAL stage=REJECT reason=AUTH_CONTEXT_MISSING receptorId={} errorClass={} message={}",
+                    dto.getReceptorId(),
+                    ex.getClass().getSimpleName(),
+                    ex.getMessage());
+            throw new AccessDeniedException(Constantes.ERR_NO_AUTORIZADO);
+        }
         Long requestedEmitterId = dto.getEmisorId();
         LOGGER.info("[WS_TYPING] op=INDIVIDUAL stage=IN authUserId={} payloadEmisorId={} receptorId={} escribiendo={}",
                 authenticatedUserId,
@@ -200,7 +209,16 @@ public class WebSocketChatController {
             throw new IllegalArgumentException(Constantes.MSG_CHAT_GRUPAL_NO_ENCONTRADO);
         }
 
-        Long authenticatedUserId = securityUtils.getAuthenticatedUserId();
+        Long authenticatedUserId;
+        try {
+            authenticatedUserId = securityUtils.getAuthenticatedUserId();
+        } catch (RuntimeException ex) {
+            LOGGER.warn("[WS_TYPING] op=GRUPAL stage=REJECT reason=AUTH_CONTEXT_MISSING chatId={} errorClass={} message={}",
+                    dto.getChatId(),
+                    ex.getClass().getSimpleName(),
+                    ex.getMessage());
+            throw new AccessDeniedException(Constantes.ERR_NO_AUTORIZADO);
+        }
         Long requestedEmitterId = dto.getEmisorId();
         LOGGER.info("[WS_TYPING] op=GRUPAL stage=IN authUserId={} payloadEmisorId={} chatId={} escribiendo={}",
                 authenticatedUserId,
@@ -245,31 +263,84 @@ public class WebSocketChatController {
     @MessageMapping(Constantes.WS_APP_AUDIO_GRABANDO)
     public void indicarGrabandoAudio(@Payload AudioGrabandoDTO dto) {
         if (dto == null || dto.getReceptorId() == null) {
+            LOGGER.warn("[WS_AUDIO] op=INDIVIDUAL stage=REJECT reason=PAYLOAD_INVALID payloadNull={} receptorId={}",
+                    dto == null,
+                    dto == null ? null : dto.getReceptorId());
             return;
         }
 
-        Long authenticatedUserId = securityUtils.getAuthenticatedUserId();
+        Long authenticatedUserId;
+        try {
+            authenticatedUserId = securityUtils.getAuthenticatedUserId();
+        } catch (RuntimeException ex) {
+            LOGGER.warn("[WS_AUDIO] op=INDIVIDUAL stage=REJECT reason=AUTH_CONTEXT_MISSING receptorId={} errorClass={} message={}",
+                    dto.getReceptorId(),
+                    ex.getClass().getSimpleName(),
+                    ex.getMessage());
+            throw new AccessDeniedException(Constantes.ERR_NO_AUTORIZADO);
+        }
+        if (dto.getEmisorId() != null && !Objects.equals(dto.getEmisorId(), authenticatedUserId)) {
+            LOGGER.warn("[WS_AUDIO] op=INDIVIDUAL stage=REJECT reason=EMISOR_SPOOF authUserId={} payloadEmisorId={} receptorId={}",
+                    authenticatedUserId,
+                    dto.getEmisorId(),
+                    dto.getReceptorId());
+            throw new AccessDeniedException(Constantes.ERR_RESPUESTA_NO_AUTORIZADA);
+        }
+        LOGGER.info("[WS_AUDIO] op=INDIVIDUAL stage=IN authUserId={} payloadEmisorId={} receptorId={} grabandoAudio={}",
+                authenticatedUserId,
+                dto.getEmisorId(),
+                dto.getReceptorId(),
+                dto.isGrabandoAudio());
         Map<String, Object> payload = new HashMap<>();
         payload.put(Constantes.KEY_EMISOR_ID, authenticatedUserId);
         payload.put(Constantes.KEY_GRABANDO_AUDIO, dto.isGrabandoAudio());
 
+        LOGGER.info("[WS_AUDIO] op=INDIVIDUAL stage=OUT topic={} authUserId={} receptorId={} grabandoAudio={}",
+                Constantes.TOPIC_AUDIO_GRABANDO + dto.getReceptorId(),
+                authenticatedUserId,
+                dto.getReceptorId(),
+                dto.isGrabandoAudio());
         messagingTemplate.convertAndSend(Constantes.TOPIC_AUDIO_GRABANDO + dto.getReceptorId(), payload);
     }
 
     @MessageMapping(Constantes.WS_APP_AUDIO_GRABANDO_GRUPO)
     public void indicarGrabandoAudioGrupo(@Payload AudioGrabandoGrupoDTO dto) {
         if (dto == null || dto.getChatId() == null) {
+            LOGGER.warn("[WS_AUDIO] op=GRUPAL stage=REJECT reason=PAYLOAD_INVALID payloadNull={} chatId={}",
+                    dto == null,
+                    dto == null ? null : dto.getChatId());
             throw new IllegalArgumentException(Constantes.MSG_CHAT_GRUPAL_NO_ENCONTRADO);
         }
 
-        Long authenticatedUserId = securityUtils.getAuthenticatedUserId();
+        Long authenticatedUserId;
+        try {
+            authenticatedUserId = securityUtils.getAuthenticatedUserId();
+        } catch (RuntimeException ex) {
+            LOGGER.warn("[WS_AUDIO] op=GRUPAL stage=REJECT reason=AUTH_CONTEXT_MISSING chatId={} errorClass={} message={}",
+                    dto.getChatId(),
+                    ex.getClass().getSimpleName(),
+                    ex.getMessage());
+            throw new AccessDeniedException(Constantes.ERR_NO_AUTORIZADO);
+        }
+        LOGGER.info("[WS_AUDIO] op=GRUPAL stage=IN authUserId={} payloadEmisorId={} chatId={} grabandoAudio={}",
+                authenticatedUserId,
+                dto.getEmisorId(),
+                dto.getChatId(),
+                dto.isGrabandoAudio());
         if (dto.getEmisorId() != null && !Objects.equals(dto.getEmisorId(), authenticatedUserId)) {
+            LOGGER.warn("[WS_AUDIO] op=GRUPAL stage=REJECT reason=EMISOR_SPOOF authUserId={} payloadEmisorId={} chatId={}",
+                    authenticatedUserId,
+                    dto.getEmisorId(),
+                    dto.getChatId());
             throw new AccessDeniedException(Constantes.ERR_RESPUESTA_NO_AUTORIZADA);
         }
 
         ChatGrupalEntity chat = chatGrupalRepository.findByIdWithUsuarios(dto.getChatId())
                 .orElseThrow(() -> new IllegalArgumentException(Constantes.MSG_CHAT_GRUPAL_NO_ENCONTRADO_ID + dto.getChatId()));
         if (!chat.isActivo()) {
+            LOGGER.warn("[WS_AUDIO] op=GRUPAL stage=REJECT reason=CHAT_INACTIVO authUserId={} chatId={}",
+                    authenticatedUserId,
+                    dto.getChatId());
             throw new AccessDeniedException(Constantes.MSG_CHAT_GRUPAL_NO_ENCONTRADO);
         }
 
@@ -282,6 +353,12 @@ public class WebSocketChatController {
                 dto.isGrabandoAudio(),
                 emisor);
 
+        LOGGER.info("[WS_AUDIO] op=GRUPAL stage=OUT topic={} authUserId={} chatId={} grabandoAudio={} memberCount={}",
+                Constantes.TOPIC_AUDIO_GRABANDO_GRUPO + dto.getChatId(),
+                authenticatedUserId,
+                dto.getChatId(),
+                dto.isGrabandoAudio(),
+                chat.getUsuarios() == null ? 0 : chat.getUsuarios().size());
         messagingTemplate.convertAndSend(Constantes.TOPIC_AUDIO_GRABANDO_GRUPO + dto.getChatId(), payload);
         for (UsuarioEntity member : chat.getUsuarios()) {
             if (member == null || member.getId() == null || !member.isActivo()) {

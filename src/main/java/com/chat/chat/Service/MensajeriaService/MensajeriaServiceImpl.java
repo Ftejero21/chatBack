@@ -741,21 +741,33 @@ public class MensajeriaServiceImpl implements MensajeriaService {
             return;
         }
 
-        List<Long> uniqueIds = new java.util.ArrayList<>(new LinkedHashSet<>(ids));
-        int updated = mensajeRepository.markLeidoByIds(uniqueIds);
-        if (updated <= 0) {
-            LOGGER.info(Constantes.LOG_WS_MARK_READ_NO_MSG, uniqueIds);
-            return;
-        }
-
+        Long authenticatedUserId = securityUtils.getAuthenticatedUserId();
+        List<Long> uniqueIds = new ArrayList<>(new LinkedHashSet<>(ids));
         List<MensajeEntity> mensajes = mensajeRepository.findAllById(uniqueIds);
         if (mensajes == null || mensajes.isEmpty()) {
             LOGGER.info(Constantes.LOG_WS_MARK_READ_NO_MSG, uniqueIds);
             return;
         }
 
-        // Notificar por WebSocket al emisor de cada mensaje
-        mensajes.forEach(mensaje -> {
+        List<MensajeEntity> autorizadosParaMarcar = mensajes.stream()
+                .filter(Objects::nonNull)
+                .filter(mensaje -> !mensaje.isLeido())
+                .filter(MensajeEntity::isActivo)
+                .filter(mensaje -> !isMensajeExpirado(mensaje.getExpiraEn()))
+                .filter(mensaje -> canMarkAsReadByUser(mensaje, authenticatedUserId))
+                .collect(Collectors.toList());
+
+        if (autorizadosParaMarcar.isEmpty()) {
+            LOGGER.info(Constantes.LOG_WS_MARK_READ_NO_MSG, uniqueIds);
+            return;
+        }
+
+        mensajeRepository.saveAll(autorizadosParaMarcar.stream()
+                .peek(mensaje -> mensaje.setLeido(true))
+                .collect(Collectors.toList()));
+
+        // Notificar por WebSocket al emisor de cada mensaje efectivamente marcado
+        autorizadosParaMarcar.forEach(mensaje -> {
             if (mensaje.getEmisor() == null || mensaje.getEmisor().getId() == null) {
                 LOGGER.warn(Constantes.LOG_WS_MARK_READ_NO_EMISOR, mensaje.getId());
                 return;
@@ -767,6 +779,24 @@ public class MensajeriaServiceImpl implements MensajeriaService {
             messagingTemplate.convertAndSend(Constantes.WS_TOPIC_LEIDO + emisorId, payload);
             LOGGER.info(Constantes.LOG_WS_SEND_LEIDO, emisorId, mensaje.getId());
         });
+    }
+
+    private boolean canMarkAsReadByUser(MensajeEntity mensaje, Long authenticatedUserId) {
+        if (mensaje == null || authenticatedUserId == null) {
+            return false;
+        }
+
+        ChatEntity chat = mensaje.getChat();
+        if (chat instanceof ChatIndividualEntity) {
+            Long receptorId = mensaje.getReceptor() == null ? null : mensaje.getReceptor().getId();
+            return Objects.equals(receptorId, authenticatedUserId) && usuarioPerteneceAlChat(authenticatedUserId, chat);
+        }
+
+        if (chat instanceof ChatGrupalEntity) {
+            return usuarioPerteneceAlChat(authenticatedUserId, chat);
+        }
+
+        return false;
     }
 
     @Override

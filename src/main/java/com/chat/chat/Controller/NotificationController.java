@@ -56,7 +56,8 @@ public class NotificationController {
             @ApiResponse(responseCode = "404", description = "Usuario no encontrado", content = @Content(schema = @Schema(implementation = ApiError.class)))
     })
     public List<NotificationDTO> listPending(@PathVariable("userId") Long userId) {
-        return notificationService.listPending(userId);
+        Long targetUserId = resolveTargetUserId(userId);
+        return notificationService.listPending(targetUserId);
     }
 
     @PostMapping(Constantes.NOTIFICACIONES_RESOLVER)
@@ -68,7 +69,8 @@ public class NotificationController {
     public void resolve(
             @PathVariable("notifId") Long notifId,
             @Parameter(description = "ID del usuario propietario") @RequestParam(Constantes.KEY_USER_ID) Long userId) {
-        notificationService.resolve(userId, notifId);
+        Long targetUserId = resolveTargetUserId(userId);
+        notificationService.resolve(targetUserId, notifId);
     }
 
     @GetMapping
@@ -88,7 +90,8 @@ public class NotificationController {
             @ApiResponse(responseCode = "404", description = "Notificacion no encontrada", content = @Content(schema = @Schema(implementation = ApiError.class)))
     })
     public void markSeen(@RequestParam(Constantes.KEY_USER_ID) Long userId, @PathVariable("id") Long id) {
-        notificationService.markSeen(userId, id);
+        Long targetUserId = resolveTargetUserId(userId);
+        notificationService.markSeen(targetUserId, id);
     }
 
     @PostMapping(Constantes.NOTIFICACIONES_VISTAS_TODAS)

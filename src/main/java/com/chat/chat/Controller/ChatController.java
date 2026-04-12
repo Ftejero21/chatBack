@@ -42,6 +42,7 @@ import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -56,6 +57,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
 import java.util.Locale;
+import java.util.Objects;
 
 @RestController
 @RequestMapping(Constantes.API_CHAT)
@@ -91,6 +93,7 @@ public class ChatController {
     public EsMiembroDTO esMiembroDeGrupo(
             @Parameter(description = "ID del grupo") @PathVariable("groupId") Long groupId,
             @Parameter(description = "ID del usuario") @PathVariable("userId") Long userId) {
+        assertSelfOrAdminAuditor(userId);
         return chatService.esMiembroDeChatGrupal(groupId, userId);
     }
 
@@ -467,5 +470,22 @@ public class ChatController {
         } catch (IllegalArgumentException ex) {
             throw new IllegalArgumentException("status invalido. Usa: PENDING, PROCESSING, SENT, FAILED, CANCELED");
         }
+    }
+
+    private void assertSelfOrAdminAuditor(Long requestedUserId) {
+        Long authenticatedUserId = securityUtils.getAuthenticatedUserId();
+        if (Objects.equals(authenticatedUserId, requestedUserId)) {
+            return;
+        }
+        if (!isAdminOrAuditor()) {
+            throw new AccessDeniedException(Constantes.ERR_NO_AUTORIZADO);
+        }
+    }
+
+    private boolean isAdminOrAuditor() {
+        return securityUtils.hasRole(Constantes.ADMIN)
+                || securityUtils.hasRole(Constantes.ROLE_ADMIN)
+                || securityUtils.hasRole("AUDITOR")
+                || securityUtils.hasRole("ROLE_AUDITOR");
     }
 }

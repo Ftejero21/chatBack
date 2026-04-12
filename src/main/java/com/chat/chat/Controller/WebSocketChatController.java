@@ -158,26 +158,87 @@ public class WebSocketChatController {
 
     @MessageMapping(Constantes.WS_APP_ESCRIBIENDO)
     public void indicarEscribiendo(@Payload EscribiendoDTO dto) {
+        if (dto == null || dto.getReceptorId() == null) {
+            LOGGER.warn("[WS_TYPING] op=INDIVIDUAL stage=REJECT reason=PAYLOAD_INVALID payloadNull={} receptorId={}",
+                    dto == null,
+                    dto == null ? null : dto.getReceptorId());
+            return;
+        }
+        Long authenticatedUserId = securityUtils.getAuthenticatedUserId();
+        Long requestedEmitterId = dto.getEmisorId();
+        LOGGER.info("[WS_TYPING] op=INDIVIDUAL stage=IN authUserId={} payloadEmisorId={} receptorId={} escribiendo={}",
+                authenticatedUserId,
+                requestedEmitterId,
+                dto.getReceptorId(),
+                dto.isEscribiendo());
+        if (dto.getEmisorId() != null && !Objects.equals(dto.getEmisorId(), authenticatedUserId)) {
+            LOGGER.warn("[WS_TYPING] op=INDIVIDUAL stage=REJECT reason=EMISOR_SPOOF authUserId={} payloadEmisorId={} receptorId={}",
+                    authenticatedUserId,
+                    requestedEmitterId,
+                    dto.getReceptorId());
+            throw new AccessDeniedException(Constantes.ERR_RESPUESTA_NO_AUTORIZADA);
+        }
 
         Map<String, Object> payload = new HashMap<>();
-        payload.put(Constantes.KEY_EMISOR_ID, dto.getEmisorId());
+        payload.put(Constantes.KEY_EMISOR_ID, authenticatedUserId);
         payload.put(Constantes.KEY_ESCRIBIENDO, dto.isEscribiendo());
 
+        LOGGER.info("[WS_TYPING] op=INDIVIDUAL stage=OUT topic={} authUserId={} receptorId={} escribiendo={}",
+                Constantes.TOPIC_ESCRIBIENDO + dto.getReceptorId(),
+                authenticatedUserId,
+                dto.getReceptorId(),
+                dto.isEscribiendo());
         messagingTemplate.convertAndSend(Constantes.TOPIC_ESCRIBIENDO + dto.getReceptorId(), payload);
     }
 
     @MessageMapping(Constantes.WS_APP_ESCRIBIENDO_GRUPO)
     public void indicarEscribiendoGrupo(@Payload EscribiendoGrupoDTO dto) {
+        if (dto == null || dto.getChatId() == null) {
+            LOGGER.warn("[WS_TYPING] op=GRUPAL stage=REJECT reason=PAYLOAD_INVALID payloadNull={} chatId={}",
+                    dto == null,
+                    dto == null ? null : dto.getChatId());
+            throw new IllegalArgumentException(Constantes.MSG_CHAT_GRUPAL_NO_ENCONTRADO);
+        }
+
+        Long authenticatedUserId = securityUtils.getAuthenticatedUserId();
+        Long requestedEmitterId = dto.getEmisorId();
+        LOGGER.info("[WS_TYPING] op=GRUPAL stage=IN authUserId={} payloadEmisorId={} chatId={} escribiendo={}",
+                authenticatedUserId,
+                requestedEmitterId,
+                dto.getChatId(),
+                dto.isEscribiendo());
+        if (dto.getEmisorId() != null && !Objects.equals(dto.getEmisorId(), authenticatedUserId)) {
+            LOGGER.warn("[WS_TYPING] op=GRUPAL stage=REJECT reason=EMISOR_SPOOF authUserId={} payloadEmisorId={} chatId={}",
+                    authenticatedUserId,
+                    requestedEmitterId,
+                    dto.getChatId());
+            throw new AccessDeniedException(Constantes.ERR_RESPUESTA_NO_AUTORIZADA);
+        }
+
+        ChatGrupalEntity chat = chatGrupalRepository.findByIdWithUsuarios(dto.getChatId())
+                .orElseThrow(() -> new IllegalArgumentException(Constantes.MSG_CHAT_GRUPAL_NO_ENCONTRADO_ID + dto.getChatId()));
+        if (!chat.isActivo()) {
+            LOGGER.warn("[WS_TYPING] op=GRUPAL stage=REJECT reason=CHAT_INACTIVO authUserId={} chatId={}",
+                    authenticatedUserId,
+                    dto.getChatId());
+            throw new AccessDeniedException(Constantes.MSG_CHAT_GRUPAL_NO_ENCONTRADO);
+        }
+        UsuarioEntity emisor = findActiveGroupMember(chat, authenticatedUserId)
+                .orElseThrow(() -> new AccessDeniedException(Constantes.MSG_NO_PERTENECE_GRUPO));
+
         Map<String, Object> payload = new HashMap<>();
-        payload.put(Constantes.KEY_EMISOR_ID, dto.getEmisorId());
+        payload.put(Constantes.KEY_EMISOR_ID, authenticatedUserId);
         payload.put(Constantes.KEY_CHAT_ID, dto.getChatId());
         payload.put(Constantes.KEY_ESCRIBIENDO, dto.isEscribiendo());
+        payload.put(Constantes.KEY_EMISOR_NOMBRE, emisor.getNombre());
+        payload.put(Constantes.KEY_EMISOR_APELLIDO, emisor.getApellido());
 
-        usuarioRepository.findById(dto.getEmisorId()).ifPresent(u -> {
-            payload.put(Constantes.KEY_EMISOR_NOMBRE, u.getNombre());
-            payload.put(Constantes.KEY_EMISOR_APELLIDO, u.getApellido());
-        });
-
+        LOGGER.info("[WS_TYPING] op=GRUPAL stage=OUT topic={} authUserId={} chatId={} escribiendo={} memberCount={}",
+                Constantes.TOPIC_ESCRIBIENDO_GRUPO + dto.getChatId(),
+                authenticatedUserId,
+                dto.getChatId(),
+                dto.isEscribiendo(),
+                chat.getUsuarios() == null ? 0 : chat.getUsuarios().size());
         messagingTemplate.convertAndSend(Constantes.TOPIC_ESCRIBIENDO_GRUPO + dto.getChatId(), payload);
     }
 
@@ -235,13 +296,47 @@ public class WebSocketChatController {
 
     @MessageMapping(Constantes.WS_APP_ESTADO)
     public void actualizarEstadoUsuario(@Payload EstadoDTO dto) {
-        if (Constantes.ESTADO_CONECTADO.equalsIgnoreCase(dto.getEstado())) {
-            estadoUsuarioManager.marcarConectado(dto.getUsuarioId());
-        } else {
-            estadoUsuarioManager.marcarDesconectado(dto.getUsuarioId());
+        if (dto == null) {
+            LOGGER.warn("[WS_STATUS] stage=REJECT reason=PAYLOAD_NULL");
+            throw new IllegalArgumentException(Constantes.ERR_RESPUESTA_INVALIDA);
         }
 
-        messagingTemplate.convertAndSend(Constantes.TOPIC_ESTADO + dto.getUsuarioId(), dto.getEstado());
+        Long authenticatedUserId;
+        try {
+            authenticatedUserId = securityUtils.getAuthenticatedUserId();
+        } catch (RuntimeException ex) {
+            LOGGER.warn("[WS_STATUS] stage=REJECT reason=AUTH_CONTEXT_MISSING errorClass={} message={}",
+                    ex.getClass().getSimpleName(),
+                    ex.getMessage());
+            throw new AccessDeniedException(Constantes.ERR_NO_AUTORIZADO);
+        }
+        Long requestedUserId = dto.getUsuarioId();
+        String estado = dto.getEstado() == null ? Constantes.ESTADO_DESCONECTADO : dto.getEstado();
+
+        LOGGER.info("[WS_STATUS] stage=IN authUserId={} payloadUsuarioId={} estado={}",
+                authenticatedUserId,
+                requestedUserId,
+                estado);
+
+        if (requestedUserId != null && !Objects.equals(requestedUserId, authenticatedUserId)) {
+            LOGGER.warn("[WS_STATUS] stage=REJECT reason=USUARIO_SPOOF authUserId={} payloadUsuarioId={} estado={}",
+                    authenticatedUserId,
+                    requestedUserId,
+                    estado);
+            throw new AccessDeniedException(Constantes.ERR_RESPUESTA_NO_AUTORIZADA);
+        }
+
+        if (Constantes.ESTADO_CONECTADO.equalsIgnoreCase(estado)) {
+            estadoUsuarioManager.marcarConectado(authenticatedUserId);
+        } else {
+            estadoUsuarioManager.marcarDesconectado(authenticatedUserId);
+        }
+
+        LOGGER.info("[WS_STATUS] stage=OUT topic={} userId={} estado={}",
+                Constantes.TOPIC_ESTADO + authenticatedUserId,
+                authenticatedUserId,
+                estado);
+        messagingTemplate.convertAndSend(Constantes.TOPIC_ESTADO + authenticatedUserId, estado);
     }
 
     @MessageMapping(Constantes.WS_APP_CHAT_GRUPAL)
@@ -587,8 +682,13 @@ public class WebSocketChatController {
     @MessageExceptionHandler({IllegalArgumentException.class, AccessDeniedException.class})
     @SendToUser(Constantes.WS_QUEUE_ERRORS)
     public Map<String, Object> handleWsSemanticError(Exception ex) {
+        String code = ex instanceof AccessDeniedException ? Constantes.ERR_NO_AUTORIZADO : Constantes.ERR_RESPUESTA_INVALIDA;
+        LOGGER.warn("[WS_TYPING] op=SEMANTIC_ERROR code={} errorClass={} message={}",
+                code,
+                ex == null ? null : ex.getClass().getSimpleName(),
+                ex == null ? null : ex.getMessage());
         Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("code", ex instanceof AccessDeniedException ? Constantes.ERR_NO_AUTORIZADO : Constantes.ERR_RESPUESTA_INVALIDA);
+        payload.put("code", code);
         payload.put("message", ex.getMessage());
         payload.put("ts", LocalDateTime.now().toString());
         return payload;

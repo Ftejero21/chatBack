@@ -737,7 +737,7 @@ public class MensajeriaServiceImpl implements MensajeriaService {
     @Transactional
     public void marcarMensajesComoLeidos(List<Long> ids) {
         if (ids == null || ids.isEmpty()) {
-            LOGGER.info(Constantes.LOG_WS_MARK_READ_NO_MSG, ids);
+            LOGGER.debug(Constantes.LOG_WS_MARK_READ_NO_MSG, ids);
             return;
         }
 
@@ -745,7 +745,7 @@ public class MensajeriaServiceImpl implements MensajeriaService {
         List<Long> uniqueIds = new ArrayList<>(new LinkedHashSet<>(ids));
         List<MensajeEntity> mensajes = mensajeRepository.findAllById(uniqueIds);
         if (mensajes == null || mensajes.isEmpty()) {
-            LOGGER.info(Constantes.LOG_WS_MARK_READ_NO_MSG, uniqueIds);
+            LOGGER.debug(Constantes.LOG_WS_MARK_READ_NO_MSG, uniqueIds);
             return;
         }
 
@@ -758,7 +758,7 @@ public class MensajeriaServiceImpl implements MensajeriaService {
                 .collect(Collectors.toList());
 
         if (autorizadosParaMarcar.isEmpty()) {
-            LOGGER.info(Constantes.LOG_WS_MARK_READ_NO_MSG, uniqueIds);
+            LOGGER.debug(Constantes.LOG_WS_MARK_READ_NO_MSG, uniqueIds);
             return;
         }
 
@@ -769,7 +769,7 @@ public class MensajeriaServiceImpl implements MensajeriaService {
         // Notificar por WebSocket al emisor de cada mensaje efectivamente marcado
         autorizadosParaMarcar.forEach(mensaje -> {
             if (mensaje.getEmisor() == null || mensaje.getEmisor().getId() == null) {
-                LOGGER.warn(Constantes.LOG_WS_MARK_READ_NO_EMISOR, mensaje.getId());
+                LOGGER.debug(Constantes.LOG_WS_MARK_READ_NO_EMISOR, mensaje.getId());
                 return;
             }
             Long emisorId = mensaje.getEmisor().getId();
@@ -777,7 +777,7 @@ public class MensajeriaServiceImpl implements MensajeriaService {
             payload.put(Constantes.KEY_MENSAJE_ID, mensaje.getId());
 
             messagingTemplate.convertAndSend(Constantes.WS_TOPIC_LEIDO + emisorId, payload);
-            LOGGER.info(Constantes.LOG_WS_SEND_LEIDO, emisorId, mensaje.getId());
+            LOGGER.debug(Constantes.LOG_WS_SEND_LEIDO, emisorId, mensaje.getId());
         });
     }
 
@@ -970,7 +970,7 @@ public class MensajeriaServiceImpl implements MensajeriaService {
     @Transactional
     public boolean eliminarMensajePropio(MensajeDTO mensajeDTO) {
         if (mensajeDTO == null || mensajeDTO.getId() == null) {
-            LOGGER.warn(Constantes.LOG_WS_DELETE_INVALID);
+            LOGGER.debug(Constantes.LOG_WS_DELETE_INVALID);
             return false;
         }
         try {

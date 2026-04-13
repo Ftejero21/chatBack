@@ -36,7 +36,7 @@ public class CallServiceImpl implements CallService {
     @Override
     public CallInviteWS startCall(CallInviteDTO dto) {
         if (dto == null || dto.getCalleeId() == null) {
-            LOGGER.warn("[WS_CALL] op=START stage=REJECT reason=PAYLOAD_INVALID callerId={} calleeId={} chatId={}",
+            LOGGER.debug("[WS_CALL] op=START stage=REJECT reason=PAYLOAD_INVALID callerId={} calleeId={} chatId={}",
                     dto == null ? null : dto.getCallerId(),
                     dto == null ? null : dto.getCalleeId(),
                     dto == null ? null : dto.getChatId());
@@ -50,14 +50,14 @@ public class CallServiceImpl implements CallService {
                 dto.getChatId(),
                 null,
                 null);
-        LOGGER.info("[WS_CALL] op=START stage=IN authUserId={} payloadCallerId={} calleeId={} chatId={}",
+        LOGGER.debug("[WS_CALL] op=START stage=IN authUserId={} payloadCallerId={} calleeId={} chatId={}",
                 authUserId,
                 dto.getCallerId(),
                 dto.getCalleeId(),
                 dto.getChatId());
 
         if (dto.getCallerId() != null && !Objects.equals(dto.getCallerId(), authUserId)) {
-            LOGGER.warn("[WS_CALL] op=START stage=REJECT reason=CALLER_SPOOF authUserId={} payloadCallerId={} calleeId={} chatId={}",
+            LOGGER.debug("[WS_CALL] op=START stage=REJECT reason=CALLER_SPOOF authUserId={} payloadCallerId={} calleeId={} chatId={}",
                     authUserId,
                     dto.getCallerId(),
                     dto.getCalleeId(),
@@ -98,7 +98,7 @@ public class CallServiceImpl implements CallService {
         ringing.setReason(Constantes.RINGING);
         messagingTemplate.convertAndSend(Constantes.TOPIC_CALL_ANSWER + authUserId, ringing);
 
-        LOGGER.info("[WS_CALL] op=START stage=OUT callId={} inviteTopic={} answerTopic={} callerId={} calleeId={} chatId={}",
+        LOGGER.debug("[WS_CALL] op=START stage=OUT callId={} inviteTopic={} answerTopic={} callerId={} calleeId={} chatId={}",
                 session.getCallId(),
                 Constantes.TOPIC_CALL_INVITE + dto.getCalleeId(),
                 Constantes.TOPIC_CALL_ANSWER + authUserId,
@@ -112,7 +112,7 @@ public class CallServiceImpl implements CallService {
     @Override
     public CallAnswerWS answerCall(CallAnswerDTO dto) {
         if (dto == null || dto.getCallId() == null || dto.getCallId().isBlank()) {
-            LOGGER.warn("[WS_CALL] op=ANSWER stage=REJECT reason=PAYLOAD_INVALID callId={} callerId={} calleeId={} accepted={}",
+            LOGGER.debug("[WS_CALL] op=ANSWER stage=REJECT reason=PAYLOAD_INVALID callId={} callerId={} calleeId={} accepted={}",
                     dto == null ? null : dto.getCallId(),
                     dto == null ? null : dto.getCallerId(),
                     dto == null ? null : dto.getCalleeId(),
@@ -126,7 +126,7 @@ public class CallServiceImpl implements CallService {
                 null,
                 dto.getCallId(),
                 dto.isAccepted());
-        LOGGER.info("[WS_CALL] op=ANSWER stage=IN callId={} authUserId={} payloadCallerId={} payloadCalleeId={} accepted={}",
+        LOGGER.debug("[WS_CALL] op=ANSWER stage=IN callId={} authUserId={} payloadCallerId={} payloadCalleeId={} accepted={}",
                 dto.getCallId(),
                 authUserId,
                 dto.getCallerId(),
@@ -135,13 +135,13 @@ public class CallServiceImpl implements CallService {
 
         CallSession session = callManager.get(dto.getCallId());
         if (session == null) {
-            LOGGER.warn("[WS_CALL] op=ANSWER stage=REJECT reason=CALL_NOT_FOUND callId={} authUserId={}",
+            LOGGER.debug("[WS_CALL] op=ANSWER stage=REJECT reason=CALL_NOT_FOUND callId={} authUserId={}",
                     dto.getCallId(),
                     authUserId);
             throw new IllegalArgumentException("callId invalido");
         }
         if (session.getStatus() == CallSession.Status.ENDED) {
-            LOGGER.warn("[WS_CALL] op=ANSWER stage=REJECT reason=CALL_ENDED callId={} authUserId={} callerId={} calleeId={}",
+            LOGGER.debug("[WS_CALL] op=ANSWER stage=REJECT reason=CALL_ENDED callId={} authUserId={} callerId={} calleeId={}",
                     dto.getCallId(),
                     authUserId,
                     session.getCallerId(),
@@ -149,7 +149,7 @@ public class CallServiceImpl implements CallService {
             throw new AccessDeniedException(Constantes.ERR_NO_AUTORIZADO);
         }
         if (!Objects.equals(authUserId, session.getCalleeId())) {
-            LOGGER.warn("[WS_CALL] op=ANSWER stage=REJECT reason=NOT_CALLEE callId={} authUserId={} callerId={} calleeId={}",
+            LOGGER.debug("[WS_CALL] op=ANSWER stage=REJECT reason=NOT_CALLEE callId={} authUserId={} callerId={} calleeId={}",
                     dto.getCallId(),
                     authUserId,
                     session.getCallerId(),
@@ -157,7 +157,7 @@ public class CallServiceImpl implements CallService {
             throw new AccessDeniedException(Constantes.ERR_NO_AUTORIZADO);
         }
         if (dto.getCallerId() != null && !Objects.equals(dto.getCallerId(), session.getCallerId())) {
-            LOGGER.warn("[WS_CALL] op=ANSWER stage=REJECT reason=CALLER_MISMATCH callId={} authUserId={} payloadCallerId={} expectedCallerId={}",
+            LOGGER.debug("[WS_CALL] op=ANSWER stage=REJECT reason=CALLER_MISMATCH callId={} authUserId={} payloadCallerId={} expectedCallerId={}",
                     dto.getCallId(),
                     authUserId,
                     dto.getCallerId(),
@@ -165,7 +165,7 @@ public class CallServiceImpl implements CallService {
             throw new AccessDeniedException(Constantes.ERR_RESPUESTA_NO_AUTORIZADA);
         }
         if (dto.getCalleeId() != null && !Objects.equals(dto.getCalleeId(), session.getCalleeId())) {
-            LOGGER.warn("[WS_CALL] op=ANSWER stage=REJECT reason=CALLEE_MISMATCH callId={} authUserId={} payloadCalleeId={} expectedCalleeId={}",
+            LOGGER.debug("[WS_CALL] op=ANSWER stage=REJECT reason=CALLEE_MISMATCH callId={} authUserId={} payloadCalleeId={} expectedCalleeId={}",
                     dto.getCallId(),
                     authUserId,
                     dto.getCalleeId(),
@@ -189,7 +189,7 @@ public class CallServiceImpl implements CallService {
         // (Eco) Notificar al CALLEE
         messagingTemplate.convertAndSend(Constantes.TOPIC_CALL_ANSWER + session.getCalleeId(), answer);
 
-        LOGGER.info("[WS_CALL] op=ANSWER stage=OUT callId={} callerTopic={} calleeTopic={} fromUserId={} callerId={} calleeId={} accepted={}",
+        LOGGER.debug("[WS_CALL] op=ANSWER stage=OUT callId={} callerTopic={} calleeTopic={} fromUserId={} callerId={} calleeId={} accepted={}",
                 dto.getCallId(),
                 Constantes.TOPIC_CALL_ANSWER + session.getCallerId(),
                 Constantes.TOPIC_CALL_ANSWER + session.getCalleeId(),
@@ -204,7 +204,7 @@ public class CallServiceImpl implements CallService {
     @Override
     public CallEndWS endCall(CallEndDTO dto) {
         if (dto == null || dto.getCallId() == null || dto.getCallId().isBlank()) {
-            LOGGER.warn("[WS_CALL] op=END stage=REJECT reason=PAYLOAD_INVALID callId={} byUserId={}",
+            LOGGER.debug("[WS_CALL] op=END stage=REJECT reason=PAYLOAD_INVALID callId={} byUserId={}",
                     dto == null ? null : dto.getCallId(),
                     dto == null ? null : dto.getByUserId());
             throw new IllegalArgumentException(Constantes.ERR_RESPUESTA_INVALIDA);
@@ -216,12 +216,12 @@ public class CallServiceImpl implements CallService {
                 null,
                 dto.getCallId(),
                 null);
-        LOGGER.info("[WS_CALL] op=END stage=IN callId={} authUserId={} payloadByUserId={}",
+        LOGGER.debug("[WS_CALL] op=END stage=IN callId={} authUserId={} payloadByUserId={}",
                 dto.getCallId(),
                 authUserId,
                 dto.getByUserId());
         if (dto.getByUserId() != null && !Objects.equals(dto.getByUserId(), authUserId)) {
-            LOGGER.warn("[WS_CALL] op=END stage=REJECT reason=BY_USER_SPOOF callId={} authUserId={} payloadByUserId={}",
+            LOGGER.debug("[WS_CALL] op=END stage=REJECT reason=BY_USER_SPOOF callId={} authUserId={} payloadByUserId={}",
                     dto.getCallId(),
                     authUserId,
                     dto.getByUserId());
@@ -230,7 +230,7 @@ public class CallServiceImpl implements CallService {
 
         CallSession session = callManager.get(dto.getCallId());
         if (session == null) {
-            LOGGER.warn("[WS_CALL] op=END stage=REJECT reason=CALL_NOT_FOUND callId={} authUserId={}",
+            LOGGER.debug("[WS_CALL] op=END stage=REJECT reason=CALL_NOT_FOUND callId={} authUserId={}",
                     dto.getCallId(),
                     authUserId);
             throw new IllegalArgumentException("callId invalido");
@@ -238,7 +238,7 @@ public class CallServiceImpl implements CallService {
         boolean isCaller = Objects.equals(authUserId, session.getCallerId());
         boolean isCallee = Objects.equals(authUserId, session.getCalleeId());
         if (!isCaller && !isCallee) {
-            LOGGER.warn("[WS_CALL] op=END stage=REJECT reason=NOT_PARTICIPANT callId={} authUserId={} callerId={} calleeId={}",
+            LOGGER.debug("[WS_CALL] op=END stage=REJECT reason=NOT_PARTICIPANT callId={} authUserId={} callerId={} calleeId={}",
                     dto.getCallId(),
                     authUserId,
                     session.getCallerId(),
@@ -262,7 +262,7 @@ public class CallServiceImpl implements CallService {
         // (Eco) Notificar al que cuelga
         messagingTemplate.convertAndSend(Constantes.TOPIC_CALL_END + authUserId, end);
 
-        LOGGER.info("[WS_CALL] op=END stage=OUT callId={} peerTopic={} actorTopic={} byUserId={} notifyUserId={}",
+        LOGGER.debug("[WS_CALL] op=END stage=OUT callId={} peerTopic={} actorTopic={} byUserId={} notifyUserId={}",
                 dto.getCallId(),
                 Constantes.TOPIC_CALL_END + notifyUserId,
                 Constantes.TOPIC_CALL_END + authUserId,
@@ -282,7 +282,7 @@ public class CallServiceImpl implements CallService {
         try {
             return securityUtils.getAuthenticatedUserId();
         } catch (RuntimeException ex) {
-            LOGGER.warn("[WS_CALL] op={} stage=REJECT reason=AUTH_CONTEXT_MISSING payloadCallerId={} payloadCalleeId={} payloadByUserId={} chatId={} callId={} accepted={} errorClass={} message={}",
+            LOGGER.debug("[WS_CALL] op={} stage=REJECT reason=AUTH_CONTEXT_MISSING payloadCallerId={} payloadCalleeId={} payloadByUserId={} chatId={} callId={} accepted={} errorClass={} message={}",
                     op,
                     payloadCallerId,
                     payloadCalleeId,

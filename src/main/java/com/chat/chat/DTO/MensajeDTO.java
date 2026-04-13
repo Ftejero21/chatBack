@@ -75,6 +75,11 @@ public class MensajeDTO {
     private Boolean esSistema;
     private String systemEvent;
     private Long targetUserId;
+    private Long removedUserId;
+    private String targetUserName;
+    private String targetNombreCompleto;
+    private String groupName;
+    private String nombreGrupo;
 
     public String getEmisorNombre() {
         return emisorNombre;
@@ -133,6 +138,46 @@ public class MensajeDTO {
 
     public void setTargetUserId(Long targetUserId) {
         this.targetUserId = targetUserId;
+    }
+
+    public Long getRemovedUserId() {
+        return removedUserId;
+    }
+
+    public void setRemovedUserId(Long removedUserId) {
+        this.removedUserId = removedUserId;
+    }
+
+    public String getTargetUserName() {
+        return targetUserName;
+    }
+
+    public void setTargetUserName(String targetUserName) {
+        this.targetUserName = targetUserName;
+    }
+
+    public String getTargetNombreCompleto() {
+        return targetNombreCompleto;
+    }
+
+    public void setTargetNombreCompleto(String targetNombreCompleto) {
+        this.targetNombreCompleto = targetNombreCompleto;
+    }
+
+    public String getGroupName() {
+        return groupName;
+    }
+
+    public void setGroupName(String groupName) {
+        this.groupName = groupName;
+    }
+
+    public String getNombreGrupo() {
+        return nombreGrupo;
+    }
+
+    public void setNombreGrupo(String nombreGrupo) {
+        this.nombreGrupo = nombreGrupo;
     }
 
     public boolean isReenviado() {

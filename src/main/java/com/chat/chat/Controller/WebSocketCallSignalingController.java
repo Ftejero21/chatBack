@@ -44,7 +44,7 @@ public class WebSocketCallSignalingController {
                 dto == null ? null : dto.getToUserId(),
                 dto == null ? null : dto.getFromUserId());
         dto.setFromUserId(authUserId);
-        LOGGER.info("[WS_CALL_SIGNAL] op=SDP_OFFER stage=OUT topic={} callId={} fromUserId={} toUserId={}",
+        LOGGER.debug("[WS_CALL_SIGNAL] op=SDP_OFFER stage=OUT topic={} callId={} fromUserId={} toUserId={}",
                 Constantes.TOPIC_CALL_SDP_OFFER + dto.getToUserId(),
                 dto.getCallId(),
                 authUserId,
@@ -60,7 +60,7 @@ public class WebSocketCallSignalingController {
                 dto == null ? null : dto.getToUserId(),
                 dto == null ? null : dto.getFromUserId());
         dto.setFromUserId(authUserId);
-        LOGGER.info("[WS_CALL_SIGNAL] op=SDP_ANSWER stage=OUT topic={} callId={} fromUserId={} toUserId={}",
+        LOGGER.debug("[WS_CALL_SIGNAL] op=SDP_ANSWER stage=OUT topic={} callId={} fromUserId={} toUserId={}",
                 Constantes.TOPIC_CALL_SDP_ANSWER + dto.getToUserId(),
                 dto.getCallId(),
                 authUserId,
@@ -76,7 +76,7 @@ public class WebSocketCallSignalingController {
                 dto == null ? null : dto.getToUserId(),
                 dto == null ? null : dto.getFromUserId());
         dto.setFromUserId(authUserId);
-        LOGGER.info("[WS_CALL_SIGNAL] op=ICE stage=OUT topic={} callId={} fromUserId={} toUserId={}",
+        LOGGER.debug("[WS_CALL_SIGNAL] op=ICE stage=OUT topic={} callId={} fromUserId={} toUserId={}",
                 Constantes.TOPIC_CALL_ICE + dto.getToUserId(),
                 dto.getCallId(),
                 authUserId,
@@ -86,7 +86,7 @@ public class WebSocketCallSignalingController {
 
     private Long validateSignalingFrame(String op, String callId, Long toUserId, Long payloadFromUserId) {
         if (callId == null || callId.isBlank() || toUserId == null) {
-            LOGGER.warn("[WS_CALL_SIGNAL] op={} stage=REJECT reason=PAYLOAD_INVALID callId={} toUserId={} payloadFromUserId={}",
+            LOGGER.debug("[WS_CALL_SIGNAL] op={} stage=REJECT reason=PAYLOAD_INVALID callId={} toUserId={} payloadFromUserId={}",
                     op, callId, toUserId, payloadFromUserId);
             throw new IllegalArgumentException(Constantes.ERR_RESPUESTA_INVALIDA);
         }
@@ -95,28 +95,28 @@ public class WebSocketCallSignalingController {
         try {
             authUserId = securityUtils.getAuthenticatedUserId();
         } catch (RuntimeException ex) {
-            LOGGER.warn("[WS_CALL_SIGNAL] op={} stage=REJECT reason=AUTH_CONTEXT_MISSING callId={} toUserId={} errorClass={} message={}",
+            LOGGER.debug("[WS_CALL_SIGNAL] op={} stage=REJECT reason=AUTH_CONTEXT_MISSING callId={} toUserId={} errorClass={} message={}",
                     op, callId, toUserId, ex.getClass().getSimpleName(), ex.getMessage());
             throw new AccessDeniedException(Constantes.ERR_NO_AUTORIZADO);
         }
 
-        LOGGER.info("[WS_CALL_SIGNAL] op={} stage=IN callId={} authUserId={} payloadFromUserId={} toUserId={}",
+        LOGGER.debug("[WS_CALL_SIGNAL] op={} stage=IN callId={} authUserId={} payloadFromUserId={} toUserId={}",
                 op, callId, authUserId, payloadFromUserId, toUserId);
 
         if (payloadFromUserId != null && !Objects.equals(payloadFromUserId, authUserId)) {
-            LOGGER.warn("[WS_CALL_SIGNAL] op={} stage=REJECT reason=FROM_USER_SPOOF callId={} authUserId={} payloadFromUserId={} toUserId={}",
+            LOGGER.debug("[WS_CALL_SIGNAL] op={} stage=REJECT reason=FROM_USER_SPOOF callId={} authUserId={} payloadFromUserId={} toUserId={}",
                     op, callId, authUserId, payloadFromUserId, toUserId);
             throw new AccessDeniedException(Constantes.ERR_RESPUESTA_NO_AUTORIZADA);
         }
 
         CallSession session = callManager.get(callId);
         if (session == null) {
-            LOGGER.warn("[WS_CALL_SIGNAL] op={} stage=REJECT reason=CALL_NOT_FOUND callId={} authUserId={} toUserId={}",
+            LOGGER.debug("[WS_CALL_SIGNAL] op={} stage=REJECT reason=CALL_NOT_FOUND callId={} authUserId={} toUserId={}",
                     op, callId, authUserId, toUserId);
             throw new IllegalArgumentException("callId invalido");
         }
         if (session.getStatus() == CallSession.Status.ENDED) {
-            LOGGER.warn("[WS_CALL_SIGNAL] op={} stage=REJECT reason=CALL_ENDED callId={} authUserId={} toUserId={}",
+            LOGGER.debug("[WS_CALL_SIGNAL] op={} stage=REJECT reason=CALL_ENDED callId={} authUserId={} toUserId={}",
                     op, callId, authUserId, toUserId);
             throw new AccessDeniedException(Constantes.ERR_NO_AUTORIZADO);
         }
@@ -124,14 +124,14 @@ public class WebSocketCallSignalingController {
         boolean isCaller = Objects.equals(session.getCallerId(), authUserId);
         boolean isCallee = Objects.equals(session.getCalleeId(), authUserId);
         if (!isCaller && !isCallee) {
-            LOGGER.warn("[WS_CALL_SIGNAL] op={} stage=REJECT reason=NOT_PARTICIPANT callId={} authUserId={} callerId={} calleeId={} toUserId={}",
+            LOGGER.debug("[WS_CALL_SIGNAL] op={} stage=REJECT reason=NOT_PARTICIPANT callId={} authUserId={} callerId={} calleeId={} toUserId={}",
                     op, callId, authUserId, session.getCallerId(), session.getCalleeId(), toUserId);
             throw new AccessDeniedException(Constantes.ERR_NO_AUTORIZADO);
         }
 
         Long expectedPeerId = isCaller ? session.getCalleeId() : session.getCallerId();
         if (!Objects.equals(toUserId, expectedPeerId)) {
-            LOGGER.warn("[WS_CALL_SIGNAL] op={} stage=REJECT reason=ROUTE_MISMATCH callId={} authUserId={} expectedToUserId={} payloadToUserId={}",
+            LOGGER.debug("[WS_CALL_SIGNAL] op={} stage=REJECT reason=ROUTE_MISMATCH callId={} authUserId={} expectedToUserId={} payloadToUserId={}",
                     op, callId, authUserId, expectedPeerId, toUserId);
             throw new AccessDeniedException(Constantes.ERR_RESPUESTA_NO_AUTORIZADA);
         }
@@ -143,7 +143,7 @@ public class WebSocketCallSignalingController {
     @SendToUser(Constantes.WS_QUEUE_ERRORS)
     public Map<String, Object> handleWsSignalingError(Exception ex) {
         String code = ex instanceof AccessDeniedException ? Constantes.ERR_NO_AUTORIZADO : Constantes.ERR_RESPUESTA_INVALIDA;
-        LOGGER.warn("[WS_CALL_SIGNAL] op=SEMANTIC_ERROR code={} errorClass={} message={}",
+        LOGGER.debug("[WS_CALL_SIGNAL] op=SEMANTIC_ERROR code={} errorClass={} message={}",
                 code,
                 ex == null ? null : ex.getClass().getSimpleName(),
                 ex == null ? null : ex.getMessage());

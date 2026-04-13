@@ -683,6 +683,14 @@ public class ChatServiceImpl implements ChatService {
         if (isTemporalExpirado(last)) {
             return buildPlaceholderTemporal(last);
         }
+        MessageType tipo = last.getTipo() == null ? MessageType.TEXT : last.getTipo();
+        if (tipo == MessageType.SYSTEM) {
+            String systemPreview = buildGroupSystemPreview(last, viewerId);
+            if (systemPreview != null && !systemPreview.isBlank()) {
+                return systemPreview;
+            }
+        }
+
         Long senderId = last.getEmisor() == null ? null : last.getEmisor().getId();
         String senderName = last.getEmisor() == null ? null : last.getEmisor().getNombre();
         String prefix;
@@ -694,7 +702,6 @@ public class ChatServiceImpl implements ChatService {
             prefix = "usuario: ";
         }
 
-        MessageType tipo = last.getTipo() == null ? MessageType.TEXT : last.getTipo();
         if (tipo == MessageType.IMAGE) {
             return prefix + "Imagen";
         }
@@ -715,6 +722,67 @@ public class ChatServiceImpl implements ChatService {
             return prefix + "Mensaje cifrado";
         }
         return prefix + Utils.truncarSafe(last.getContenido(), 60);
+    }
+
+    private String buildGroupSystemPreview(MensajeEntity last, Long viewerId) {
+        GroupMemberExpelledPayload payload = parseGroupMemberExpelledPayload(last);
+        if (payload == null) {
+            return null;
+        }
+
+        if (Objects.equals(viewerId, payload.actorId())) {
+            return "Has expulsado a \"" + payload.targetName() + "\" del grupo \"" + payload.groupName() + "\"";
+        }
+        if (Objects.equals(viewerId, payload.targetId())) {
+            return "Has sido expulsado de \"" + payload.groupName() + "\" por \"" + payload.actorName() + "\"";
+        }
+        return "\"" + payload.actorName() + "\" ha expulsado a \"" + payload.targetName() + "\" del grupo \"" + payload.groupName() + "\"";
+    }
+
+    private GroupMemberExpelledPayload parseGroupMemberExpelledPayload(MensajeEntity last) {
+        if (last == null || last.getTipo() != MessageType.SYSTEM || last.getContenido() == null || last.getContenido().isBlank()) {
+            return null;
+        }
+        try {
+            JsonNode root = OBJECT_MAPPER.readTree(last.getContenido());
+            if (root == null || !root.isObject()) {
+                return null;
+            }
+            String systemEvent = firstNonBlank(
+                    root.path(Constantes.KEY_SYSTEM_EVENT).asText(null),
+                    root.path("event").asText(null));
+            if (!Constantes.SYSTEM_EVENT_GROUP_MEMBER_EXPELLED.equalsIgnoreCase(systemEvent)
+                    && !Constantes.SYSTEM_EVENT_GROUP_MEMBER_REMOVED.equalsIgnoreCase(systemEvent)
+                    && !"GROUP_MEMBER_KICKED".equalsIgnoreCase(systemEvent)) {
+                return null;
+            }
+
+            Long actorId = root.path(Constantes.KEY_EMISOR_ID).isIntegralNumber()
+                    ? root.path(Constantes.KEY_EMISOR_ID).asLong()
+                    : (last.getEmisor() == null ? null : last.getEmisor().getId());
+            Long targetId = root.path(Constantes.KEY_TARGET_USER_ID).isIntegralNumber()
+                    ? root.path(Constantes.KEY_TARGET_USER_ID).asLong()
+                    : (root.path("removedUserId").isIntegralNumber() ? root.path("removedUserId").asLong() : null);
+            String actorName = firstNonBlank(
+                    root.path("actorNombreCompleto").asText(null),
+                    buildNombreCompleto(
+                            root.path(Constantes.KEY_EMISOR_NOMBRE).asText(null),
+                            root.path(Constantes.KEY_EMISOR_APELLIDO).asText(null)),
+                    buildNombreCompleto(
+                            last.getEmisor() == null ? null : last.getEmisor().getNombre(),
+                            last.getEmisor() == null ? null : last.getEmisor().getApellido()));
+            String targetName = firstNonBlank(
+                    root.path("targetUserName").asText(null),
+                    root.path("targetNombreCompleto").asText(null),
+                    Constantes.LABEL_USUARIO);
+            String groupName = firstNonBlank(
+                    root.path("groupName").asText(null),
+                    root.path("nombreGrupo").asText(null),
+                    "grupo");
+            return new GroupMemberExpelledPayload(actorId, targetId, actorName, targetName, groupName);
+        } catch (Exception ignored) {
+            return null;
+        }
     }
 
     private boolean isEncryptedPayload(String content) {
@@ -1810,12 +1878,10 @@ public class ChatServiceImpl implements ChatService {
         LOGGER.info(Constantes.LOG_GROUP_MEMBER_EXPELLED_AUDIT,
                 traceId, actorId, targetUserId, groupId, actorCanManage, targetWasAdmin);
 
-        MensajeDTO groupEvent = crearMensajeSistemaExpulsionGrupo(chat, actor, target);
-        MensajeDTO expelledEvent = crearMensajeSistemaExpulsionUsuario(chat, actor, target);
-
-        messagingTemplate.convertAndSend(Constantes.TOPIC_CHAT_GRUPAL + groupId, groupEvent);
+        MensajeDTO expelledEvent = crearMensajeSistemaExpulsion(chat, actor, target);
+        messagingTemplate.convertAndSend(Constantes.TOPIC_CHAT_GRUPAL + groupId, expelledEvent);
         messagingTemplate.convertAndSend(Constantes.TOPIC_CHAT + targetUserId, expelledEvent);
-        messagingTemplate.convertAndSend(Constantes.TOPIC_CHAT + actorId, groupEvent);
+        messagingTemplate.convertAndSend(Constantes.TOPIC_CHAT + actorId, expelledEvent);
 
         return new GroupMemberExpulsionResponseDTO(
                 true,
@@ -2151,75 +2217,88 @@ public class ChatServiceImpl implements ChatService {
         return DIACRITICS_PATTERN.matcher(normalized).replaceAll("");
     }
 
-    private MensajeDTO crearMensajeSistemaExpulsionGrupo(ChatGrupalEntity chat,
-                                                         UsuarioEntity actor,
-                                                         UsuarioEntity target) {
-        String actorNombre = buildNombreCompleto(
-                actor == null ? null : actor.getNombre(),
-                actor == null ? null : actor.getApellido());
-        String targetNombre = buildNombreCompleto(
-                target == null ? null : target.getNombre(),
-                target == null ? null : target.getApellido());
-        String contenido = actorNombre + " expuls\u00F3 a " + targetNombre + " del grupo";
+    private MensajeDTO crearMensajeSistemaExpulsion(ChatGrupalEntity chat,
+                                                    UsuarioEntity actor,
+                                                    UsuarioEntity target) {
+        LocalDateTime fechaEnvio = LocalDateTime.now();
+        String payload = buildGroupMemberExpelledPayloadJson(chat, actor, target, fechaEnvio);
 
         MensajeEntity mensaje = new MensajeEntity();
         mensaje.setChat(chat);
         mensaje.setEmisor(actor);
         mensaje.setReceptor(null);
         mensaje.setTipo(MessageType.SYSTEM);
-        mensaje.setContenido(contenido);
-        mensaje.setFechaEnvio(LocalDateTime.now());
+        mensaje.setContenido(payload);
+        mensaje.setFechaEnvio(fechaEnvio);
         mensaje.setActivo(true);
         mensaje.setLeido(false);
         mensaje.setReenviado(false);
 
         MensajeEntity saved = mensajeRepository.save(mensaje);
         MensajeDTO dto = MappingUtils.mensajeEntityADto(saved);
+
+        String actorNombre = buildNombreCompleto(
+                actor == null ? null : actor.getNombre(),
+                actor == null ? null : actor.getApellido());
+        String targetNombre = buildNombreCompleto(
+                target == null ? null : target.getNombre(),
+                target == null ? null : target.getApellido());
+        String groupName = chat == null || chat.getNombreGrupo() == null || chat.getNombreGrupo().isBlank()
+                ? "grupo"
+                : chat.getNombreGrupo().trim();
+
         dto.setTipo(Constantes.TIPO_SYSTEM);
         dto.setEsSistema(true);
-        dto.setSystemEvent(Constantes.SYSTEM_EVENT_GROUP_MEMBER_REMOVED);
+        dto.setSystemEvent(Constantes.SYSTEM_EVENT_GROUP_MEMBER_EXPELLED);
         dto.setChatId(chat == null ? null : chat.getId());
         dto.setReceptorId(chat == null ? null : chat.getId());
         dto.setTargetUserId(target == null ? null : target.getId());
+        dto.setRemovedUserId(target == null ? null : target.getId());
+        dto.setTargetUserName(targetNombre);
+        dto.setTargetNombreCompleto(targetNombre);
+        dto.setGroupName(groupName);
+        dto.setNombreGrupo(groupName);
         dto.setEmisorNombre(actor == null ? null : actor.getNombre());
         dto.setEmisorApellido(actor == null ? null : actor.getApellido());
         dto.setEmisorNombreCompleto(actorNombre);
         return dto;
     }
 
-    private MensajeDTO crearMensajeSistemaExpulsionUsuario(ChatGrupalEntity chat,
-                                                           UsuarioEntity actor,
-                                                           UsuarioEntity target) {
+    private String buildGroupMemberExpelledPayloadJson(ChatGrupalEntity chat,
+                                                       UsuarioEntity actor,
+                                                       UsuarioEntity target,
+                                                       LocalDateTime fechaEnvio) {
         String actorNombre = buildNombreCompleto(
                 actor == null ? null : actor.getNombre(),
                 actor == null ? null : actor.getApellido());
+        String targetNombre = buildNombreCompleto(
+                target == null ? null : target.getNombre(),
+                target == null ? null : target.getApellido());
         String groupName = chat == null || chat.getNombreGrupo() == null || chat.getNombreGrupo().isBlank()
                 ? "grupo"
                 : chat.getNombreGrupo().trim();
-        String contenido = "Has sido expulsado de \"" + groupName + "\" por \"" + actorNombre + "\"";
 
-        MensajeEntity mensaje = new MensajeEntity();
-        mensaje.setChat(chat);
-        mensaje.setEmisor(actor);
-        mensaje.setReceptor(target);
-        mensaje.setTipo(MessageType.SYSTEM);
-        mensaje.setContenido(contenido);
-        mensaje.setFechaEnvio(LocalDateTime.now());
-        mensaje.setActivo(true);
-        mensaje.setLeido(false);
-        mensaje.setReenviado(false);
-
-        MensajeEntity saved = mensajeRepository.save(mensaje);
-        MensajeDTO dto = MappingUtils.mensajeEntityADto(saved);
-        dto.setTipo(Constantes.TIPO_SYSTEM);
-        dto.setEsSistema(true);
-        dto.setSystemEvent(Constantes.SYSTEM_EVENT_GROUP_MEMBER_EXPELLED);
-        dto.setChatId(chat == null ? null : chat.getId());
-        dto.setTargetUserId(target == null ? null : target.getId());
-        dto.setEmisorNombre(actor == null ? null : actor.getNombre());
-        dto.setEmisorApellido(actor == null ? null : actor.getApellido());
-        dto.setEmisorNombreCompleto(actorNombre);
-        return dto;
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("tipo", Constantes.TIPO_SYSTEM);
+        payload.put(Constantes.KEY_ES_SISTEMA, true);
+        payload.put(Constantes.KEY_SYSTEM_EVENT, Constantes.SYSTEM_EVENT_GROUP_MEMBER_EXPELLED);
+        payload.put(Constantes.KEY_CHAT_ID, chat == null ? null : chat.getId());
+        payload.put("fechaEnvio", fechaEnvio == null ? null : fechaEnvio.toString());
+        payload.put(Constantes.KEY_EMISOR_ID, actor == null ? null : actor.getId());
+        payload.put(Constantes.KEY_EMISOR_NOMBRE, actor == null ? null : actor.getNombre());
+        payload.put(Constantes.KEY_EMISOR_APELLIDO, actor == null ? null : actor.getApellido());
+        payload.put("actorNombreCompleto", actorNombre);
+        payload.put(Constantes.KEY_TARGET_USER_ID, target == null ? null : target.getId());
+        payload.put("removedUserId", target == null ? null : target.getId());
+        payload.put("targetUserName", targetNombre);
+        payload.put("targetNombreCompleto", targetNombre);
+        payload.put("groupName", groupName);
+        payload.put("nombreGrupo", groupName);
+        payload.put("contenido", Constantes.SYSTEM_EVENT_GROUP_MEMBER_EXPELLED);
+        payload.put("textoActor", "Has expulsado a \"" + targetNombre + "\" del grupo \"" + groupName + "\"");
+        payload.put("textoExpulsado", "Has sido expulsado de \"" + groupName + "\" por \"" + actorNombre + "\"");
+        payload.put("textoTerceros", "\"" + actorNombre + "\" ha expulsado a \"" + targetNombre + "\" del grupo \"" + groupName + "\"");
+        return Utils.writeJson(payload);
     }
 
     private MensajeDTO crearMensajeSistemaSalidaGrupo(ChatGrupalEntity chat, UsuarioEntity usuarioQueSale) {
@@ -2642,6 +2721,13 @@ public class ChatServiceImpl implements ChatService {
         static CursorPosition empty() {
             return new CursorPosition(null, null);
         }
+    }
+
+    private record GroupMemberExpelledPayload(Long actorId,
+                                              Long targetId,
+                                              String actorName,
+                                              String targetName,
+                                              String groupName) {
     }
 
     private boolean esAdminOAuditor(UsuarioEntity usuario) {

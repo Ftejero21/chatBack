@@ -253,6 +253,50 @@ public class MappingUtils {
             }
             dto.setEmisorFoto(e.getEmisor().getFotoUrl());
         }
+
+        if (e.getTipo() == MessageType.SYSTEM) {
+            String raw = e.getContenido();
+            dto.setEsSistema(firstNonNull(
+                    jsonBooleanField(raw, Constantes.KEY_ES_SISTEMA),
+                    Boolean.TRUE));
+            dto.setSystemEvent(firstNonBlank(
+                    jsonTextField(raw, Constantes.KEY_SYSTEM_EVENT),
+                    dto.getSystemEvent()));
+            Long targetUserId = firstNonNull(
+                    jsonLongField(raw, Constantes.KEY_TARGET_USER_ID),
+                    jsonLongField(raw, "removedUserId"),
+                    jsonLongField(raw, "expulsadoId"),
+                    jsonLongField(raw, "usuarioObjetivoId"),
+                    dto.getTargetUserId());
+            dto.setTargetUserId(targetUserId);
+            dto.setRemovedUserId(firstNonNull(
+                    jsonLongField(raw, "removedUserId"),
+                    targetUserId));
+            String targetDisplay = firstNonBlank(
+                    jsonTextField(raw, "targetUserName"),
+                    jsonTextField(raw, "targetNombreCompleto"),
+                    dto.getTargetUserName(),
+                    dto.getTargetNombreCompleto());
+            dto.setTargetUserName(targetDisplay);
+            dto.setTargetNombreCompleto(firstNonBlank(
+                    jsonTextField(raw, "targetNombreCompleto"),
+                    targetDisplay));
+            String groupName = firstNonBlank(
+                    jsonTextField(raw, "groupName"),
+                    jsonTextField(raw, "nombreGrupo"),
+                    dto.getGroupName(),
+                    dto.getNombreGrupo());
+            dto.setGroupName(groupName);
+            dto.setNombreGrupo(firstNonBlank(
+                    jsonTextField(raw, "nombreGrupo"),
+                    groupName));
+            dto.setChatId(firstNonNull(dto.getChatId(), jsonLongField(raw, Constantes.KEY_CHAT_ID)));
+            dto.setEmisorNombre(firstNonBlank(dto.getEmisorNombre(), jsonTextField(raw, Constantes.KEY_EMISOR_NOMBRE)));
+            dto.setEmisorApellido(firstNonBlank(dto.getEmisorApellido(), jsonTextField(raw, Constantes.KEY_EMISOR_APELLIDO)));
+            dto.setEmisorNombreCompleto(firstNonBlank(
+                    dto.getEmisorNombreCompleto(),
+                    jsonTextField(raw, "actorNombreCompleto")));
+        }
         return dto;
     }
 
@@ -333,6 +377,32 @@ public class MappingUtils {
                     return null;
                 }
                 return Long.parseLong(text.trim());
+            }
+            return null;
+        } catch (Exception ex) {
+            return null;
+        }
+    }
+
+    private static Boolean jsonBooleanField(String json, String field) {
+        if (json == null || json.isBlank()) {
+            return null;
+        }
+        try {
+            JsonNode root = OBJECT_MAPPER.readTree(json);
+            JsonNode node = root == null ? null : root.get(field);
+            if (node == null || node.isNull()) {
+                return null;
+            }
+            if (node.isBoolean()) {
+                return node.asBoolean();
+            }
+            if (node.isTextual()) {
+                String text = node.asText();
+                if (text == null || text.isBlank()) {
+                    return null;
+                }
+                return Boolean.parseBoolean(text.trim());
             }
             return null;
         } catch (Exception ex) {

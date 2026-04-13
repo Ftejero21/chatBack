@@ -16,4 +16,16 @@ public interface ChatGrupalRepository extends JpaRepository<ChatGrupalEntity, Lo
 
     @Query("select distinct c from ChatGrupalEntity c left join fetch c.usuarios where c.id = :id")
     Optional<ChatGrupalEntity> findByIdWithUsuarios(@Param("id") Long id);
+
+    @Query("""
+            select distinct member.id
+            from ChatGrupalEntity c
+            join c.usuarios me
+            join c.usuarios member
+            where me.id = :userId
+              and c.activo = true
+              and member.activo = true
+              and member.id <> :userId
+            """)
+    List<Long> findVisibleMemberIdsByUserId(@Param("userId") Long userId);
 }

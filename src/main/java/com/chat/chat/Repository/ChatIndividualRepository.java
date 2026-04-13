@@ -3,7 +3,8 @@ package com.chat.chat.Repository;
 import com.chat.chat.Entity.ChatIndividualEntity;
 import com.chat.chat.Entity.UsuarioEntity;
 import org.springframework.data.jpa.repository.JpaRepository;
-
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
@@ -14,4 +15,15 @@ public interface ChatIndividualRepository extends JpaRepository<ChatIndividualEn
     List<ChatIndividualEntity> findAllByUsuario1IdOrUsuario2Id(Long usuario1Id, Long usuario2Id);
     Optional<ChatIndividualEntity> findByUsuario1AndUsuario2(UsuarioEntity u1, UsuarioEntity u2);
 
+    @Query("""
+            select distinct
+            case when ci.usuario1.id = :userId then ci.usuario2.id else ci.usuario1.id end
+            from ChatIndividualEntity ci
+            where (ci.usuario1.id = :userId or ci.usuario2.id = :userId)
+              and (
+                    (ci.usuario1.id = :userId and ci.usuario2.activo = true)
+                 or (ci.usuario2.id = :userId and ci.usuario1.activo = true)
+              )
+            """)
+    List<Long> findVisibleContactIdsByUserId(@Param("userId") Long userId);
 }

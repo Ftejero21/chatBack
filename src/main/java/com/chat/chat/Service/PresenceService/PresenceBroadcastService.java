@@ -43,6 +43,11 @@ public class PresenceBroadcastService {
         for (Long recipientId : resolveAuthorizedRecipients(sourceUserId)) {
             String destination = Constantes.TOPIC_ESTADO + recipientId;
             messagingTemplate.convertAndSend(destination, payload);
+            LOGGER.info("[WS][ESTADO][OUT] toUserId={} changedUserId={} estado={} destination={}",
+                    recipientId,
+                    sourceUserId,
+                    normalizedEstado,
+                    destination);
             LOGGER.info("[WS][ESTADO] action=PUBLISH result=OK authUserId={} destination={} reason={} sessionId={}",
                     sourceUserId,
                     destination,
@@ -55,13 +60,14 @@ public class PresenceBroadcastService {
         if (estado == null || estado.isBlank()) {
             return Constantes.ESTADO_DESCONECTADO;
         }
-        if (Constantes.ESTADO_CONECTADO.equalsIgnoreCase(estado)) {
+        String normalizedInput = estado.trim();
+        if (Constantes.ESTADO_CONECTADO.equalsIgnoreCase(normalizedInput)) {
             return Constantes.ESTADO_CONECTADO;
         }
-        if (Constantes.ESTADO_AUSENTE.equalsIgnoreCase(estado)) {
+        if (Constantes.ESTADO_AUSENTE.equalsIgnoreCase(normalizedInput)) {
             return Constantes.ESTADO_AUSENTE;
         }
-        if (Constantes.ESTADO_DESCONECTADO.equalsIgnoreCase(estado)) {
+        if (Constantes.ESTADO_DESCONECTADO.equalsIgnoreCase(normalizedInput)) {
             return Constantes.ESTADO_DESCONECTADO;
         }
         return Constantes.ESTADO_DESCONECTADO;

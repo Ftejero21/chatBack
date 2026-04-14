@@ -1,0 +1,47 @@
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: chatback-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: chat
+      MYSQL_USER: ${MYSQL_USER:-chatuser}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-chatpass}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-rootpass}
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$${MYSQL_ROOT_PASSWORD} --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  backend:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    image: chatback:2.5
+    container_name: chatback
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/chat?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Europe/Madrid
+      SPRING_DATASOURCE_USERNAME: ${MYSQL_USER:-chatuser}
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_PASSWORD:-chatpass}
+      APP_JWT_SECRET: ${APP_JWT_SECRET:-}
+      SPRING_MAIL_USERNAME: ${SPRING_MAIL_USERNAME:-}
+      SPRING_MAIL_PASSWORD: ${SPRING_MAIL_PASSWORD:-}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-7308013918-s6pboomi1maisaq1ebrm12lutubdder9.apps.googleusercontent.com}
+      APP_AUDIT_ADMIN_PRIVATE_KEY_PEM: ${APP_AUDIT_ADMIN_PRIVATE_KEY_PEM:-}
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./uploads:/app/uploads
+
+volumes:
+  mysql_data:

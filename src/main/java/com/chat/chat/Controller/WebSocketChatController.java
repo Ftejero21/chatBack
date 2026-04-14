@@ -3,7 +3,6 @@ package com.chat.chat.Controller;
 import com.chat.chat.Call.DTO.CallAnswerDTO;
 import com.chat.chat.Call.DTO.CallEndDTO;
 import com.chat.chat.Call.DTO.CallInviteDTO;
-import com.chat.chat.Configuracion.EstadoUsuarioManager;
 import com.chat.chat.DTO.AudioGrabandoDTO;
 import com.chat.chat.DTO.AudioGrabandoGrupoDTO;
 import com.chat.chat.DTO.EscribiendoDTO;
@@ -20,6 +19,7 @@ import com.chat.chat.Repository.UsuarioRepository;
 import com.chat.chat.Service.CallService.CallService;
 import com.chat.chat.Service.MensajeriaService.MensajeriaService;
 import com.chat.chat.Service.PresenceService.PresenceBroadcastService;
+import com.chat.chat.Service.PresenceService.UserPresenceService;
 import com.chat.chat.Utils.Constantes;
 import com.chat.chat.Utils.E2EDiagnosticUtils;
 import com.chat.chat.Utils.E2EGroupValidationUtils;
@@ -32,6 +32,7 @@ import org.springframework.messaging.handler.annotation.MessageExceptionHandler;
 import org.springframework.messaging.handler.annotation.Payload;
 import org.springframework.messaging.simp.annotation.SendToUser;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
+import org.springframework.messaging.simp.SimpMessageHeaderAccessor;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.bind.annotation.RestController;
 import org.slf4j.Logger;
@@ -59,9 +60,6 @@ public class WebSocketChatController {
     private SimpMessagingTemplate messagingTemplate;
 
     @Autowired
-    private EstadoUsuarioManager estadoUsuarioManager;
-
-    @Autowired
     private UsuarioRepository usuarioRepository;
 
     @Autowired
@@ -78,6 +76,9 @@ public class WebSocketChatController {
 
     @Autowired
     private PresenceBroadcastService presenceBroadcastService;
+
+    @Autowired
+    private UserPresenceService userPresenceService;
 
     @Value("${app.ws.reactions.legacy-broadcast:false}")
     private boolean legacyReactionBroadcastEnabled;
@@ -377,13 +378,14 @@ public class WebSocketChatController {
 
 
     @MessageMapping(Constantes.WS_APP_ESTADO)
-    public void actualizarEstadoUsuario(@Payload EstadoDTO dto) {
+    public void actualizarEstadoUsuario(@Payload EstadoDTO dto,
+                                        SimpMessageHeaderAccessor headerAccessor) {
         if (dto == null) {
             LOGGER.warn("[WS][ESTADO] action=SEND result=REJECT authUserId={} destination={} reason={} sessionId={}",
                     null,
                     "-",
                     "PAYLOAD_NULL",
-                    "-");
+                    safeSessionId(headerAccessor));
             throw new IllegalArgumentException(Constantes.ERR_RESPUESTA_INVALIDA);
         }
 
@@ -395,37 +397,42 @@ public class WebSocketChatController {
                     null,
                     "-",
                     "AUTH_CONTEXT_MISSING",
-                    "-");
+                    safeSessionId(headerAccessor));
             throw new AccessDeniedException(Constantes.ERR_NO_AUTORIZADO);
         }
 
         Long requestedUserId = dto.getUsuarioId();
-        Long resolvedTargetUserId = requestedUserId != null ? requestedUserId : authenticatedUserId;
-        String destination = Constantes.TOPIC_ESTADO + resolvedTargetUserId;
-        String estado = presenceBroadcastService.normalizeEstado(dto.getEstado());
+        String destination = Constantes.TOPIC_ESTADO + authenticatedUserId;
+        String estadoPayload = dto.getEstado();
+        String estado = presenceBroadcastService.normalizeEstado(estadoPayload);
+        String sessionId = headerAccessor == null ? null : headerAccessor.getSessionId();
+        String logSessionId = safeSessionId(headerAccessor);
+
+        if (!isAllowedPresenceState(estadoPayload)) {
+            LOGGER.warn("[WS][ESTADO] action=SEND result=REJECT authUserId={} destination={} reason={} sessionId={}",
+                    authenticatedUserId,
+                    destination,
+                    "STATE_INVALID",
+                    logSessionId);
+            throw new IllegalArgumentException(Constantes.ERR_RESPUESTA_INVALIDA);
+        }
 
         LOGGER.info("[WS][ESTADO] action=SEND result=IN authUserId={} destination={} reason={} sessionId={}",
                 authenticatedUserId,
                 destination,
                 estado,
-                "-");
+                logSessionId);
 
         if (requestedUserId != null && !Objects.equals(requestedUserId, authenticatedUserId)) {
             LOGGER.warn("[WS][ESTADO] action=SEND result=REJECT authUserId={} destination={} reason={} sessionId={}",
                     authenticatedUserId,
                     destination,
                     "USER_MISMATCH",
-                    "-");
+                    logSessionId);
             throw new AccessDeniedException(Constantes.ERR_RESPUESTA_NO_AUTORIZADA);
         }
 
-        if (Constantes.ESTADO_CONECTADO.equalsIgnoreCase(estado)) {
-            estadoUsuarioManager.marcarConectado(authenticatedUserId);
-        } else {
-            estadoUsuarioManager.marcarDesconectado(authenticatedUserId);
-        }
-
-        presenceBroadcastService.publishPresenceToAuthorized(authenticatedUserId, estado, "-");
+        userPresenceService.handlePresenceSignal(authenticatedUserId, sessionId, estado);
     }
     @MessageMapping(Constantes.WS_APP_CHAT_GRUPAL)
     public void enviarMensajeGrupal(@Payload MensajeDTO mensajeDTO) {
@@ -780,6 +787,22 @@ public class WebSocketChatController {
         payload.put("message", ex.getMessage());
         payload.put("ts", LocalDateTime.now().toString());
         return payload;
+    }
+
+    private boolean isAllowedPresenceState(String estado) {
+        if (estado == null || estado.isBlank()) {
+            return false;
+        }
+        return Constantes.ESTADO_CONECTADO.equalsIgnoreCase(estado)
+                || Constantes.ESTADO_AUSENTE.equalsIgnoreCase(estado)
+                || Constantes.ESTADO_DESCONECTADO.equalsIgnoreCase(estado);
+    }
+
+    private String safeSessionId(SimpMessageHeaderAccessor headerAccessor) {
+        if (headerAccessor == null || headerAccessor.getSessionId() == null || headerAccessor.getSessionId().isBlank()) {
+            return "-";
+        }
+        return headerAccessor.getSessionId();
     }
 }
 

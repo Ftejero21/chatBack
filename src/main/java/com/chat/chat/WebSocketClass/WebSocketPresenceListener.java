@@ -1,9 +1,8 @@
 package com.chat.chat.WebSocketClass;
 
-import com.chat.chat.Configuracion.EstadoUsuarioManager;
 import com.chat.chat.Entity.UsuarioEntity;
 import com.chat.chat.Repository.UsuarioRepository;
-import com.chat.chat.Service.PresenceService.PresenceBroadcastService;
+import com.chat.chat.Service.PresenceService.UserPresenceService;
 import com.chat.chat.Utils.Constantes;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -14,9 +13,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.socket.messaging.SessionConnectEvent;
 import org.springframework.web.socket.messaging.SessionDisconnectEvent;
 
-import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.ConcurrentHashMap;
 
 @Component
 public class WebSocketPresenceListener {
@@ -26,17 +23,13 @@ public class WebSocketPresenceListener {
     private UsuarioRepository usuarioRepository;
 
     @Autowired
-    private EstadoUsuarioManager estadoUsuarioManager;
-
-    @Autowired
-    private PresenceBroadcastService presenceBroadcastService;
-
-    private static final Map<String, Long> sesionesUsuario = new ConcurrentHashMap<>();
+    private UserPresenceService userPresenceService;
 
     @EventListener
     public void handleWebSocketConnectListener(SessionConnectEvent event) {
         StompHeaderAccessor sha = StompHeaderAccessor.wrap(event.getMessage());
-        String sessionId = safeSessionId(sha == null ? null : sha.getSessionId());
+        String rawSessionId = sha == null ? null : sha.getSessionId();
+        String sessionId = safeSessionId(rawSessionId);
         Long userId = resolveUserId(sha);
 
         if (userId == null) {
@@ -48,7 +41,6 @@ public class WebSocketPresenceListener {
             return;
         }
 
-        sesionesUsuario.put(sessionId, userId);
         String destination = Constantes.TOPIC_ESTADO + userId;
 
         LOGGER.info("[WS][ESTADO] action=CONNECT result=ALLOW authUserId={} destination={} reason={} sessionId={}",
@@ -57,14 +49,14 @@ public class WebSocketPresenceListener {
                 "-",
                 sessionId);
 
-        estadoUsuarioManager.marcarConectado(userId);
-        presenceBroadcastService.publishPresenceToAuthorized(userId, Constantes.ESTADO_CONECTADO, sessionId);
+        userPresenceService.registerSessionConnected(userId, rawSessionId);
     }
 
     @EventListener
     public void handleWebSocketDisconnectListener(SessionDisconnectEvent event) {
-        String sessionId = safeSessionId(event.getSessionId());
-        Long userId = sesionesUsuario.remove(sessionId);
+        String rawSessionId = event.getSessionId();
+        String sessionId = safeSessionId(rawSessionId);
+        Long userId = userPresenceService.resolveUserIdBySession(rawSessionId);
 
         if (userId == null) {
             StompHeaderAccessor sha = StompHeaderAccessor.wrap(event.getMessage());
@@ -88,32 +80,31 @@ public class WebSocketPresenceListener {
                 "-",
                 sessionId);
 
-        estadoUsuarioManager.marcarDesconectado(userId);
-        presenceBroadcastService.publishPresenceToAuthorized(userId, Constantes.ESTADO_DESCONECTADO, sessionId);
+        userPresenceService.registerSessionDisconnected(userId, rawSessionId);
     }
 
     private Long resolveUserId(StompHeaderAccessor sha) {
-        if (sha == null) {
+        if (sha == null || sha.getUser() == null || sha.getUser().getName() == null || sha.getUser().getName().isBlank()) {
             return null;
         }
 
-        if (sha.getUser() != null && sha.getUser().getName() != null && !sha.getUser().getName().isBlank()) {
-            Optional<UsuarioEntity> user = usuarioRepository.findByEmail(sha.getUser().getName());
-            if (user.isPresent() && user.get().getId() != null) {
-                return user.get().getId();
-            }
-        }
-
-        String userIdHeader = sha.getFirstNativeHeader(Constantes.HEADER_USUARIO_ID);
-        if (userIdHeader == null || userIdHeader.isBlank()) {
-            return null;
-        }
-
+        String principalName = sha.getUser().getName().trim();
         try {
-            return Long.parseLong(userIdHeader.trim());
+            return Long.parseLong(principalName);
         } catch (NumberFormatException ex) {
+            return resolveUserIdByEmail(principalName);
+        }
+    }
+
+    private Long resolveUserIdByEmail(String email) {
+        if (email == null || email.isBlank()) {
             return null;
         }
+        Optional<UsuarioEntity> user = usuarioRepository.findByEmail(email);
+        if (user.isPresent() && user.get().getId() != null) {
+            return user.get().getId();
+        }
+        return null;
     }
 
     private String safeSessionId(String sessionId) {

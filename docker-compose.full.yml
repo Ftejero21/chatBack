@@ -1,0 +1,36 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    image: chatback:3.0
+    container_name: chatback
+    restart: unless-stopped
+    environment:
+      SPRING_DATASOURCE_URL: ${SPRING_DATASOURCE_URL:-jdbc:mysql://host.docker.internal:3306/chat?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Europe/Madrid}
+      SPRING_DATASOURCE_USERNAME: ${SPRING_DATASOURCE_USERNAME:-root}
+      SPRING_DATASOURCE_PASSWORD: ${SPRING_DATASOURCE_PASSWORD:-}
+      APP_JWT_SECRET: ${APP_JWT_SECRET:-}
+      SPRING_MAIL_USERNAME: ${SPRING_MAIL_USERNAME:-}
+      SPRING_MAIL_PASSWORD: ${SPRING_MAIL_PASSWORD:-}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-7308013918-s6pboomi1maisaq1ebrm12lutubdder9.apps.googleusercontent.com}
+      APP_AUDIT_ADMIN_PRIVATE_KEY_PEM: ${APP_AUDIT_ADMIN_PRIVATE_KEY_PEM:-}
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./uploads:/app/uploads
+
+  frontend:
+    build:
+      context: ../PracticaAngular/chatFront
+      dockerfile: Dockerfile
+      args:
+        BACKEND_BASE_URL: ${BACKEND_BASE_URL:-http://localhost:8080/TejeChat}
+    image: chatfront:3.0
+    container_name: chatfront
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_started
+    ports:
+      - "4200:80"

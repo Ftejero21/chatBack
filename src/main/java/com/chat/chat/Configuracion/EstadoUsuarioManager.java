@@ -1,5 +1,6 @@
 package com.chat.chat.Configuracion;
 
+import com.chat.chat.Utils.Constantes;
 import org.springframework.stereotype.Component;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -18,6 +19,17 @@ public class EstadoUsuarioManager {
 
     public boolean estaConectado(Long usuarioId) {
         return estadoUsuarios.getOrDefault(usuarioId, false);
+    }
+
+    public void actualizarEstado(Long usuarioId, String estado) {
+        if (usuarioId == null) {
+            return;
+        }
+        if (Constantes.ESTADO_CONECTADO.equalsIgnoreCase(estado)) {
+            marcarConectado(usuarioId);
+            return;
+        }
+        marcarDesconectado(usuarioId);
     }
 
     public Map<Long, Boolean> getEstadosDeUsuarios() {

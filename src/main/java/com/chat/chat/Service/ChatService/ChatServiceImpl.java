@@ -52,6 +52,9 @@ public class ChatServiceImpl implements ChatService {
     private static final int DEFAULT_SEARCH_PAGE = 0;
     private static final int DEFAULT_SEARCH_SIZE = 20;
     private static final int MAX_SEARCH_SIZE = 100;
+    private static final int DEFAULT_ADMIN_GROUPS_PAGE = 0;
+    private static final int DEFAULT_ADMIN_GROUPS_SIZE = 10;
+    private static final int MAX_ADMIN_GROUPS_SIZE = 50;
     private static final int MAX_GROUP_NAME_LENGTH = 120;
     private static final int MAX_GROUP_DESCRIPTION_LENGTH = 500;
     private static final int SEARCH_SNIPPET_CONTEXT_CHARS = 40;
@@ -331,6 +334,20 @@ public class ChatServiceImpl implements ChatService {
                 .filter(chat -> chat.getUsuarios().contains(usuario))
                 .map(MappingUtils::chatGrupalEntityADto)
                 .collect(Collectors.toList());
+    }
+
+    @Override
+    public Page<AdminGroupListDTO> listarGruposAdmin(Integer page, Integer size) {
+        validateAdminOnly();
+
+        int safePage = page == null ? DEFAULT_ADMIN_GROUPS_PAGE : Math.max(0, page);
+        int safeSize = size == null ? DEFAULT_ADMIN_GROUPS_SIZE : Math.max(1, Math.min(size, MAX_ADMIN_GROUPS_SIZE));
+
+        Pageable pageable = PageRequest.of(
+                safePage,
+                safeSize,
+                Sort.by(Sort.Direction.DESC, "fechaCreacion").and(Sort.by(Sort.Direction.DESC, "id")));
+        return chatGrupalRepo.findAdminGroupPage(pageable);
     }
 
     @Override
@@ -2758,6 +2775,22 @@ public class ChatServiceImpl implements ChatService {
                 .map(this::esAdminOAuditor)
                 .orElse(false);
         if (!requesterPuedeAuditar) {
+            throw new AccessDeniedException(Constantes.MSG_SOLO_ADMIN);
+        }
+    }
+
+    private void validateAdminOnly() {
+        if (securityUtils.hasRole(Constantes.ADMIN) || securityUtils.hasRole(Constantes.ROLE_ADMIN)) {
+            return;
+        }
+        Long requesterId = securityUtils.getAuthenticatedUserId();
+        boolean isAdmin = usuarioRepo.findById(requesterId)
+                .map(u -> u.getRoles() != null && u.getRoles().stream()
+                        .filter(Objects::nonNull)
+                        .map(String::trim)
+                        .anyMatch(rol -> Constantes.ADMIN.equalsIgnoreCase(rol) || Constantes.ROLE_ADMIN.equalsIgnoreCase(rol)))
+                .orElse(false);
+        if (!isAdmin) {
             throw new AccessDeniedException(Constantes.MSG_SOLO_ADMIN);
         }
     }

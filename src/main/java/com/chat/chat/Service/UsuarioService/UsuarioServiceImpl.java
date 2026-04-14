@@ -136,6 +136,7 @@ public class UsuarioServiceImpl implements UsuarioService {
 
     @Override
     public AuthRespuestaDTO crearUsuarioConToken(UsuarioDTO dto) {
+        dto.setEmail(normalizeEmail(dto.getEmail()));
 
         if (usuarioRepository.findByEmail(dto.getEmail()).isPresent()) {
             throw new EmailYaExisteException(ExceptionConstants.ERROR_EMAIL_EXISTS);
@@ -160,6 +161,7 @@ public class UsuarioServiceImpl implements UsuarioService {
         UsuarioEntity entity = MappingUtils.usuarioDtoAEntity(dto);
         entity.setFechaCreacion(LocalDateTime.now());
         entity.setActivo(true);
+        entity.setEmailVerificado(true);
         entity.setRoles(Collections.singleton(Constantes.USUARIO));
         if (hasPublicKey(entity.getPublicKey())) {
             entity.setPublicKeyUpdatedAt(LocalDateTime.now());
@@ -183,7 +185,11 @@ public class UsuarioServiceImpl implements UsuarioService {
         UserDetails userDetails = customUserDetailsService.loadUserByUsername(saved.getEmail());
         String jwtToken = jwtService.generateToken(userDetails);
 
-        return new AuthRespuestaDTO(jwtToken, savedDto, adminAuditCrypto.getAuditPublicKeySpkiBase64());
+        return new AuthRespuestaDTO(
+                jwtToken,
+                savedDto,
+                adminAuditCrypto.getAuditPublicKeySpkiBase64(),
+                requiresProfileCompletion(saved));
     }
 
     // Mantenemos este por compatibilidad interna si se necesita (aunque el de
@@ -440,7 +446,8 @@ public class UsuarioServiceImpl implements UsuarioService {
     // Nuevo mÃ©todo login que devuelve Token
     @Override
     public AuthRespuestaDTO loginConToken(String email, String password) {
-        UsuarioEntity usuario = usuarioRepository.findByEmail(email)
+        String normalizedEmail = normalizeEmail(email);
+        UsuarioEntity usuario = usuarioRepository.findByEmail(normalizedEmail)
                 .orElseThrow(EmailNoRegistradoException::new);
 
         if (!usuario.isActivo()) {
@@ -454,6 +461,13 @@ public class UsuarioServiceImpl implements UsuarioService {
         return buildAuthResponseFromUsuario(usuario);
     }
 
+    private String normalizeEmail(String email) {
+        if (email == null || email.isBlank()) {
+            return email;
+        }
+        return email.trim().toLowerCase(Locale.ROOT);
+    }
+
     private AuthRespuestaDTO buildAuthResponseFromUsuario(UsuarioEntity usuario) {
         UsuarioDTO dto = MappingUtils.usuarioEntityADto(usuario);
         if (dto.getFoto() != null && dto.getFoto().startsWith(Constantes.UPLOADS_PREFIX)) {
@@ -462,7 +476,20 @@ public class UsuarioServiceImpl implements UsuarioService {
 
         UserDetails userDetails = customUserDetailsService.loadUserByUsername(usuario.getEmail());
         String jwtToken = jwtService.generateToken(userDetails);
-        return new AuthRespuestaDTO(jwtToken, dto, adminAuditCrypto.getAuditPublicKeySpkiBase64());
+        return new AuthRespuestaDTO(
+                jwtToken,
+                dto,
+                adminAuditCrypto.getAuditPublicKeySpkiBase64(),
+                requiresProfileCompletion(usuario));
+    }
+
+    private boolean requiresProfileCompletion(UsuarioEntity usuario) {
+        if (usuario == null) {
+            return false;
+        }
+        boolean missingNombre = usuario.getNombre() == null || usuario.getNombre().isBlank();
+        boolean missingApellido = usuario.getApellido() == null || usuario.getApellido().isBlank();
+        return missingNombre || missingApellido;
     }
 
     @Override
@@ -675,7 +702,7 @@ public class UsuarioServiceImpl implements UsuarioService {
 
     @Override
     public boolean existePorEmail(String email) {
-        return usuarioRepository.findByEmail(email).isPresent();
+        return usuarioRepository.findByEmail(normalizeEmail(email)).isPresent();
     }
 
     @Override

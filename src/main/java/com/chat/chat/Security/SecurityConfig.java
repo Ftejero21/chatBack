@@ -82,6 +82,7 @@ public class SecurityConfig {
                         .requestMatchers(SWAGGER_UI, SWAGGER_UI_HTML, API_DOCS).permitAll()
                         .requestMatchers(
                                 Constantes.USUARIO_API + Constantes.LOGIN,
+                                Constantes.USUARIO_API + Constantes.LOGIN_VERIFICAR_CODIGO,
                                 Constantes.USUARIO_API + Constantes.REGISTRO,
                                 Constantes.USUARIO_API + Constantes.GOOGLE_AUTH,
                                 Constantes.USUARIO_API + Constantes.GOOGLE_AUTH_ALIAS,

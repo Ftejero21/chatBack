@@ -7,13 +7,18 @@ import com.chat.chat.DTO.E2EPrivateKeyBackupDTO;
 import com.chat.chat.DTO.E2ERekeyRequestDTO;
 import com.chat.chat.DTO.E2EStateDTO;
 import com.chat.chat.DTO.GoogleAuthRequestDTO;
+import com.chat.chat.DTO.LoginVerificationRequiredDTO;
 import com.chat.chat.DTO.LoginRequestDTO;
+import com.chat.chat.DTO.LoginVerifyCodeRequestDTO;
 import com.chat.chat.DTO.PasswordChangeConfirmDTO;
 import com.chat.chat.DTO.PasswordChangeCodeRequestDTO;
 import com.chat.chat.DTO.UsuarioDTO;
 import com.chat.chat.Exceptions.ApiError;
 import com.chat.chat.Exceptions.PasswordIncorrectaException;
+import com.chat.chat.Exceptions.EmailYaExisteException;
 import com.chat.chat.Service.AuthService.PasswordResetService;
+import com.chat.chat.Service.AuthService.RegistrationVerificationService;
+import com.chat.chat.Security.ClientIpResolver;
 import com.chat.chat.Security.HttpRateLimitService;
 import com.chat.chat.Service.UsuarioService.UsuarioService;
 import com.chat.chat.Utils.Constantes;
@@ -24,9 +29,12 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -38,6 +46,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import jakarta.servlet.http.HttpServletRequest;
 
@@ -46,6 +55,7 @@ import jakarta.servlet.http.HttpServletRequest;
 @CrossOrigin(Constantes.CORS_ANY_ORIGIN)
 @Tag(name = "Usuarios y Autenticacion", description = "Endpoints para login, registro, perfil, seguridad E2E y administracion de usuarios.")
 public class UsuarioController {
+    private static final Logger LOGGER = LoggerFactory.getLogger(UsuarioController.class);
 
     @Autowired
     private UsuarioService usuarioService;
@@ -56,6 +66,12 @@ public class UsuarioController {
     @Autowired
     private HttpRateLimitService httpRateLimitService;
 
+    @Autowired
+    private RegistrationVerificationService registrationVerificationService;
+
+    @Autowired
+    private ClientIpResolver clientIpResolver;
+
     @PostMapping(Constantes.LOGIN)
     @Operation(summary = "Iniciar sesion", description = "Autentica por email y password y devuelve token JWT y datos del usuario.", security = {})
     @ApiResponses(value = {
@@ -64,9 +80,89 @@ public class UsuarioController {
             @ApiResponse(responseCode = "401", description = "Credenciales incorrectas", content = @Content(schema = @Schema(implementation = ApiError.class))),
             @ApiResponse(responseCode = "403", description = "Usuario inactivo", content = @Content(schema = @Schema(implementation = ApiError.class)))
     })
-    public AuthRespuestaDTO login(@RequestBody LoginRequestDTO dto, HttpServletRequest request) {
+    public ResponseEntity<?> login(@RequestBody LoginRequestDTO dto, HttpServletRequest request) {
         httpRateLimitService.checkLogin(request, dto == null ? null : dto.getEmail());
-        return usuarioService.loginConToken(dto.getEmail(), dto.getPassword());
+        if (dto == null || dto.getEmail() == null || dto.getEmail().isBlank()
+                || dto.getPassword() == null || dto.getPassword().isBlank()) {
+            return ResponseEntity.badRequest()
+                    .body(Map.of("code", Constantes.ERR_RESPUESTA_INVALIDA, "mensaje", Constantes.MSG_FALTAN_DATOS_REQUERIDOS));
+        }
+
+        String normalizedEmail = dto.getEmail().trim().toLowerCase(Locale.ROOT);
+        if (usuarioService.existePorEmail(normalizedEmail)) {
+            LOGGER.info("[AUTH][UNIFIED_LOGIN] stage=LOGIN_EXISTING email={}", normalizedEmail);
+            return ResponseEntity.ok(usuarioService.loginConToken(normalizedEmail, dto.getPassword()));
+        }
+
+        httpRateLimitService.checkRegistrationOtpRequest(request, normalizedEmail);
+        try {
+            registrationVerificationService.startVerification(normalizedEmail, dto.getPassword(), clientIpResolver.resolve(request));
+        } catch (IllegalStateException ex) {
+            LOGGER.error("[AUTH][UNIFIED_LOGIN] stage=REGISTRATION_VERIFICATION_ERROR email={} reason={}",
+                    normalizedEmail,
+                    ex.getMessage());
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                    .body(Map.of(
+                            "code", "EMAIL_SERVICE_UNAVAILABLE",
+                            "mensaje", "El servicio de correo no está disponible temporalmente. Intenta más tarde."
+                    ));
+        }
+        LOGGER.info("[AUTH][UNIFIED_LOGIN] stage=REGISTRATION_VERIFICATION_REQUIRED email={}", normalizedEmail);
+        LoginVerificationRequiredDTO response = new LoginVerificationRequiredDTO(
+                true,
+                "REGISTRATION_VERIFICATION_REQUIRED",
+                Constantes.MSG_REGISTRO_VERIFICACION_ENVIADA
+        );
+        return ResponseEntity.status(HttpStatus.ACCEPTED).body(response);
+    }
+
+    @PostMapping(Constantes.LOGIN_VERIFICAR_CODIGO)
+    @Operation(summary = "Verificar código y completar registro", description = "Valida OTP, crea usuario si no existe y devuelve token JWT.", security = {})
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Registro/login completado", content = @Content(schema = @Schema(implementation = AuthRespuestaDTO.class))),
+            @ApiResponse(responseCode = "400", description = "Código inválido o payload incorrecto", content = @Content(schema = @Schema(implementation = Map.class))),
+            @ApiResponse(responseCode = "401", description = "Código inválido o expirado", content = @Content(schema = @Schema(implementation = Map.class)))
+    })
+    public ResponseEntity<?> verificarCodigoLogin(@RequestBody LoginVerifyCodeRequestDTO dto, HttpServletRequest request) {
+        if (dto == null || dto.getEmail() == null || dto.getEmail().isBlank()
+                || dto.getPassword() == null || dto.getPassword().isBlank()
+                || dto.getCode() == null || dto.getCode().isBlank()) {
+            return ResponseEntity.badRequest()
+                    .body(Map.of("code", Constantes.ERR_RESPUESTA_INVALIDA, "mensaje", Constantes.MSG_FALTAN_DATOS_REQUERIDOS));
+        }
+
+        String normalizedEmail = dto.getEmail().trim().toLowerCase(Locale.ROOT);
+        httpRateLimitService.checkRegistrationOtpVerify(request, normalizedEmail);
+
+        boolean valid = registrationVerificationService.verifyCode(
+                normalizedEmail,
+                dto.getPassword(),
+                dto.getCode(),
+                clientIpResolver.resolve(request));
+        if (!valid) {
+            LOGGER.warn("[AUTH][UNIFIED_LOGIN] stage=VERIFY_FAIL email={}", normalizedEmail);
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(Map.of("code", "CODIGO_INVALIDO_O_EXPIRADO", "mensaje", "Código inválido o expirado."));
+        }
+
+        try {
+            if (!usuarioService.existePorEmail(normalizedEmail)) {
+                UsuarioDTO nuevo = new UsuarioDTO();
+                nuevo.setEmail(normalizedEmail);
+                nuevo.setPassword(dto.getPassword());
+                nuevo.setNombre(null);
+                nuevo.setApellido(null);
+                AuthRespuestaDTO auth = usuarioService.crearUsuarioConToken(nuevo);
+                auth.setProfileCompletionRequired(true);
+                LOGGER.info("[AUTH][UNIFIED_LOGIN] stage=REGISTER_FINALIZED email={}", normalizedEmail);
+                return ResponseEntity.ok(auth);
+            }
+            LOGGER.info("[AUTH][UNIFIED_LOGIN] stage=VERIFY_OK_LOGIN_EXISTING email={}", normalizedEmail);
+            return ResponseEntity.ok(usuarioService.loginConToken(normalizedEmail, dto.getPassword()));
+        } catch (EmailYaExisteException ex) {
+            LOGGER.info("[AUTH][UNIFIED_LOGIN] stage=VERIFY_RACE_LOGIN_EXISTING email={}", normalizedEmail);
+            return ResponseEntity.ok(usuarioService.loginConToken(normalizedEmail, dto.getPassword()));
+        }
     }
 
     @PostMapping(Constantes.REGISTRO)
@@ -368,4 +464,5 @@ public class UsuarioController {
         usuarioService.desbanearAdministrativamente(id);
         return ResponseEntity.ok(Map.of(Constantes.KEY_MENSAJE, Constantes.MSG_USUARIO_REACTIVADO));
     }
+
 }

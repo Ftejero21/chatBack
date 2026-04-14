@@ -5,6 +5,7 @@ import com.chat.chat.DTO.*;
 
 
 import java.util.List;
+import org.springframework.data.domain.Page;
 
 public interface ChatService {
 
@@ -56,6 +57,7 @@ public interface ChatService {
 
     GroupDetailDTO obtenerDetalleGrupo(Long groupId);
     GroupDetailDTO actualizarMetadataGrupo(Long groupId, GroupMetadataUpdateDTO dto);
+    Page<AdminGroupListDTO> listarGruposAdmin(Integer page, Integer size);
 
     void setAdminGrupo(Long groupId, Long targetUserId, boolean makeAdmin);
 }

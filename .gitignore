@@ -33,6 +33,9 @@ build/
 .vscode/
 
 ### Local secrets and runtime artifacts ###
+.env
+.env.*
+!.env.example
 *.pem
 *.key
 *.p12

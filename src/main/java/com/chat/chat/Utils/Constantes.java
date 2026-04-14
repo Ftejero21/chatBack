@@ -28,6 +28,7 @@ public class Constantes {
     public static final String GOOGLE_AUTH_ALIAS = "/google/auth";
     public static final String GOOGLE_AUTH_POR_MODO = "/{mode}/google";
     public static final String GOOGLE_AUTH_MODE_PATTERN = "/*/google";
+    public static final String LOGIN_VERIFICAR_CODIGO = "/login/verificar-codigo";
     public static final String GOOGLE_PROVIDER = "GOOGLE";
     public static final String GOOGLE_MODE_LOGIN = "login";
     public static final String GOOGLE_MODE_REGISTER = "register";
@@ -102,6 +103,7 @@ public class Constantes {
     public static final String ADMIN_RECIENTES = "/admin/recientes";
     public static final String ADMIN_USUARIO_CHATS = "/admin/usuario/{id}/chats";
     public static final String ADMIN_CHAT_MENSAJES = "/admin/chat/{chatId}/mensajes";
+    public static final String ADMIN_GRUPOS = "/admin/grupos";
     public static final String ADMIN_USUARIO_BAN = "/admin/{id}/ban";
     public static final String ADMIN_USUARIO_UNBAN = "/admin/{id}/unban";
     public static final String ADMIN_SOLICITUD_DESBANEO_LIST = "/admin/solicitudes-desbaneo";
@@ -128,6 +130,7 @@ public class Constantes {
     public static final String MSG_ERROR_ENVIANDO_CORREO = "Error enviando correo";
     public static final String MSG_FALTAN_DATOS_REQUERIDOS = "Faltan datos requeridos";
     public static final String MSG_CODIGO_INVALIDO_O_EXPIRADO = "Código inválido o expirado";
+    public static final String MSG_REGISTRO_VERIFICACION_ENVIADA = "Te enviamos un código de verificación a tu correo.";
     public static final String MSG_CONTRASENA_ACTUALIZADA = "Contraseña actualizada exitosamente";
     public static final String MSG_PASSWORD_INCORRECTA = "Contraseña incorrecta";
     public static final String MSG_USUARIO_REACTIVADO = "Usuario reactivado exitosamente";
@@ -310,10 +313,13 @@ public class Constantes {
     public static final String EMAIL_TEMPLATE_PASSWORD_RESET = "templates/password-reset.html";
     public static final String EMAIL_SUBJECT_PASSWORD_CHANGE = "Código de verificación para cambiar contraseña - TejeChat";
     public static final String EMAIL_TEMPLATE_PASSWORD_CHANGE = "templates/password-reset.html";
+    public static final String EMAIL_SUBJECT_REGISTRATION_VERIFICATION = "Código de verificación para completar tu registro - TejeChat";
+    public static final String EMAIL_TEMPLATE_REGISTRATION_VERIFICATION = "templates/registration-verification.html";
     public static final String KEY_MINUTES = "minutes";
     public static final String KEY_TITLE = "title";
     public static final String TITLE_PASSWORD_RESET = "Recuperación de contraseña";
     public static final String TITLE_PASSWORD_CHANGE = "Verificación de cambio de contraseña";
+    public static final String TITLE_REGISTRATION_VERIFICATION = "Verificación de registro";
     public static final String LOG_DB_FIX_TIPO_MULTIMEDIA = "[DB_FIX] mensajes.tipo actualizado para soportar multimedia y SYSTEM";
     public static final String LOG_DB_FIX_TIPO_WARN = "[DB_FIX] no se pudo verificar/corregir mensajes.tipo: {}";
     public static final String LOG_DB_FIX_INDEX_CREATED = "[DB_FIX] indice {} creado para feed multimedia de grupo";

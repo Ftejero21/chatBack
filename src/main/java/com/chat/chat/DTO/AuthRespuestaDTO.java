@@ -4,6 +4,7 @@ public class AuthRespuestaDTO {
     private String token;
     private UsuarioDTO usuario;
     private String auditPublicKey;
+    private Boolean profileCompletionRequired;
 
     public AuthRespuestaDTO() {
     }
@@ -17,6 +18,13 @@ public class AuthRespuestaDTO {
         this.token = token;
         this.usuario = usuario;
         this.auditPublicKey = auditPublicKey;
+    }
+
+    public AuthRespuestaDTO(String token, UsuarioDTO usuario, String auditPublicKey, Boolean profileCompletionRequired) {
+        this.token = token;
+        this.usuario = usuario;
+        this.auditPublicKey = auditPublicKey;
+        this.profileCompletionRequired = profileCompletionRequired;
     }
 
     public String getToken() {
@@ -41,5 +49,13 @@ public class AuthRespuestaDTO {
 
     public void setAuditPublicKey(String auditPublicKey) {
         this.auditPublicKey = auditPublicKey;
+    }
+
+    public Boolean getProfileCompletionRequired() {
+        return profileCompletionRequired;
+    }
+
+    public void setProfileCompletionRequired(Boolean profileCompletionRequired) {
+        this.profileCompletionRequired = profileCompletionRequired;
     }
 }

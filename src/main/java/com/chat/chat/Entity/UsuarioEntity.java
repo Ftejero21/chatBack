@@ -18,7 +18,7 @@ public class UsuarioEntity {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(unique = false, nullable = false)
+    @Column(unique = false, nullable = true)
     private String nombre;
 
     @Column(unique = true, nullable = false)
@@ -29,6 +29,7 @@ public class UsuarioEntity {
     private LocalDateTime fechaCreacion;
     private LocalDateTime publicKeyUpdatedAt;
     private boolean activo;
+    private Boolean emailVerificado;
 
     @ElementCollection(fetch = FetchType.EAGER)
     @CollectionTable(name = "usuario_roles", joinColumns = @JoinColumn(name = "usuario_id"))
@@ -119,6 +120,14 @@ public class UsuarioEntity {
 
     public void setActivo(boolean activo) {
         this.activo = activo;
+    }
+
+    public Boolean getEmailVerificado() {
+        return emailVerificado;
+    }
+
+    public void setEmailVerificado(Boolean emailVerificado) {
+        this.emailVerificado = emailVerificado;
     }
 
     public Set<String> getRoles() {

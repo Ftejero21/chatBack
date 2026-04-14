@@ -2,6 +2,7 @@ package com.chat.chat.Controller;
 
 import com.chat.chat.DTO.AddUsuariosGrupoDTO;
 import com.chat.chat.DTO.AddUsuariosGrupoWSResponse;
+import com.chat.chat.DTO.AdminGroupListDTO;
 import com.chat.chat.DTO.ChatGrupalDTO;
 import com.chat.chat.DTO.ChatIndividualCreateDTO;
 import com.chat.chat.DTO.ChatIndividualDTO;
@@ -41,6 +42,7 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.Page;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.bind.annotation.CrossOrigin;
@@ -190,6 +192,18 @@ public class ChatController {
     public List<ChatResumenDTO> getChatsUsuario(@PathVariable("id") Long id,
                                                 @RequestParam(value = "includeExpired", defaultValue = "false") Boolean includeExpired) {
         return chatService.listarConversacionesDeUsuario(id, includeExpired);
+    }
+
+    @GetMapping(Constantes.ADMIN_GRUPOS)
+    @Operation(summary = "Listar grupos (admin)", description = "Devuelve todos los grupos con paginacion para uso administrativo.")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Grupos obtenidos"),
+            @ApiResponse(responseCode = "403", description = "Solo administradores", content = @Content(schema = @Schema(implementation = ApiError.class)))
+    })
+    public ResponseEntity<Page<AdminGroupListDTO>> listarGruposAdmin(
+            @RequestParam(value = "page", defaultValue = "0") Integer page,
+            @RequestParam(value = "size", defaultValue = "10") Integer size) {
+        return ResponseEntity.ok(chatService.listarGruposAdmin(page, size));
     }
 
     @PostMapping(Constantes.GRUPAL_SALIR)

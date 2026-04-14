@@ -20,6 +20,10 @@ public class HttpRateLimitService {
 
     private static final int RECOVERY_VERIFY_LIMIT = 8;
     private static final Duration RECOVERY_VERIFY_WINDOW = Duration.ofMinutes(30);
+    private static final int REGISTRATION_OTP_REQUEST_LIMIT = 5;
+    private static final Duration REGISTRATION_OTP_REQUEST_WINDOW = Duration.ofMinutes(30);
+    private static final int REGISTRATION_OTP_VERIFY_LIMIT = 12;
+    private static final Duration REGISTRATION_OTP_VERIFY_WINDOW = Duration.ofMinutes(30);
 
     private static final int UNBAN_APPEAL_LIMIT = 3;
     private static final Duration UNBAN_APPEAL_WINDOW = Duration.ofHours(24);
@@ -62,6 +66,22 @@ public class HttpRateLimitService {
         String key = "http:recovery:verify:" + ip + ":" + identity;
         enforce(key, RECOVERY_VERIFY_LIMIT, RECOVERY_VERIFY_WINDOW,
                 "Demasiados intentos de verificacion de codigo. Intenta mas tarde.");
+    }
+
+    public void checkRegistrationOtpRequest(HttpServletRequest request, String email) {
+        String ip = clientIpResolver.resolve(request);
+        String identity = normalizeIdentity(email);
+        String key = "http:registration:otp:request:" + ip + ":" + identity;
+        enforce(key, REGISTRATION_OTP_REQUEST_LIMIT, REGISTRATION_OTP_REQUEST_WINDOW,
+                "Demasiadas solicitudes de verificacion de registro. Intenta mas tarde.");
+    }
+
+    public void checkRegistrationOtpVerify(HttpServletRequest request, String email) {
+        String ip = clientIpResolver.resolve(request);
+        String identity = normalizeIdentity(email);
+        String key = "http:registration:otp:verify:" + ip + ":" + identity;
+        enforce(key, REGISTRATION_OTP_VERIFY_LIMIT, REGISTRATION_OTP_VERIFY_WINDOW,
+                "Demasiados intentos de verificacion de registro. Intenta mas tarde.");
     }
 
     public void checkUnbanAppeal(HttpServletRequest request, String email) {

@@ -1,10 +1,13 @@
 package com.chat.chat.Repository;
 
 import com.chat.chat.Entity.ChatGrupalEntity;
+import com.chat.chat.DTO.AdminGroupListDTO;
 
 import java.util.List;
 import java.util.Optional;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -28,4 +31,25 @@ public interface ChatGrupalRepository extends JpaRepository<ChatGrupalEntity, Lo
               and member.id <> :userId
             """)
     List<Long> findVisibleMemberIdsByUserId(@Param("userId") Long userId);
+
+    @Query(value = """
+            select new com.chat.chat.DTO.AdminGroupListDTO(
+                c.id,
+                c.nombreGrupo,
+                c.descripcion,
+                c.visibilidad,
+                c.activo,
+                c.fechaCreacion,
+                c.creador.id,
+                count(distinct member.id)
+            )
+            from ChatGrupalEntity c
+            left join c.usuarios member
+            group by c.id, c.nombreGrupo, c.descripcion, c.visibilidad, c.activo, c.fechaCreacion, c.creador.id
+            """,
+            countQuery = """
+                    select count(c.id)
+                    from ChatGrupalEntity c
+                    """)
+    Page<AdminGroupListDTO> findAdminGroupPage(Pageable pageable);
 }

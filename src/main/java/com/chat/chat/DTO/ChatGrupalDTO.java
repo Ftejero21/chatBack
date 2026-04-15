@@ -31,6 +31,10 @@ public class ChatGrupalDTO {
     private LocalDateTime ultimaFecha;
     private Boolean isPinned;
     private LocalDateTime pinnedAt;
+    private Boolean chatCerrado;
+    private String chatCerradoMotivo;
+    private Boolean closed;
+    private String reason;
 
     public Long getId() {
         return id;
@@ -230,5 +234,37 @@ public class ChatGrupalDTO {
 
     public void setPinnedAt(LocalDateTime pinnedAt) {
         this.pinnedAt = pinnedAt;
+    }
+
+    public Boolean getChatCerrado() {
+        return chatCerrado;
+    }
+
+    public void setChatCerrado(Boolean chatCerrado) {
+        this.chatCerrado = chatCerrado;
+    }
+
+    public String getChatCerradoMotivo() {
+        return chatCerradoMotivo;
+    }
+
+    public void setChatCerradoMotivo(String chatCerradoMotivo) {
+        this.chatCerradoMotivo = chatCerradoMotivo;
+    }
+
+    public Boolean getClosed() {
+        return closed;
+    }
+
+    public void setClosed(Boolean closed) {
+        this.closed = closed;
+    }
+
+    public String getReason() {
+        return reason;
+    }
+
+    public void setReason(String reason) {
+        this.reason = reason;
     }
 }

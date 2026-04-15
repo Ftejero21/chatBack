@@ -27,6 +27,8 @@ public class HttpRateLimitService {
 
     private static final int UNBAN_APPEAL_LIMIT = 3;
     private static final Duration UNBAN_APPEAL_WINDOW = Duration.ofHours(24);
+    private static final int CHAT_CLOSED_REPORT_LIMIT = 6;
+    private static final Duration CHAT_CLOSED_REPORT_WINDOW = Duration.ofHours(24);
 
     private static final int ADMIN_HTTP_LIMIT = 180;
     private static final Duration ADMIN_HTTP_WINDOW = Duration.ofMinutes(1);
@@ -90,6 +92,14 @@ public class HttpRateLimitService {
         String key = "http:unban-appeal:" + ip + ":" + identity;
         enforce(key, UNBAN_APPEAL_LIMIT, UNBAN_APPEAL_WINDOW,
                 "Demasiadas solicitudes de desbaneo para este origen. Intenta mas tarde.");
+    }
+
+    public void checkChatClosedReport(HttpServletRequest request, Long chatId) {
+        String ip = clientIpResolver.resolve(request);
+        String userKey = authenticatedUserKey();
+        String key = "http:chat-closed-report:" + normalizeIdentity(String.valueOf(chatId)) + ":" + ip + ":" + userKey;
+        enforce(key, CHAT_CLOSED_REPORT_LIMIT, CHAT_CLOSED_REPORT_WINDOW,
+                "Demasiados reportes de chat cerrado para este origen. Intenta mas tarde.");
     }
 
     public void checkAdminEndpoint(HttpServletRequest request, String endpointKey) {

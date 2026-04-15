@@ -12,7 +12,9 @@ public class SolicitudDesbaneoMapper {
     public SolicitudDesbaneoDTO toDto(SolicitudDesbaneoEntity entity, UsuarioEntity usuario) {
         SolicitudDesbaneoDTO dto = new SolicitudDesbaneoDTO();
         dto.setId(entity.getId());
+        dto.setTipoReporte(entity.getTipoReporte());
         dto.setUsuarioId(entity.getUsuarioId());
+        dto.setChatId(entity.getChatId());
         dto.setEmail(entity.getEmail());
         dto.setMotivo(entity.getMotivo());
         dto.setEstado(entity.getEstado());
@@ -20,6 +22,8 @@ public class SolicitudDesbaneoMapper {
         dto.setUpdatedAt(entity.getUpdatedAt());
         dto.setReviewedByAdminId(entity.getReviewedByAdminId());
         dto.setResolucionMotivo(entity.getResolucionMotivo());
+        dto.setChatNombreSnapshot(entity.getChatNombreSnapshot());
+        dto.setChatCerradoMotivoSnapshot(entity.getChatCerradoMotivoSnapshot());
         if (usuario != null) {
             dto.setUsuarioNombre(usuario.getNombre());
             dto.setUsuarioApellido(usuario.getApellido());
@@ -31,12 +35,16 @@ public class SolicitudDesbaneoMapper {
         SolicitudDesbaneoWsDTO dto = new SolicitudDesbaneoWsDTO();
         dto.setEvent(eventName);
         dto.setId(entity.getId());
+        dto.setTipoReporte(entity.getTipoReporte());
         dto.setUsuarioId(entity.getUsuarioId());
+        dto.setChatId(entity.getChatId());
         dto.setEmail(entity.getEmail());
         dto.setMotivo(entity.getMotivo());
         dto.setEstado(entity.getEstado());
         dto.setCreatedAt(entity.getCreatedAt());
         dto.setUpdatedAt(entity.getUpdatedAt());
+        dto.setChatNombreSnapshot(entity.getChatNombreSnapshot());
+        dto.setChatCerradoMotivoSnapshot(entity.getChatCerradoMotivoSnapshot());
         if (usuario != null) {
             dto.setUsuarioNombre(usuario.getNombre());
             dto.setUsuarioApellido(usuario.getApellido());

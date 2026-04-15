@@ -6,18 +6,26 @@ import com.chat.chat.DTO.SolicitudDesbaneoDTO;
 import com.chat.chat.DTO.SolicitudDesbaneoEstadoUpdateDTO;
 import com.chat.chat.DTO.SolicitudDesbaneoStatsDTO;
 import com.chat.chat.DTO.SolicitudDesbaneoWsDTO;
+import com.chat.chat.DTO.ChatCloseStateDTO;
+import com.chat.chat.Entity.ChatGrupalEntity;
 import com.chat.chat.Entity.SolicitudDesbaneoEntity;
 import com.chat.chat.Entity.UsuarioEntity;
+import com.chat.chat.Exceptions.ChatNoCerradoException;
 import com.chat.chat.Exceptions.ConflictoException;
 import com.chat.chat.Exceptions.RecursoNoEncontradoException;
 import com.chat.chat.Mapper.SolicitudDesbaneoMapper;
+import com.chat.chat.Repository.ChatGrupalRepository;
 import com.chat.chat.Repository.SolicitudDesbaneoRepository;
 import com.chat.chat.Repository.UsuarioRepository;
+import com.chat.chat.Service.ChatService.ChatService;
 import com.chat.chat.Service.EmailService.EmailService;
 import com.chat.chat.Service.UsuarioService.UsuarioService;
 import com.chat.chat.Utils.Constantes;
+import com.chat.chat.Utils.ReporteTipo;
 import com.chat.chat.Utils.SecurityUtils;
 import com.chat.chat.Utils.SolicitudDesbaneoEstado;
+import org.springframework.security.access.AccessDeniedException;
+import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.Page;
@@ -58,6 +66,8 @@ public class SolicitudDesbaneoServiceImpl implements SolicitudDesbaneoService {
 
     private final SolicitudDesbaneoRepository solicitudDesbaneoRepository;
     private final UsuarioRepository usuarioRepository;
+    private final ChatGrupalRepository chatGrupalRepository;
+    private final ChatService chatService;
     private final UsuarioService usuarioService;
     private final EmailService emailService;
     private final SecurityUtils securityUtils;
@@ -66,6 +76,8 @@ public class SolicitudDesbaneoServiceImpl implements SolicitudDesbaneoService {
 
     public SolicitudDesbaneoServiceImpl(SolicitudDesbaneoRepository solicitudDesbaneoRepository,
                                         UsuarioRepository usuarioRepository,
+                                        ChatGrupalRepository chatGrupalRepository,
+                                        ChatService chatService,
                                         UsuarioService usuarioService,
                                         EmailService emailService,
                                         SecurityUtils securityUtils,
@@ -73,6 +85,8 @@ public class SolicitudDesbaneoServiceImpl implements SolicitudDesbaneoService {
                                         SolicitudDesbaneoMapper solicitudDesbaneoMapper) {
         this.solicitudDesbaneoRepository = solicitudDesbaneoRepository;
         this.usuarioRepository = usuarioRepository;
+        this.chatGrupalRepository = chatGrupalRepository;
+        this.chatService = chatService;
         this.usuarioService = usuarioService;
         this.emailService = emailService;
         this.securityUtils = securityUtils;
@@ -105,6 +119,7 @@ public class SolicitudDesbaneoServiceImpl implements SolicitudDesbaneoService {
         }
 
         SolicitudDesbaneoEntity entity = new SolicitudDesbaneoEntity();
+        entity.setTipoReporte(ReporteTipo.DESBANEO);
         entity.setUsuarioId(usuario.getId());
         entity.setEmail(email);
         entity.setMotivo(motivo);
@@ -123,16 +138,73 @@ public class SolicitudDesbaneoServiceImpl implements SolicitudDesbaneoService {
     }
 
     @Override
-    public Page<SolicitudDesbaneoDTO> listarSolicitudes(String estado, String estados, Integer page, Integer size, String sort) {
+    @Transactional
+    public SolicitudDesbaneoDTO crearReporteChatCerrado(Long chatId, String motivo, String ip, String userAgent) {
+        if (chatId == null) {
+            throw new IllegalArgumentException("chatId es obligatorio");
+        }
+        Long usuarioId = securityUtils.getAuthenticatedUserId();
+        UsuarioEntity usuario = usuarioRepository.findById(usuarioId)
+                .orElseThrow(() -> new RecursoNoEncontradoException(Constantes.MSG_USUARIO_NO_ENCONTRADO));
+
+        ChatGrupalEntity chat = chatGrupalRepository.findByIdWithUsuarios(chatId)
+                .orElseThrow(() -> new RecursoNoEncontradoException(Constantes.MSG_CHAT_GRUPAL_NO_ENCONTRADO_ID + chatId));
+        if (!chat.isActivo()) {
+            throw new RecursoNoEncontradoException(Constantes.MSG_CHAT_GRUPAL_NO_ENCONTRADO_ID + chatId);
+        }
+        boolean esMiembro = chat.getUsuarios() != null && chat.getUsuarios().stream()
+                .filter(Objects::nonNull)
+                .anyMatch(u -> Objects.equals(u.getId(), usuarioId) && u.isActivo());
+        if (!esMiembro) {
+            throw new AccessDeniedException(Constantes.MSG_NO_PERTENECE_GRUPO);
+        }
+        boolean chatCerrado = chat.isClosed() || chat.getClosedAt() != null;
+        if (!chatCerrado) {
+            throw new ChatNoCerradoException(Constantes.MSG_CHAT_GRUPAL_NO_CERRADO);
+        }
+
+        boolean duplicateOpen = solicitudDesbaneoRepository.existsByTipoReporteAndUsuarioIdAndChatIdAndEstadoIn(
+                ReporteTipo.CHAT_CERRADO,
+                usuarioId,
+                chatId,
+                List.of(SolicitudDesbaneoEstado.PENDIENTE, SolicitudDesbaneoEstado.EN_REVISION));
+        if (duplicateOpen) {
+            throw new ConflictoException(Constantes.MSG_REPORTE_CHAT_CERRADO_DUPLICADO);
+        }
+
+        SolicitudDesbaneoEntity entity = new SolicitudDesbaneoEntity();
+        entity.setTipoReporte(ReporteTipo.CHAT_CERRADO);
+        entity.setUsuarioId(usuarioId);
+        entity.setEmail(usuario.getEmail());
+        entity.setChatId(chatId);
+        entity.setChatNombreSnapshot(trimToNullable(chat.getNombreGrupo(), 190));
+        entity.setChatCerradoMotivoSnapshot(trimToNullable(chat.getClosedReason(), 500));
+        entity.setMotivo(normalizeOptionalReason(motivo, "motivo", 500));
+        entity.setEstado(SolicitudDesbaneoEstado.PENDIENTE);
+
+        SolicitudDesbaneoEntity saved = solicitudDesbaneoRepository.save(entity);
+        LOGGER.info("[CHAT_CLOSED_REPORT_CREATED] id={} usuarioId={} chatId={} estado={} ip={} userAgent={} chatClosedReasonSnapshot={}",
+                saved.getId(),
+                saved.getUsuarioId(),
+                saved.getChatId(),
+                saved.getEstado(),
+                safeAuditValue(ip),
+                safeAuditValue(userAgent),
+                safeAuditValue(saved.getChatCerradoMotivoSnapshot()));
+        publishWsEvent(EVENT_CREATED, saved);
+        return solicitudDesbaneoMapper.toDto(saved, usuario);
+    }
+
+    @Override
+    public Page<SolicitudDesbaneoDTO> listarSolicitudes(String estado, String estados, String tipoReporte, Integer page, Integer size, String sort) {
         int safePage = page == null ? DEFAULT_PAGE : Math.max(DEFAULT_PAGE, page);
         int requestedSize = size == null ? DEFAULT_SIZE : size;
         int safeSize = Math.max(1, Math.min(MAX_SIZE, requestedSize));
 
         Pageable pageable = PageRequest.of(safePage, safeSize, resolveSort(sort));
         List<SolicitudDesbaneoEstado> estadoFilters = parseEstadosFilter(estado, estados);
-        Page<SolicitudDesbaneoEntity> resultPage = (estadoFilters == null || estadoFilters.isEmpty())
-                ? solicitudDesbaneoRepository.findAll(pageable)
-                : solicitudDesbaneoRepository.findAllByEstadoIn(estadoFilters, pageable);
+        ReporteTipo tipo = parseTipoReporteFilter(tipoReporte);
+        Page<SolicitudDesbaneoEntity> resultPage = resolveListadoByFilters(estadoFilters, tipo, pageable);
         Map<Long, UsuarioEntity> usuariosById = loadUsuariosById(resultPage.getContent());
         List<SolicitudDesbaneoDTO> content = resultPage.getContent().stream()
                 .map(entity -> solicitudDesbaneoMapper.toDto(
@@ -152,7 +224,7 @@ public class SolicitudDesbaneoServiceImpl implements SolicitudDesbaneoService {
 
     @Override
     @Transactional
-    public SolicitudDesbaneoDTO actualizarEstado(Long id, SolicitudDesbaneoEstadoUpdateDTO request) {
+    public SolicitudDesbaneoDTO actualizarEstado(Long id, SolicitudDesbaneoEstadoUpdateDTO request, HttpServletRequest httpRequest) {
         if (request == null || request.getEstado() == null || request.getEstado().isBlank()) {
             throw new IllegalArgumentException("estado es obligatorio");
         }
@@ -169,15 +241,28 @@ public class SolicitudDesbaneoServiceImpl implements SolicitudDesbaneoService {
         entity.setResolucionMotivo(resolucionMotivo);
 
         UsuarioEntity usuario = resolveUsuario(entity);
+        String ip = resolveRequestIp(httpRequest);
+        String userAgent = resolveRequestUserAgent(httpRequest);
         boolean alreadyApproved = oldEstado == SolicitudDesbaneoEstado.APROBADA;
         boolean userAlreadyActive = usuario != null && usuario.isActivo();
 
+        if (newEstado == SolicitudDesbaneoEstado.RECHAZADA && entity.getTipoReporte() == ReporteTipo.CHAT_CERRADO) {
+            boolean alreadyRejected = oldEstado == SolicitudDesbaneoEstado.RECHAZADA;
+            if (!alreadyRejected) {
+                sendChatReopenRejectedEmail(entity, resolucionMotivo);
+            }
+        }
+
+        if (newEstado == SolicitudDesbaneoEstado.APROBADA && entity.getTipoReporte() == ReporteTipo.CHAT_CERRADO) {
+            handleChatClosedReportApproval(entity, resolucionMotivo, ip, userAgent);
+        }
+
         if (newEstado == SolicitudDesbaneoEstado.APROBADA) {
             // Reutiliza exactamente la lógica administrativa existente para desbanear.
-            if (!alreadyApproved && !userAlreadyActive) {
+            if (entity.getTipoReporte() != ReporteTipo.CHAT_CERRADO && !alreadyApproved && !userAlreadyActive) {
                 usuarioService.desbanearAdministrativamente(usuario.getId(), resolucionMotivo);
             }
-        } else if (newEstado == SolicitudDesbaneoEstado.RECHAZADA) {
+        } else if (newEstado == SolicitudDesbaneoEstado.RECHAZADA && entity.getTipoReporte() != ReporteTipo.CHAT_CERRADO) {
             boolean alreadyRejected = oldEstado == SolicitudDesbaneoEstado.RECHAZADA;
             if (!alreadyRejected) {
                 sendRejectionEmail(usuario, entity.getEmail(), resolucionMotivo);
@@ -254,6 +339,20 @@ public class SolicitudDesbaneoServiceImpl implements SolicitudDesbaneoService {
         messagingTemplate.convertAndSend(Constantes.TOPIC_ADMIN_SOLICITUDES_DESBANEO, payload);
     }
 
+    private Page<SolicitudDesbaneoEntity> resolveListadoByFilters(List<SolicitudDesbaneoEstado> estadoFilters,
+                                                                   ReporteTipo tipoReporte,
+                                                                   Pageable pageable) {
+        boolean hasEstados = estadoFilters != null && !estadoFilters.isEmpty();
+        if (tipoReporte == null) {
+            return hasEstados
+                    ? solicitudDesbaneoRepository.findAllByEstadoIn(estadoFilters, pageable)
+                    : solicitudDesbaneoRepository.findAll(pageable);
+        }
+        return hasEstados
+                ? solicitudDesbaneoRepository.findAllByTipoReporteAndEstadoIn(tipoReporte, estadoFilters, pageable)
+                : solicitudDesbaneoRepository.findAllByTipoReporte(tipoReporte, pageable);
+    }
+
     private Map<Long, UsuarioEntity> loadUsuariosById(List<SolicitudDesbaneoEntity> solicitudes) {
         if (solicitudes == null || solicitudes.isEmpty()) {
             return Map.of();
@@ -271,7 +370,7 @@ public class SolicitudDesbaneoServiceImpl implements SolicitudDesbaneoService {
     }
 
     private String resolveResolutionReason(SolicitudDesbaneoEstado estado, String providedReason) {
-        String normalized = normalizeOptionalReason(providedReason, "resolucionMotivo");
+        String normalized = normalizeOptionalReason(providedReason, "resolucionMotivo", MAX_REASON_LENGTH);
         if (normalized != null) {
             return normalized;
         }
@@ -312,13 +411,65 @@ public class SolicitudDesbaneoServiceImpl implements SolicitudDesbaneoService {
                 ? usuario.getNombre()
                 : "Usuario";
         Map<String, String> vars = new HashMap<>();
-        vars.put(Constantes.EMAIL_VAR_NOMBRE, nombre);
-        vars.put(Constantes.EMAIL_VAR_MOTIVO, resolucionMotivo == null ? Constantes.MSG_SOLICITUD_DESBANEO_RECHAZADA_DEFAULT : resolucionMotivo);
+        vars.put(Constantes.EMAIL_VAR_NOMBRE, safeEmailValue(nombre));
+        vars.put(Constantes.EMAIL_VAR_MOTIVO, safeEmailValue(resolucionMotivo == null ? Constantes.MSG_SOLICITUD_DESBANEO_RECHAZADA_DEFAULT : resolucionMotivo));
 
         emailService.sendHtmlEmail(
                 email,
                 Constantes.EMAIL_SUBJECT_UNBAN_REJECTED,
                 Constantes.EMAIL_TEMPLATE_UNBAN_REJECTED,
+                vars
+        );
+    }
+
+    private void sendChatReopenRejectedEmail(SolicitudDesbaneoEntity entity, String resolucionMotivo) {
+        if (entity == null || entity.getEmail() == null || entity.getEmail().isBlank()) {
+            return;
+        }
+        Map<String, String> vars = new HashMap<>();
+        vars.put(Constantes.EMAIL_VAR_NOMBRE, safeEmailValue("Usuario"));
+        vars.put("nombreGrupo", safeEmailValue(defaultString(entity.getChatNombreSnapshot(), "el grupo")));
+        vars.put("chatId", safeEmailValue(entity.getChatId() == null ? "-" : String.valueOf(entity.getChatId())));
+        vars.put("motivoCierre", safeEmailValue(defaultString(entity.getChatCerradoMotivoSnapshot(), "No disponible")));
+        vars.put("resolucionMotivo", safeEmailValue(defaultString(resolucionMotivo, Constantes.MSG_SOLICITUD_DESBANEO_RECHAZADA_DEFAULT)));
+
+        emailService.sendHtmlEmail(
+                entity.getEmail(),
+                buildChatReopenSubject(false, entity.getChatNombreSnapshot()),
+                Constantes.EMAIL_TEMPLATE_CHAT_REOPEN_REJECTED,
+                vars
+        );
+    }
+
+    private void handleChatClosedReportApproval(SolicitudDesbaneoEntity entity, String resolucionMotivo, String ip, String userAgent) {
+        if (entity == null || entity.getChatId() == null) {
+            throw new IllegalArgumentException("chatId es obligatorio para solicitudes CHAT_CERRADO");
+        }
+        ChatCloseStateDTO state = chatService.reabrirChatGrupalComoAdmin(entity.getChatId(), ip, userAgent);
+        LOGGER.info("[AUDIT_CHAT_CLOSED_REPORT_RESOLVED] action=APPROVE adminId={} solicitudId={} chatId={} ip={} userAgent={} resolucionMotivo={} chatClosedState={}",
+                securityUtils.getAuthenticatedUserId(),
+                entity.getId(),
+                entity.getChatId(),
+                safeAuditValue(ip),
+                safeAuditValue(userAgent),
+                safeAuditValue(resolucionMotivo),
+                state == null ? "-" : String.valueOf(state.isClosed()));
+
+        if (entity.getEmail() == null || entity.getEmail().isBlank()) {
+            return;
+        }
+        Map<String, String> vars = new HashMap<>();
+        vars.put(Constantes.EMAIL_VAR_NOMBRE, safeEmailValue("Usuario"));
+        vars.put("nombreGrupo", safeEmailValue(defaultString(entity.getChatNombreSnapshot(), "el grupo")));
+        vars.put("chatId", safeEmailValue(String.valueOf(entity.getChatId())));
+        vars.put("motivoCierre", safeEmailValue(defaultString(entity.getChatCerradoMotivoSnapshot(), "No disponible")));
+        vars.put("resolucionMotivo", safeEmailValue(defaultString(resolucionMotivo, Constantes.MSG_SOLICITUD_DESBANEO_APROBADA_DEFAULT)));
+        vars.put("fecha", safeEmailValue(LocalDateTime.now().toString()));
+
+        emailService.sendHtmlEmail(
+                entity.getEmail(),
+                buildChatReopenSubject(true, entity.getChatNombreSnapshot()),
+                Constantes.EMAIL_TEMPLATE_CHAT_REOPEN_APPROVED,
                 vars
         );
     }
@@ -333,7 +484,7 @@ public class SolicitudDesbaneoServiceImpl implements SolicitudDesbaneoService {
             field = "createdAt";
         }
 
-        Set<String> allowed = Set.of("createdAt", "updatedAt", "estado", "email", "id", "usuarioId");
+        Set<String> allowed = Set.of("createdAt", "updatedAt", "estado", "email", "id", "usuarioId", "tipoReporte", "chatId");
         if (!allowed.contains(field)) {
             field = "createdAt";
         }
@@ -366,6 +517,17 @@ public class SolicitudDesbaneoServiceImpl implements SolicitudDesbaneoService {
         return normalized.isBlank() ? null : normalized;
     }
 
+    private ReporteTipo parseTipoReporteFilter(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        try {
+            return ReporteTipo.valueOf(raw.trim().toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException ex) {
+            throw new IllegalArgumentException("tipoReporte invalido. Valores permitidos: DESBANEO, CHAT_CERRADO");
+        }
+    }
+
     private ZoneId resolveZoneId(String tz) {
         if (tz == null || tz.isBlank()) {
             return ZoneId.systemDefault();
@@ -378,17 +540,85 @@ public class SolicitudDesbaneoServiceImpl implements SolicitudDesbaneoService {
     }
 
     private String normalizeOptionalReason(String reasonRaw, String fieldName) {
+        return normalizeOptionalReason(reasonRaw, fieldName, MAX_REASON_LENGTH);
+    }
+
+    private String normalizeOptionalReason(String reasonRaw, String fieldName, int maxLength) {
         if (reasonRaw == null) {
             return null;
         }
-        String normalized = reasonRaw.trim();
+        if (reasonRaw.indexOf('\u0000') >= 0) {
+            throw new IllegalArgumentException(fieldName + " contiene null bytes no permitidos");
+        }
+        String normalized = reasonRaw.replaceAll("[\\p{Cntrl}&&[^\\r\\n\\t]]", " ").trim();
         if (normalized.isEmpty()) {
             return null;
         }
-        if (normalized.length() > MAX_REASON_LENGTH) {
-            throw new IllegalArgumentException(fieldName + " supera el maximo de " + MAX_REASON_LENGTH + " caracteres");
+        if (normalized.length() > maxLength) {
+            throw new IllegalArgumentException(fieldName + " supera el maximo de " + maxLength + " caracteres");
         }
         return normalized;
+    }
+
+    private String trimToNullable(String value, int maxLen) {
+        if (value == null) {
+            return null;
+        }
+        String out = value.trim();
+        if (out.isEmpty()) {
+            return null;
+        }
+        return out.length() <= maxLen ? out : out.substring(0, maxLen);
+    }
+
+    private String safeAuditValue(String value) {
+        if (value == null || value.isBlank()) {
+            return "-";
+        }
+        String trimmed = value.trim();
+        return trimmed.length() <= 256 ? trimmed : trimmed.substring(0, 256);
+    }
+
+    private String resolveRequestIp(HttpServletRequest request) {
+        if (request == null) {
+            return "-";
+        }
+        String forwarded = request.getHeader("X-Forwarded-For");
+        if (forwarded != null && !forwarded.isBlank()) {
+            return forwarded.split(",")[0].trim();
+        }
+        String realIp = request.getHeader("X-Real-IP");
+        if (realIp != null && !realIp.isBlank()) {
+            return realIp.trim();
+        }
+        String remoteAddr = request.getRemoteAddr();
+        return remoteAddr == null || remoteAddr.isBlank() ? "-" : remoteAddr.trim();
+    }
+
+    private String resolveRequestUserAgent(HttpServletRequest request) {
+        if (request == null) {
+            return "-";
+        }
+        String userAgent = request.getHeader("User-Agent");
+        return userAgent == null || userAgent.isBlank() ? "-" : userAgent.trim();
+    }
+
+    private String safeEmailValue(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value.replaceAll("[\\p{Cntrl}&&[^\\r\\n\\t]]", " ").trim();
+    }
+
+    private String defaultString(String value, String fallback) {
+        return value == null || value.isBlank() ? fallback : value.trim();
+    }
+
+    private String buildChatReopenSubject(boolean approved, String chatNameSnapshot) {
+        String group = defaultString(chatNameSnapshot, "grupo");
+        return approved
+                ? "Reapertura de chat aprobada: " + group
+                : "Reapertura de chat rechazada: " + group;
     }
 
     private List<SolicitudDesbaneoEstado> parseEstadosFilter(String estadoLegacy, String estadosCsv) {
@@ -416,3 +646,4 @@ public class SolicitudDesbaneoServiceImpl implements SolicitudDesbaneoService {
         }
     }
 }
+

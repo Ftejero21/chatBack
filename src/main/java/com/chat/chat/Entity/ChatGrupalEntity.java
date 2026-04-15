@@ -2,6 +2,7 @@ package com.chat.chat.Entity;
 
 import jakarta.persistence.*;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -51,6 +52,21 @@ public class ChatGrupalEntity extends ChatEntity {
 
     @Column(nullable = false)
     private boolean activo = true;
+
+    @Column(name = "chat_cerrado", nullable = false)
+    private boolean closed = false;
+
+    @Column(name = "chat_cerrado_motivo", length = 500)
+    private String closedReason;
+
+    @Column(name = "chat_cerrado_at")
+    private Instant closedAt;
+
+    @Column(name = "chat_cerrado_by_admin_id")
+    private Long closedByAdminId;
+
+    @Column(name = "version", nullable = false)
+    private Long version = 0L;
 
     public String getNombreGrupo() {
         return nombreGrupo;
@@ -106,6 +122,46 @@ public class ChatGrupalEntity extends ChatEntity {
 
     public void setActivo(boolean activo) {
         this.activo = activo;
+    }
+
+    public boolean isClosed() {
+        return closed;
+    }
+
+    public void setClosed(boolean closed) {
+        this.closed = closed;
+    }
+
+    public String getClosedReason() {
+        return closedReason;
+    }
+
+    public void setClosedReason(String closedReason) {
+        this.closedReason = closedReason;
+    }
+
+    public Instant getClosedAt() {
+        return closedAt;
+    }
+
+    public void setClosedAt(Instant closedAt) {
+        this.closedAt = closedAt;
+    }
+
+    public Long getClosedByAdminId() {
+        return closedByAdminId;
+    }
+
+    public void setClosedByAdminId(Long closedByAdminId) {
+        this.closedByAdminId = closedByAdminId;
+    }
+
+    public Long getVersion() {
+        return version;
+    }
+
+    public void setVersion(Long version) {
+        this.version = version;
     }
 
     public Set<UsuarioEntity> getAdmins() {

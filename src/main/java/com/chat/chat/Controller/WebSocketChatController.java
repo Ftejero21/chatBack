@@ -13,6 +13,7 @@ import com.chat.chat.DTO.MensajeReaccionDTO;
 import com.chat.chat.DTO.VotoEncuestaDTO;
 import com.chat.chat.Entity.ChatGrupalEntity;
 import com.chat.chat.Entity.UsuarioEntity;
+import com.chat.chat.Exceptions.ChatCerradoException;
 import com.chat.chat.Exceptions.E2EGroupValidationException;
 import com.chat.chat.Repository.ChatGrupalRepository;
 import com.chat.chat.Repository.UsuarioRepository;
@@ -445,6 +446,7 @@ public class WebSocketChatController {
         }
 
         Long chatId = resolveChatId(mensajeDTO);
+        validateGroupChatPayloadTarget(mensajeDTO);
         String inboundContent = mensajeDTO == null ? null : mensajeDTO.getContenido();
         E2EDiagnosticUtils.ContentDiagnostic inboundDiag = E2EDiagnosticUtils.analyze(
                 inboundContent,
@@ -514,7 +516,7 @@ public class WebSocketChatController {
             E2EDiagnosticUtils.ContentDiagnostic outDiag = E2EDiagnosticUtils.analyze(
                     guardado.getContenido(),
                     guardado.getTipo());
-            String destination = Constantes.TOPIC_CHAT_GRUPAL + (mensajeDTO == null ? null : mensajeDTO.getReceptorId());
+            String destination = Constantes.TOPIC_CHAT_GRUPAL + chatId;
             LOGGER.debug(
                     Constantes.LOG_E2E_PRE_BROADCAST,
                     Instant.now(),
@@ -774,10 +776,17 @@ public class WebSocketChatController {
         return payload;
     }
 
-    @MessageExceptionHandler({IllegalArgumentException.class, AccessDeniedException.class})
+    @MessageExceptionHandler({IllegalArgumentException.class, AccessDeniedException.class, ChatCerradoException.class})
     @SendToUser(Constantes.WS_QUEUE_ERRORS)
     public Map<String, Object> handleWsSemanticError(Exception ex) {
-        String code = ex instanceof AccessDeniedException ? Constantes.ERR_NO_AUTORIZADO : Constantes.ERR_RESPUESTA_INVALIDA;
+        String code;
+        if (ex instanceof AccessDeniedException) {
+            code = Constantes.ERR_NO_AUTORIZADO;
+        } else if (ex instanceof ChatCerradoException) {
+            code = Constantes.ERR_CHAT_CERRADO;
+        } else {
+            code = Constantes.ERR_RESPUESTA_INVALIDA;
+        }
         LOGGER.debug("[WS_TYPING] op=SEMANTIC_ERROR code={} errorClass={} message={}",
                 code,
                 ex == null ? null : ex.getClass().getSimpleName(),
@@ -787,6 +796,17 @@ public class WebSocketChatController {
         payload.put("message", ex.getMessage());
         payload.put("ts", LocalDateTime.now().toString());
         return payload;
+    }
+
+    private void validateGroupChatPayloadTarget(MensajeDTO mensajeDTO) {
+        if (mensajeDTO == null) {
+            return;
+        }
+        Long chatId = mensajeDTO.getChatId();
+        Long receptorId = mensajeDTO.getReceptorId();
+        if (chatId != null && receptorId != null && !Objects.equals(chatId, receptorId)) {
+            throw new IllegalArgumentException("chatId y receptorId no coinciden para envio grupal");
+        }
     }
 
     private boolean isAllowedPresenceState(String estado) {

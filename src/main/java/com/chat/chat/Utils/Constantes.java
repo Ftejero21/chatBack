@@ -19,6 +19,7 @@ public class Constantes {
     public static final String GRUPAL_UPDATE_METADATA = "/grupal/{groupId}";
     public static final String GRUPAL_MEDIA = "/grupal/{chatId}/media";
     public static final String GRUPAL_DETALLE = "/grupal/{groupId}/detalle";
+    public static final String GRUPAL_REPORTE_CIERRE = "/grupal/{chatId}/reportes-cierre";
     public static final String GRUPAL_ADMIN_ADD = "/grupal/{groupId}/admins/{userId}";
     public static final String GRUPAL_ADMIN_REMOVE = "/grupal/{groupId}/admins/{userId}";
     public static final String GRUPAL_MIEMBRO_REMOVE = "/grupal/{groupId}/miembros/{userId}";
@@ -104,6 +105,7 @@ public class Constantes {
     public static final String ADMIN_USUARIO_CHATS = "/admin/usuario/{id}/chats";
     public static final String ADMIN_CHAT_MENSAJES = "/admin/chat/{chatId}/mensajes";
     public static final String ADMIN_GRUPOS = "/admin/grupos";
+    public static final String ADMIN_GRUPO_CLOSE = "/admin/grupos/{chatId}/close";
     public static final String ADMIN_USUARIO_BAN = "/admin/{id}/ban";
     public static final String ADMIN_USUARIO_UNBAN = "/admin/{id}/unban";
     public static final String ADMIN_SOLICITUD_DESBANEO_LIST = "/admin/solicitudes-desbaneo";
@@ -178,6 +180,7 @@ public class Constantes {
     public static final String WS_TOPIC_USER_BLOQUEOS_SUFFIX = "/bloqueos";
     public static final String WS_QUEUE_BANEOS = "/queue/baneos";
     public static final String WS_QUEUE_ERRORS = "/queue/errors";
+    public static final String WS_QUEUE_CHAT_CIERRES = "/queue/chat-cierres";
     public static final String WS_BLOCK_STATUS_PAYLOAD_TEMPLATE = "{\"blockerId\":%d,\"type\":\"%s\"}";
     public static final String WS_BAN_PAYLOAD_TEMPLATE = "{\"banned\": true, \"motivo\": \"%s\"}";
 
@@ -229,6 +232,9 @@ public class Constantes {
     public static final String MSG_CHAT_INDIVIDUAL_NO_ENCONTRADO = "Chat individual no encontrado";
     public static final String MSG_NO_PUEDE_ENVIAR_MENSAJES = "No puedes enviar mensajes en esta conversación";
     public static final String MSG_CHAT_GRUPAL_NO_ENCONTRADO = "Chat grupal no encontrado";
+    public static final String MSG_CHAT_GRUPAL_CERRADO = "El chat grupal esta cerrado por un administrador.";
+    public static final String MSG_CHAT_GRUPAL_NO_CERRADO = "El chat grupal no esta cerrado por administrador.";
+    public static final String MSG_REPORTE_CHAT_CERRADO_DUPLICADO = "Ya existe un reporte abierto para este chat y usuario.";
     public static final String MSG_SOLO_MENSAJES_RECIBIDOS_DESTACAR = "Solo puedes destacar mensajes recibidos.";
     public static final String KEY_MENSAJE_ID = "mensajeId";
 
@@ -309,6 +315,8 @@ public class Constantes {
     public static final String EMAIL_TEMPLATE_UNBAN = "templates/user-unbanned.html";
     public static final String EMAIL_SUBJECT_UNBAN_REJECTED = "Resultado de tu solicitud de desbaneo - TejeChat";
     public static final String EMAIL_TEMPLATE_UNBAN_REJECTED = "templates/user-unban-rejected.html";
+    public static final String EMAIL_TEMPLATE_CHAT_REOPEN_APPROVED = "templates/chat-reopen-approved.html";
+    public static final String EMAIL_TEMPLATE_CHAT_REOPEN_REJECTED = "templates/chat-reopen-rejected.html";
     public static final String EMAIL_SUBJECT_PASSWORD_RESET = "Recuperación de Contraseña - TejeChat";
     public static final String EMAIL_TEMPLATE_PASSWORD_RESET = "templates/password-reset.html";
     public static final String EMAIL_SUBJECT_PASSWORD_CHANGE = "Código de verificación para cambiar contraseña - TejeChat";
@@ -402,6 +410,8 @@ public class Constantes {
     public static final String ERR_E2E_FILE_PAYLOAD_INVALID = "E2E_FILE_PAYLOAD_INVALID";
     public static final String ERR_E2E_BACKUP_NOT_FOUND = "E2E_BACKUP_NOT_FOUND";
     public static final String ERR_E2E_BACKUP_INVALID = "E2E_BACKUP_INVALID";
+    public static final String ERR_CHAT_CERRADO = "CHAT_CERRADO";
+    public static final String ERR_CHAT_NO_CERRADO = "CHAT_NO_CERRADO";
     public static final String ERR_CHAT_PINNED_NOT_FOUND = "CHAT_PINNED_NOT_FOUND";
     public static final String ERR_CHAT_PIN_INVALID_DURATION = "CHAT_PIN_INVALID_DURATION";
     public static final String ERR_CHAT_PIN_MESSAGE_NOT_IN_CHAT = "CHAT_PIN_MESSAGE_NOT_IN_CHAT";

@@ -2,6 +2,7 @@ package com.chat.chat.DTO;
 
 import com.chat.chat.Utils.GroupVisibility;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
 
 public class AdminGroupListDTO {
@@ -13,6 +14,12 @@ public class AdminGroupListDTO {
     private LocalDateTime fechaCreacion;
     private Long creadorId;
     private long totalMiembros;
+    private boolean chatCerrado;
+    private String chatCerradoMotivo;
+    private boolean closed;
+    private String reason;
+    private Instant chatCerradoAt;
+    private Long chatCerradoByAdminId;
 
     public AdminGroupListDTO(Long id,
                              String nombreGrupo,
@@ -21,7 +28,11 @@ public class AdminGroupListDTO {
                              boolean activo,
                              LocalDateTime fechaCreacion,
                              Long creadorId,
-                             long totalMiembros) {
+                             long totalMiembros,
+                             boolean closedFlag,
+                             String closedReason,
+                             Instant closedAt,
+                             Long closedByAdminId) {
         this.id = id;
         this.nombreGrupo = nombreGrupo;
         this.descripcion = descripcion;
@@ -30,6 +41,13 @@ public class AdminGroupListDTO {
         this.fechaCreacion = fechaCreacion;
         this.creadorId = creadorId;
         this.totalMiembros = totalMiembros;
+        boolean computedClosed = closedFlag || closedAt != null;
+        this.chatCerrado = computedClosed;
+        this.chatCerradoMotivo = computedClosed ? closedReason : null;
+        this.closed = computedClosed;
+        this.reason = computedClosed ? closedReason : null;
+        this.chatCerradoAt = computedClosed ? closedAt : null;
+        this.chatCerradoByAdminId = computedClosed ? closedByAdminId : null;
     }
 
     public Long getId() {
@@ -62,5 +80,29 @@ public class AdminGroupListDTO {
 
     public long getTotalMiembros() {
         return totalMiembros;
+    }
+
+    public boolean isChatCerrado() {
+        return chatCerrado;
+    }
+
+    public String getChatCerradoMotivo() {
+        return chatCerradoMotivo;
+    }
+
+    public boolean isClosed() {
+        return closed;
+    }
+
+    public String getReason() {
+        return reason;
+    }
+
+    public Instant getChatCerradoAt() {
+        return chatCerradoAt;
+    }
+
+    public Long getChatCerradoByAdminId() {
+        return chatCerradoByAdminId;
     }
 }

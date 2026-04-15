@@ -56,10 +56,12 @@ public class SolicitudDesbaneoController {
             @RequestParam(value = "estado", required = false) String estado,
             @Parameter(description = "Filtro opcional CSV: PENDIENTE,EN_REVISION,APROBADA,RECHAZADA")
             @RequestParam(value = "estados", required = false) String estados,
+            @Parameter(description = "Filtro opcional de tipo: DESBANEO | CHAT_CERRADO")
+            @RequestParam(value = "tipoReporte", required = false) String tipoReporte,
             @RequestParam(value = "page", defaultValue = "0") Integer page,
             @RequestParam(value = "size", defaultValue = "20") Integer size,
             @RequestParam(value = "sort", defaultValue = "createdAt,desc") String sort) {
-        return ResponseEntity.ok(solicitudDesbaneoService.listarSolicitudes(estado, estados, page, size, sort));
+        return ResponseEntity.ok(solicitudDesbaneoService.listarSolicitudes(estado, estados, tipoReporte, page, size, sort));
     }
 
     @GetMapping(Constantes.ADMIN_SOLICITUD_DESBANEO_STATS)
@@ -80,7 +82,8 @@ public class SolicitudDesbaneoController {
     @Operation(summary = "Actualizar estado de solicitud de desbaneo (admin)")
     public ResponseEntity<SolicitudDesbaneoDTO> actualizarEstado(
             @PathVariable("id") Long id,
-            @RequestBody SolicitudDesbaneoEstadoUpdateDTO request) {
-        return ResponseEntity.ok(solicitudDesbaneoService.actualizarEstado(id, request));
+            @RequestBody SolicitudDesbaneoEstadoUpdateDTO request,
+            HttpServletRequest httpRequest) {
+        return ResponseEntity.ok(solicitudDesbaneoService.actualizarEstado(id, request, httpRequest));
     }
 }

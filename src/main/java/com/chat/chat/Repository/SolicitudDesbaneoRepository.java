@@ -1,6 +1,7 @@
 package com.chat.chat.Repository;
 
 import com.chat.chat.Entity.SolicitudDesbaneoEntity;
+import com.chat.chat.Utils.ReporteTipo;
 import com.chat.chat.Utils.SolicitudDesbaneoEstado;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -17,8 +18,15 @@ import java.util.List;
 public interface SolicitudDesbaneoRepository extends JpaRepository<SolicitudDesbaneoEntity, Long> {
     Page<SolicitudDesbaneoEntity> findAllByEstado(SolicitudDesbaneoEstado estado, Pageable pageable);
     Page<SolicitudDesbaneoEntity> findAllByEstadoIn(Collection<SolicitudDesbaneoEstado> estados, Pageable pageable);
+    Page<SolicitudDesbaneoEntity> findAllByTipoReporte(ReporteTipo tipoReporte, Pageable pageable);
+    Page<SolicitudDesbaneoEntity> findAllByTipoReporteAndEstadoIn(ReporteTipo tipoReporte, Collection<SolicitudDesbaneoEstado> estados, Pageable pageable);
 
     boolean existsByEmailAndEstadoIn(String email, Collection<SolicitudDesbaneoEstado> estados);
+    boolean existsByTipoReporteAndUsuarioIdAndChatIdAndEstadoIn(
+            ReporteTipo tipoReporte,
+            Long usuarioId,
+            Long chatId,
+            Collection<SolicitudDesbaneoEstado> estados);
 
     long countByEstado(SolicitudDesbaneoEstado estado);
 

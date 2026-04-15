@@ -2,6 +2,7 @@ package com.chat.chat.Repository;
 
 import com.chat.chat.Entity.ChatGrupalEntity;
 import com.chat.chat.DTO.AdminGroupListDTO;
+import jakarta.persistence.LockModeType;
 
 import java.util.List;
 import java.util.Optional;
@@ -9,6 +10,7 @@ import java.util.Optional;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -19,6 +21,10 @@ public interface ChatGrupalRepository extends JpaRepository<ChatGrupalEntity, Lo
 
     @Query("select distinct c from ChatGrupalEntity c left join fetch c.usuarios where c.id = :id")
     Optional<ChatGrupalEntity> findByIdWithUsuarios(@Param("id") Long id);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select c from ChatGrupalEntity c where c.id = :id")
+    Optional<ChatGrupalEntity> findByIdWithUsuariosForUpdate(@Param("id") Long id);
 
     @Query("""
             select distinct member.id
@@ -41,11 +47,16 @@ public interface ChatGrupalRepository extends JpaRepository<ChatGrupalEntity, Lo
                 c.activo,
                 c.fechaCreacion,
                 c.creador.id,
-                count(distinct member.id)
+                count(distinct member.id),
+                c.closed,
+                c.closedReason,
+                c.closedAt,
+                c.closedByAdminId
             )
             from ChatGrupalEntity c
             left join c.usuarios member
-            group by c.id, c.nombreGrupo, c.descripcion, c.visibilidad, c.activo, c.fechaCreacion, c.creador.id
+            group by c.id, c.nombreGrupo, c.descripcion, c.visibilidad, c.activo, c.fechaCreacion, c.creador.id,
+                     c.closed, c.closedReason, c.closedAt, c.closedByAdminId
             """,
             countQuery = """
                     select count(c.id)

@@ -24,6 +24,7 @@ import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
@@ -216,6 +217,18 @@ class WebSocketChatControllerE2EValidationTest {
 
         verify(mensajeriaService, times(1)).guardarMensajeGrupal(any(MensajeDTO.class));
         verify(messagingTemplate, times(1)).convertAndSend(eq(Constantes.TOPIC_CHAT_GRUPAL + groupId), eq(saved));
+    }
+
+    @Test
+    void rechazaSpoofingDeChatIdSiNoCoincideConReceptorId() {
+        MensajeDTO dto = new MensajeDTO();
+        dto.setTipo(Constantes.TIPO_TEXT);
+        dto.setChatId(61L);
+        dto.setReceptorId(60L);
+        dto.setContenido("{\"type\":\"E2E_GROUP\",\"iv\":\"iv\",\"ciphertext\":\"cipher\",\"forEmisor\":\"envSender\",\"forAdmin\":\"envAdmin\",\"forReceptores\":{}}");
+
+        assertThrows(IllegalArgumentException.class, () -> controller.enviarMensajeGrupal(dto));
+        verify(mensajeriaService, never()).guardarMensajeGrupal(any());
     }
 
     private static UsuarioEntity usuario(Long id, String email, boolean withPublicKey) {

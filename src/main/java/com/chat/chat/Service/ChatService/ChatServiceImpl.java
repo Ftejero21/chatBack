@@ -63,8 +63,11 @@ public class ChatServiceImpl implements ChatService {
     private static final long PIN_DURATION_30D_SECONDS = 2592000L;
     private static final long MUTE_DURATION_8H_SECONDS = 28800L;
     private static final long MUTE_DURATION_1W_SECONDS = 604800L;
+    private static final int MAX_CLOSE_REASON_LENGTH = 500;
+    private static final String DEFAULT_CLOSE_REASON = "Chat cerrado por un administrador";
     private static final String CURSOR_SEPARATOR = "_";
     private static final Pattern DIACRITICS_PATTERN = Pattern.compile("\\p{M}+");
+    private static final Pattern UNSAFE_CONTROL_CHARS = Pattern.compile("[\\p{Cntrl}&&[^\\r\\n\\t]]");
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     @Autowired
@@ -348,6 +351,71 @@ public class ChatServiceImpl implements ChatService {
                 safeSize,
                 Sort.by(Sort.Direction.DESC, "fechaCreacion").and(Sort.by(Sort.Direction.DESC, "id")));
         return chatGrupalRepo.findAdminGroupPage(pageable);
+    }
+
+    @Override
+    @Transactional
+    public ChatCloseStateDTO cerrarChatGrupalComoAdmin(Long chatId, String motivo, String ip, String userAgent) {
+        validateAdminOnly();
+        Long adminId = securityUtils.getAuthenticatedUserId();
+        String normalizedReason = normalizeCloseReason(motivo, true);
+        ChatGrupalEntity chat = chatGrupalRepo.findByIdWithUsuariosForUpdate(chatId)
+                .orElseThrow(() -> new RecursoNoEncontradoException(Constantes.MSG_CHAT_GRUPAL_NO_ENCONTRADO_ID + chatId));
+        if (!chat.isActivo()) {
+            throw new RecursoNoEncontradoException(Constantes.MSG_CHAT_GRUPAL_NO_ENCONTRADO_ID + chatId);
+        }
+
+        if (!chat.isClosed()) {
+            chat.setClosed(true);
+            chat.setClosedReason(normalizedReason);
+            chat.setClosedAt(Instant.now());
+            chat.setClosedByAdminId(adminId);
+            chat = chatGrupalRepo.save(chat);
+        }
+
+        ChatCloseStateDTO response = toChatCloseState(chat);
+        emitChatClosureEvent(chat, response);
+        LOGGER.info(
+                "[AUDIT_CHAT_GROUP_CLOSE] action=CLOSE adminId={} chatId={} ts={} reason={} ip={} userAgent={}",
+                adminId,
+                chatId,
+                Instant.now(),
+                response.getReason(),
+                safeAuditValue(ip),
+                safeAuditValue(userAgent));
+        return response;
+    }
+
+    @Override
+    @Transactional
+    public ChatCloseStateDTO reabrirChatGrupalComoAdmin(Long chatId, String ip, String userAgent) {
+        validateAdminOnly();
+        Long adminId = securityUtils.getAuthenticatedUserId();
+        ChatGrupalEntity chat = chatGrupalRepo.findByIdWithUsuariosForUpdate(chatId)
+                .orElseThrow(() -> new RecursoNoEncontradoException(Constantes.MSG_CHAT_GRUPAL_NO_ENCONTRADO_ID + chatId));
+        if (!chat.isActivo()) {
+            throw new RecursoNoEncontradoException(Constantes.MSG_CHAT_GRUPAL_NO_ENCONTRADO_ID + chatId);
+        }
+
+        if (chat.isClosed()) {
+            chat.setClosed(false);
+            chat.setClosedReason(null);
+            chat.setClosedAt(null);
+            chat.setClosedByAdminId(null);
+            chat = chatGrupalRepo.save(chat);
+        }
+
+        ChatCloseStateDTO response = toChatCloseState(chat);
+        emitChatClosureEvent(chat, response);
+        LOGGER.info(
+                "[AUDIT_CHAT_GROUP_CLOSE] action=REOPEN adminId={} chatId={} ts={} reason={} ip={} userAgent={}",
+                adminId,
+                chatId,
+                Instant.now(),
+                response.getReason(),
+                safeAuditValue(ip),
+                safeAuditValue(userAgent));
+        return response;
     }
 
     @Override
@@ -1645,6 +1713,10 @@ public class ChatServiceImpl implements ChatService {
             dto.setId(cg.getId());
             dto.setTipo(Constantes.CHAT_TIPO_GRUPAL);
             dto.setNombreChat(cg.getNombreGrupo() + Constantes.MSG_GRUPO_SUFFIX);
+            dto.setChatCerrado(cg.isClosed());
+            dto.setClosed(cg.isClosed());
+            dto.setChatCerradoMotivo(cg.isClosed() ? cg.getClosedReason() : null);
+            dto.setReason(cg.isClosed() ? cg.getClosedReason() : null);
             dto.setTotalMensajes(totalMensajesPorChat.getOrDefault(cg.getId(), 0));
             MensajeEntity ultimo = ultimoMensajePorChat.get(cg.getId());
             applyAdminRawMetadata(
@@ -2793,6 +2865,75 @@ public class ChatServiceImpl implements ChatService {
         if (!isAdmin) {
             throw new AccessDeniedException(Constantes.MSG_SOLO_ADMIN);
         }
+    }
+
+    private ChatCloseStateDTO toChatCloseState(ChatGrupalEntity chat) {
+        ChatCloseStateDTO dto = new ChatCloseStateDTO();
+        dto.setOk(true);
+        dto.setChatId(chat == null ? null : chat.getId());
+        boolean closed = chat != null && chat.isClosed();
+        dto.setClosed(closed);
+        dto.setCerrado(closed);
+        dto.setReason(closed && chat != null ? chat.getClosedReason() : null);
+        dto.setMotivo(closed && chat != null ? chat.getClosedReason() : null);
+        dto.setClosedAt(closed && chat != null ? chat.getClosedAt() : null);
+        dto.setClosedByAdminId(closed && chat != null ? chat.getClosedByAdminId() : null);
+        return dto;
+    }
+
+    private void emitChatClosureEvent(ChatGrupalEntity chat, ChatCloseStateDTO state) {
+        if (chat == null || chat.getUsuarios() == null || state == null) {
+            return;
+        }
+        ChatClosureEventDTO event = new ChatClosureEventDTO();
+        event.setChatId(state.getChatId());
+        event.setClosed(state.isClosed());
+        event.setCerrado(state.isCerrado());
+        event.setReason(state.getReason());
+        event.setMotivo(state.getMotivo());
+        event.setClosedAt(state.getClosedAt());
+        event.setClosedByAdminId(state.getClosedByAdminId());
+
+        chat.getUsuarios().stream()
+                .filter(Objects::nonNull)
+                .filter(UsuarioEntity::isActivo)
+                .forEach(u -> {
+                    if (u.getEmail() == null || u.getEmail().isBlank()) {
+                        return;
+                    }
+                    messagingTemplate.convertAndSendToUser(
+                            u.getEmail(),
+                            Constantes.WS_QUEUE_CHAT_CIERRES,
+                            event);
+                });
+    }
+
+    private String normalizeCloseReason(String reason, boolean applyDefaultWhenBlank) {
+        if (reason == null) {
+            return applyDefaultWhenBlank ? DEFAULT_CLOSE_REASON : null;
+        }
+        if (reason.indexOf('\u0000') >= 0) {
+            throw new IllegalArgumentException("motivo contiene null bytes no permitidos");
+        }
+        String sanitized = UNSAFE_CONTROL_CHARS.matcher(reason).replaceAll(" ").trim();
+        if (sanitized.isEmpty()) {
+            return applyDefaultWhenBlank ? DEFAULT_CLOSE_REASON : null;
+        }
+        if (sanitized.length() > MAX_CLOSE_REASON_LENGTH) {
+            throw new IllegalArgumentException("motivo excede longitud maxima de " + MAX_CLOSE_REASON_LENGTH + " caracteres");
+        }
+        return sanitized;
+    }
+
+    private String safeAuditValue(String value) {
+        if (value == null || value.isBlank()) {
+            return "-";
+        }
+        String trimmed = value.trim();
+        if (trimmed.length() <= 256) {
+            return trimmed;
+        }
+        return trimmed.substring(0, 256);
     }
 
 

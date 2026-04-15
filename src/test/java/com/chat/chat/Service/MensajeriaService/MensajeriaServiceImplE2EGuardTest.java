@@ -65,7 +65,7 @@ class MensajeriaServiceImplE2EGuardTest {
 
         when(securityUtils.getAuthenticatedUserId()).thenReturn(senderId);
         when(usuarioRepository.findById(senderId)).thenReturn(Optional.of(sender));
-        when(chatGrupalRepository.findById(groupId)).thenReturn(Optional.of(chat));
+        when(chatGrupalRepository.findByIdWithUsuariosForUpdate(groupId)).thenReturn(Optional.of(chat));
         when(usuarioRepository.findFreshById(recipientId)).thenReturn(Optional.of(recipient));
 
         MensajeDTO dto = new MensajeDTO();
@@ -96,7 +96,7 @@ class MensajeriaServiceImplE2EGuardTest {
 
         when(securityUtils.getAuthenticatedUserId()).thenReturn(senderId);
         when(usuarioRepository.findById(senderId)).thenReturn(Optional.of(sender));
-        when(chatGrupalRepository.findById(groupId)).thenReturn(Optional.of(chat));
+        when(chatGrupalRepository.findByIdWithUsuariosForUpdate(groupId)).thenReturn(Optional.of(chat));
         when(usuarioRepository.findFreshById(recipient1Id)).thenReturn(Optional.of(recipient1));
         when(usuarioRepository.findFreshById(recipient2Id)).thenReturn(Optional.of(recipient2));
 
@@ -126,7 +126,7 @@ class MensajeriaServiceImplE2EGuardTest {
 
         when(securityUtils.getAuthenticatedUserId()).thenReturn(senderId);
         when(usuarioRepository.findById(senderId)).thenReturn(Optional.of(sender));
-        when(chatGrupalRepository.findById(groupId)).thenReturn(Optional.of(chat));
+        when(chatGrupalRepository.findByIdWithUsuariosForUpdate(groupId)).thenReturn(Optional.of(chat));
         when(usuarioRepository.findFreshById(recipientId)).thenReturn(Optional.of(recipient));
 
         MensajeDTO dto = new MensajeDTO();
@@ -157,7 +157,7 @@ class MensajeriaServiceImplE2EGuardTest {
 
         when(securityUtils.getAuthenticatedUserId()).thenReturn(senderId);
         when(usuarioRepository.findById(senderId)).thenReturn(Optional.of(sender));
-        when(chatGrupalRepository.findById(groupId)).thenReturn(Optional.of(chat));
+        when(chatGrupalRepository.findByIdWithUsuariosForUpdate(groupId)).thenReturn(Optional.of(chat));
         when(usuarioRepository.findFreshById(recipient1Id)).thenReturn(Optional.of(recipient1));
         when(usuarioRepository.findFreshById(recipient2Id)).thenReturn(Optional.of(recipient2));
 

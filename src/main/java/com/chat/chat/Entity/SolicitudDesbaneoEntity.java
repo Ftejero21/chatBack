@@ -1,5 +1,6 @@
 package com.chat.chat.Entity;
 
+import com.chat.chat.Utils.ReporteTipo;
 import com.chat.chat.Utils.SolicitudDesbaneoEstado;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -20,7 +21,8 @@ import java.time.LocalDateTime;
         name = "solicitud_desbaneo",
         indexes = {
                 @Index(name = "idx_solicitud_desbaneo_estado_created_at", columnList = "estado,created_at"),
-                @Index(name = "idx_solicitud_desbaneo_created_at", columnList = "created_at")
+                @Index(name = "idx_solicitud_desbaneo_created_at", columnList = "created_at"),
+                @Index(name = "idx_solicitud_desbaneo_tipo_chat_usuario_estado", columnList = "tipo_reporte,chat_id,usuario_id,estado")
         }
 )
 public class SolicitudDesbaneoEntity {
@@ -31,6 +33,19 @@ public class SolicitudDesbaneoEntity {
 
     @Column(name = "usuario_id")
     private Long usuarioId;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "tipo_reporte", nullable = false, length = 20)
+    private ReporteTipo tipoReporte = ReporteTipo.DESBANEO;
+
+    @Column(name = "chat_id")
+    private Long chatId;
+
+    @Column(name = "chat_nombre_snapshot", length = 190)
+    private String chatNombreSnapshot;
+
+    @Column(name = "chat_cerrado_motivo_snapshot", length = 500)
+    private String chatCerradoMotivoSnapshot;
 
     @Column(nullable = false, length = 190)
     private String email;
@@ -63,6 +78,9 @@ public class SolicitudDesbaneoEntity {
         if (estado == null) {
             estado = SolicitudDesbaneoEstado.PENDIENTE;
         }
+        if (tipoReporte == null) {
+            tipoReporte = ReporteTipo.DESBANEO;
+        }
         updatedAt = now;
     }
 
@@ -85,6 +103,38 @@ public class SolicitudDesbaneoEntity {
 
     public void setUsuarioId(Long usuarioId) {
         this.usuarioId = usuarioId;
+    }
+
+    public ReporteTipo getTipoReporte() {
+        return tipoReporte;
+    }
+
+    public void setTipoReporte(ReporteTipo tipoReporte) {
+        this.tipoReporte = tipoReporte;
+    }
+
+    public Long getChatId() {
+        return chatId;
+    }
+
+    public void setChatId(Long chatId) {
+        this.chatId = chatId;
+    }
+
+    public String getChatNombreSnapshot() {
+        return chatNombreSnapshot;
+    }
+
+    public void setChatNombreSnapshot(String chatNombreSnapshot) {
+        this.chatNombreSnapshot = chatNombreSnapshot;
+    }
+
+    public String getChatCerradoMotivoSnapshot() {
+        return chatCerradoMotivoSnapshot;
+    }
+
+    public void setChatCerradoMotivoSnapshot(String chatCerradoMotivoSnapshot) {
+        this.chatCerradoMotivoSnapshot = chatCerradoMotivoSnapshot;
     }
 
     public String getEmail() {

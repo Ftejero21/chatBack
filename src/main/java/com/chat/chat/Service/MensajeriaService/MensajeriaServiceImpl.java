@@ -12,6 +12,7 @@ import com.chat.chat.Entity.MensajeDestacadoEntity;
 import com.chat.chat.Entity.MensajeEntity;
 import com.chat.chat.Entity.MensajeReaccionEntity;
 import com.chat.chat.Entity.UsuarioEntity;
+import com.chat.chat.Exceptions.ChatCerradoException;
 import com.chat.chat.Exceptions.ConflictoException;
 import com.chat.chat.Exceptions.E2EGroupValidationException;
 import com.chat.chat.Exceptions.ReenvioInvalidoException;
@@ -245,11 +246,20 @@ public class MensajeriaServiceImpl implements MensajeriaService {
 
         Long authenticatedUserId = securityUtils.getAuthenticatedUserId();
         try {
+            if (dto.getEmisorId() != null && !Objects.equals(dto.getEmisorId(), authenticatedUserId)) {
+                throw new AccessDeniedException(Constantes.ERR_RESPUESTA_NO_AUTORIZADA);
+            }
+            if (dto.getChatId() != null && dto.getReceptorId() != null && !Objects.equals(dto.getChatId(), dto.getReceptorId())) {
+                throw new IllegalArgumentException("chatId y receptorId no coinciden para chat grupal");
+            }
             UsuarioEntity emisor = usuarioRepository.findById(authenticatedUserId).orElseThrow();
 
             // dto.receptorId llega con el id del chat grupal
-            ChatGrupalEntity chatGrupal = chatGrupalRepository.findById(chatId)
+            ChatGrupalEntity chatGrupal = chatGrupalRepository.findByIdWithUsuariosForUpdate(chatId)
                     .orElseThrow(() -> new RuntimeException(Constantes.MSG_CHAT_GRUPAL_NO_ENCONTRADO));
+            if (chatGrupal.isClosed()) {
+                throw new ChatCerradoException(Constantes.MSG_CHAT_GRUPAL_CERRADO, chatId);
+            }
 
             List<Long> memberIdsAtSend = E2EGroupValidationUtils.activeMemberIds(chatGrupal);
             List<Long> expectedRecipientIds = E2EGroupValidationUtils.expectedActiveRecipientIds(chatGrupal, authenticatedUserId);
@@ -1333,7 +1343,7 @@ public class MensajeriaServiceImpl implements MensajeriaService {
         }
 
         if (chat instanceof ChatGrupalEntity) {
-            ChatGrupalEntity chatGrupal = chatGrupalRepository.findByIdWithUsuarios(chat.getId())
+            ChatGrupalEntity chatGrupal = chatGrupalRepository.findByIdWithUsuariosForUpdate(chat.getId())
                     .orElseThrow(() -> new RecursoNoEncontradoException(Constantes.MSG_CHAT_GRUPAL_NO_ENCONTRADO));
             if (!chatGrupal.isActivo()) {
                 throw new RecursoNoEncontradoException(Constantes.MSG_CHAT_GRUPAL_NO_ENCONTRADO);

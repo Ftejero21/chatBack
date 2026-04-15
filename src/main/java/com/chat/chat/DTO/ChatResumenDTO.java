@@ -21,6 +21,10 @@ public class ChatResumenDTO {
     private Long ultimoMensajeTemporalSegundos;
     private LocalDateTime ultimoMensajeExpiraEn;
     private String ultimoMensajeEstadoTemporal;
+    private Boolean chatCerrado;
+    private String chatCerradoMotivo;
+    private Boolean closed;
+    private String reason;
 
     public Long getId() {
         return id;
@@ -164,5 +168,37 @@ public class ChatResumenDTO {
 
     public void setUltimoMensajeEstadoTemporal(String ultimoMensajeEstadoTemporal) {
         this.ultimoMensajeEstadoTemporal = ultimoMensajeEstadoTemporal;
+    }
+
+    public Boolean getChatCerrado() {
+        return chatCerrado;
+    }
+
+    public void setChatCerrado(Boolean chatCerrado) {
+        this.chatCerrado = chatCerrado;
+    }
+
+    public String getChatCerradoMotivo() {
+        return chatCerradoMotivo;
+    }
+
+    public void setChatCerradoMotivo(String chatCerradoMotivo) {
+        this.chatCerradoMotivo = chatCerradoMotivo;
+    }
+
+    public Boolean getClosed() {
+        return closed;
+    }
+
+    public void setClosed(Boolean closed) {
+        this.closed = closed;
+    }
+
+    public String getReason() {
+        return reason;
+    }
+
+    public void setReason(String reason) {
+        this.reason = reason;
     }
 }

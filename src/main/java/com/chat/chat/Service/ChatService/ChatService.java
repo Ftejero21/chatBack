@@ -58,6 +58,8 @@ public interface ChatService {
     GroupDetailDTO obtenerDetalleGrupo(Long groupId);
     GroupDetailDTO actualizarMetadataGrupo(Long groupId, GroupMetadataUpdateDTO dto);
     Page<AdminGroupListDTO> listarGruposAdmin(Integer page, Integer size);
+    ChatCloseStateDTO cerrarChatGrupalComoAdmin(Long chatId, String motivo, String ip, String userAgent);
+    ChatCloseStateDTO reabrirChatGrupalComoAdmin(Long chatId, String ip, String userAgent);
 
     void setAdminGrupo(Long groupId, Long targetUserId, boolean makeAdmin);
 }

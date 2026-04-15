@@ -330,6 +330,10 @@ public class MappingUtils {
                 .collect(Collectors.toList());
         dto.setUsuarios(usuarios);
         dto.setFotoGrupo(safeFotoUrl(entity.getFotoUrl()));
+        dto.setChatCerrado(entity.isClosed());
+        dto.setClosed(entity.isClosed());
+        dto.setChatCerradoMotivo(entity.isClosed() ? entity.getClosedReason() : null);
+        dto.setReason(entity.isClosed() ? entity.getClosedReason() : null);
         return dto;
     }
 

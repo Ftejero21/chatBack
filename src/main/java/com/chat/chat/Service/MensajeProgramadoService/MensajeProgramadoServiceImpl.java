@@ -11,6 +11,7 @@ import com.chat.chat.Entity.ChatIndividualEntity;
 import com.chat.chat.Entity.MensajeEntity;
 import com.chat.chat.Entity.MensajeProgramadoEntity;
 import com.chat.chat.Entity.UsuarioEntity;
+import com.chat.chat.Exceptions.ChatCerradoException;
 import com.chat.chat.Exceptions.E2EGroupValidationException;
 import com.chat.chat.Exceptions.RecursoNoEncontradoException;
 import com.chat.chat.Exceptions.ValidacionPayloadException;
@@ -417,7 +418,7 @@ public class MensajeProgramadoServiceImpl implements MensajeProgramadoService {
         Optional<ChatIndividualEntity> chatIndividualOpt = chatIndividualRepository.findById(chatId);
         Optional<ChatGrupalEntity> chatGrupalOpt = chatIndividualOpt.isPresent()
                 ? Optional.empty()
-                : chatGrupalRepository.findByIdWithUsuarios(chatId);
+                : chatGrupalRepository.findByIdWithUsuariosForUpdate(chatId);
 
         if (chatIndividualOpt.isEmpty() && chatGrupalOpt.isEmpty()) {
             throw new RecursoNoEncontradoException(Constantes.MSG_CHAT_NO_ENCONTRADO_ID + chatId);
@@ -492,6 +493,9 @@ public class MensajeProgramadoServiceImpl implements MensajeProgramadoService {
                     .orElseThrow(() -> new RecursoNoEncontradoException(Constantes.MSG_CHAT_GRUPAL_NO_ENCONTRADO_ID + chatId));
             if (!chatGrupal.isActivo()) {
                 throw new AccessDeniedException(Constantes.MSG_CHAT_GRUPAL_NO_ENCONTRADO);
+            }
+            if (chatGrupal.isClosed()) {
+                throw new ChatCerradoException(Constantes.MSG_CHAT_GRUPAL_CERRADO, chatId);
             }
             boolean emisorEsMiembroActivo = chatGrupal.getUsuarios() != null && chatGrupal.getUsuarios().stream()
                     .filter(Objects::nonNull)
@@ -831,6 +835,7 @@ public class MensajeProgramadoServiceImpl implements MensajeProgramadoService {
             return !excepcionCifradoProgramado.isRecuperable();
         }
         return ex instanceof AccessDeniedException
+                || ex instanceof ChatCerradoException
                 || ex instanceof RecursoNoEncontradoException
                 || ex instanceof IllegalArgumentException;
     }

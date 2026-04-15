@@ -6,6 +6,9 @@ import com.chat.chat.DTO.AdminGroupListDTO;
 import com.chat.chat.DTO.ChatGrupalDTO;
 import com.chat.chat.DTO.ChatIndividualCreateDTO;
 import com.chat.chat.DTO.ChatIndividualDTO;
+import com.chat.chat.DTO.ChatCloseRequestDTO;
+import com.chat.chat.DTO.ChatCloseStateDTO;
+import com.chat.chat.DTO.ChatCerradoReporteCreateDTO;
 import com.chat.chat.DTO.ChatClearResponseDTO;
 import com.chat.chat.DTO.ChatMensajeBusquedaPageDTO;
 import com.chat.chat.DTO.ChatMuteRequestDTO;
@@ -24,6 +27,7 @@ import com.chat.chat.DTO.MensajeProgramadoDTO;
 import com.chat.chat.DTO.MessagueSalirGrupoDTO;
 import com.chat.chat.DTO.ProgramarMensajeRequestDTO;
 import com.chat.chat.DTO.ProgramarMensajeResponseDTO;
+import com.chat.chat.DTO.SolicitudDesbaneoDTO;
 import com.chat.chat.DTO.UserPinnedChatRequestDTO;
 import com.chat.chat.DTO.UserPinnedChatResponseDTO;
 import com.chat.chat.DTO.VotoEncuestaDTO;
@@ -31,6 +35,8 @@ import com.chat.chat.Exceptions.ApiError;
 import com.chat.chat.Service.ChatService.ChatService;
 import com.chat.chat.Service.MensajeProgramadoService.MensajeProgramadoService;
 import com.chat.chat.Service.MensajeriaService.MensajeriaService;
+import com.chat.chat.Service.SolicitudDesbaneoService.SolicitudDesbaneoService;
+import com.chat.chat.Security.HttpRateLimitService;
 import com.chat.chat.Utils.Constantes;
 import com.chat.chat.Utils.EstadoMensajeProgramado;
 import com.chat.chat.Utils.SecurityUtils;
@@ -57,6 +63,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import jakarta.servlet.http.HttpServletRequest;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
@@ -78,6 +85,12 @@ public class ChatController {
 
     @Autowired
     private SecurityUtils securityUtils;
+
+    @Autowired
+    private SolicitudDesbaneoService solicitudDesbaneoService;
+
+    @Autowired
+    private HttpRateLimitService httpRateLimitService;
 
     @PostMapping(Constantes.INDIVIDUAL)
     @Operation(summary = "Crear chat individual", description = "Crea o recupera un chat individual entre dos usuarios.")
@@ -167,6 +180,29 @@ public class ChatController {
         return chatService.crearChatGrupal(dto);
     }
 
+    @PostMapping(Constantes.GRUPAL_REPORTE_CIERRE)
+    @Operation(summary = "Reportar cierre de chat grupal", description = "Permite a un miembro reportar un grupo cerrado por admin para revision.")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "201", description = "Reporte creado"),
+            @ApiResponse(responseCode = "400", description = "Payload invalido", content = @Content(schema = @Schema(implementation = ApiError.class))),
+            @ApiResponse(responseCode = "403", description = "No autorizado/no miembro", content = @Content(schema = @Schema(implementation = ApiError.class))),
+            @ApiResponse(responseCode = "404", description = "Grupo no encontrado", content = @Content(schema = @Schema(implementation = ApiError.class))),
+            @ApiResponse(responseCode = "409", description = "Reporte duplicado abierto", content = @Content(schema = @Schema(implementation = ApiError.class))),
+            @ApiResponse(responseCode = "423", description = "El chat no esta cerrado", content = @Content(schema = @Schema(implementation = ApiError.class)))
+    })
+    public ResponseEntity<SolicitudDesbaneoDTO> reportarChatCerrado(@PathVariable("chatId") Long chatId,
+                                                                     @RequestBody(required = false) ChatCerradoReporteCreateDTO request,
+                                                                     HttpServletRequest servletRequest) {
+        httpRateLimitService.checkChatClosedReport(servletRequest, chatId);
+        String motivo = request == null ? null : request.getMotivo();
+        SolicitudDesbaneoDTO created = solicitudDesbaneoService.crearReporteChatCerrado(
+                chatId,
+                motivo,
+                servletRequest == null ? null : servletRequest.getRemoteAddr(),
+                servletRequest == null ? null : servletRequest.getHeader("User-Agent"));
+        return ResponseEntity.status(201).body(created);
+    }
+
     @PostMapping(Constantes.GRUPAL_ADD_USUARIOS)
     @Operation(summary = "Anadir usuarios al grupo", description = "Invita o incorpora una lista de usuarios a un grupo existente.")
     @ApiResponses(value = {
@@ -204,6 +240,40 @@ public class ChatController {
             @RequestParam(value = "page", defaultValue = "0") Integer page,
             @RequestParam(value = "size", defaultValue = "10") Integer size) {
         return ResponseEntity.ok(chatService.listarGruposAdmin(page, size));
+    }
+
+    @PostMapping(Constantes.ADMIN_GRUPO_CLOSE)
+    @Operation(summary = "Cerrar chat grupal (admin)", description = "Marca un grupo como cerrado e impide nuevos mensajes hasta su reapertura.")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Grupo cerrado correctamente"),
+            @ApiResponse(responseCode = "400", description = "Motivo invalido", content = @Content(schema = @Schema(implementation = ApiError.class))),
+            @ApiResponse(responseCode = "403", description = "Solo administradores", content = @Content(schema = @Schema(implementation = ApiError.class))),
+            @ApiResponse(responseCode = "404", description = "Grupo no encontrado", content = @Content(schema = @Schema(implementation = ApiError.class)))
+    })
+    public ResponseEntity<ChatCloseStateDTO> cerrarChatGrupalAdmin(@PathVariable("chatId") Long chatId,
+                                                                    @RequestBody(required = false) ChatCloseRequestDTO request,
+                                                                    HttpServletRequest servletRequest) {
+        String motivo = request == null ? null : request.getMotivo();
+        return ResponseEntity.ok(chatService.cerrarChatGrupalComoAdmin(
+                chatId,
+                motivo,
+                servletRequest == null ? null : servletRequest.getRemoteAddr(),
+                servletRequest == null ? null : servletRequest.getHeader("User-Agent")));
+    }
+
+    @DeleteMapping(Constantes.ADMIN_GRUPO_CLOSE)
+    @Operation(summary = "Reabrir chat grupal (admin)", description = "Reabre un grupo previamente cerrado para permitir nuevos mensajes.")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Grupo reabierto correctamente"),
+            @ApiResponse(responseCode = "403", description = "Solo administradores", content = @Content(schema = @Schema(implementation = ApiError.class))),
+            @ApiResponse(responseCode = "404", description = "Grupo no encontrado", content = @Content(schema = @Schema(implementation = ApiError.class)))
+    })
+    public ResponseEntity<ChatCloseStateDTO> reabrirChatGrupalAdmin(@PathVariable("chatId") Long chatId,
+                                                                     HttpServletRequest servletRequest) {
+        return ResponseEntity.ok(chatService.reabrirChatGrupalComoAdmin(
+                chatId,
+                servletRequest == null ? null : servletRequest.getRemoteAddr(),
+                servletRequest == null ? null : servletRequest.getHeader("User-Agent")));
     }
 
     @PostMapping(Constantes.GRUPAL_SALIR)

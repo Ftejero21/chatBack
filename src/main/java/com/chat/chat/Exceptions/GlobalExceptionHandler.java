@@ -106,6 +106,18 @@ public class GlobalExceptionHandler {
                 .body(new ApiError(ex.getCode(), ex.getMessage()));
     }
 
+    @ExceptionHandler(ChatCerradoException.class)
+    public ResponseEntity<ApiError> handleChatCerrado(ChatCerradoException ex) {
+        return ResponseEntity.status(HttpStatus.LOCKED)
+                .body(new ApiError(Constantes.ERR_CHAT_CERRADO, ex.getMessage()));
+    }
+
+    @ExceptionHandler(ChatNoCerradoException.class)
+    public ResponseEntity<ApiError> handleChatNoCerrado(ChatNoCerradoException ex) {
+        return ResponseEntity.status(HttpStatus.LOCKED)
+                .body(new ApiError(Constantes.ERR_CHAT_NO_CERRADO, ex.getMessage()));
+    }
+
     @ExceptionHandler(GoogleAuthException.class)
     public ResponseEntity<ApiError> handleGoogleAuth(GoogleAuthException ex) {
         return ResponseEntity.status(ex.getStatus())

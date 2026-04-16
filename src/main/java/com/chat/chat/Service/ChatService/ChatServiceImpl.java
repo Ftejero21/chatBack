@@ -63,6 +63,7 @@ public class ChatServiceImpl implements ChatService {
     private static final long PIN_DURATION_30D_SECONDS = 2592000L;
     private static final long MUTE_DURATION_8H_SECONDS = 28800L;
     private static final long MUTE_DURATION_1W_SECONDS = 604800L;
+    private static final long DEFAULT_ADMIN_DIRECT_EXPIRES_AFTER_READ_SECONDS = 86400L;
     private static final int MAX_CLOSE_REASON_LENGTH = 500;
     private static final String DEFAULT_CLOSE_REASON = "Chat cerrado por un administrador";
     private static final String CURSOR_SEPARATOR = "_";
@@ -144,11 +145,93 @@ public class ChatServiceImpl implements ChatService {
             throw new RuntimeException(Constantes.MSG_CHAT_INDIVIDUAL_BLOQUEADO);
         }
 
-        ChatIndividualEntity chat = new ChatIndividualEntity();
-        chat.setUsuario1(u1);
-        chat.setUsuario2(u2);
+        ChatIndividualEntity chat = chatIndRepo.findRegularChatBetween(u1, u2)
+                .orElseGet(() -> {
+                    ChatIndividualEntity nuevo = new ChatIndividualEntity();
+                    nuevo.setUsuario1(u1);
+                    nuevo.setUsuario2(u2);
+                    nuevo.setAdminDirect(false);
+                    return chatIndRepo.save(nuevo);
+                });
 
-        return MappingUtils.chatIndividualEntityADto(chatIndRepo.save(chat));
+        return MappingUtils.chatIndividualEntityADto(chat);
+    }
+
+    @Override
+    @Transactional
+    public AdminDirectMessageResponseDTO enviarMensajeDirectoAdmin(AdminDirectMessageRequestDTO request) {
+        validateAdminOnly();
+        if (request == null) {
+            throw new IllegalArgumentException("request es obligatorio");
+        }
+
+        Long adminId = securityUtils.getAuthenticatedUserId();
+        UsuarioEntity admin = usuarioRepo.findById(adminId)
+                .orElseThrow(() -> new RecursoNoEncontradoException(Constantes.MSG_USUARIO_AUTENTICADO_NO_ENCONTRADO));
+
+        LinkedHashSet<Long> userIds = new LinkedHashSet<>();
+        if (request.getUserIds() != null) {
+            request.getUserIds().stream()
+                    .filter(Objects::nonNull)
+                    .forEach(userIds::add);
+        }
+        if (request.getEncryptedPayloads() != null) {
+            request.getEncryptedPayloads().stream()
+                    .filter(Objects::nonNull)
+                    .map(AdminDirectMessagePayloadDTO::getUserId)
+                    .filter(Objects::nonNull)
+                    .forEach(userIds::add);
+        }
+        if (userIds.isEmpty()) {
+            throw new IllegalArgumentException("userIds es obligatorio");
+        }
+
+        long expiresAfterReadSeconds = normalizeAdminDirectExpiry(request.getExpiresAfterReadSeconds());
+        Map<Long, AdminDirectMessagePayloadDTO> payloadsByUserId = new LinkedHashMap<>();
+        if (request.getEncryptedPayloads() != null) {
+            request.getEncryptedPayloads().stream()
+                    .filter(Objects::nonNull)
+                    .filter(p -> p.getUserId() != null)
+                    .forEach(p -> payloadsByUserId.put(p.getUserId(), p));
+        }
+
+        AdminDirectMessageResponseDTO response = new AdminDirectMessageResponseDTO();
+        response.setRequestedUsers(userIds.size());
+        List<AdminDirectMessageResultDTO> results = new ArrayList<>();
+
+        for (Long userId : userIds) {
+            if (Objects.equals(userId, adminId)) {
+                throw new IllegalArgumentException("no se permite admin->admin en este flujo");
+            }
+            UsuarioEntity receptor = usuarioRepo.findById(userId)
+                    .orElseThrow(() -> new RecursoNoEncontradoException(Constantes.MSG_USUARIO_NO_EXISTE_ID + userId));
+            AdminDirectMessagePayloadDTO payload = payloadsByUserId.get(userId);
+            String contenido = payload != null && payload.getContenido() != null
+                    ? payload.getContenido()
+                    : request.getContenido();
+            if (contenido == null || contenido.isBlank()) {
+                throw new IllegalArgumentException("contenido es obligatorio para userId=" + userId);
+            }
+
+            ChatIndividualEntity chat = resolveOrCreateAdminDirectChat(admin, receptor, payload == null ? null : payload.getChatId());
+            MensajeEntity saved = persistAdminDirectMessage(admin, receptor, chat, contenido, expiresAfterReadSeconds);
+            MensajeDTO dto = MappingUtils.mensajeEntityADto(saved);
+            dto.setReceptorId(receptor.getId());
+
+            messagingTemplate.convertAndSend(Constantes.TOPIC_CHAT + receptor.getId(), dto);
+            messagingTemplate.convertAndSend(Constantes.TOPIC_CHAT + admin.getId(), dto);
+
+            AdminDirectMessageResultDTO item = new AdminDirectMessageResultDTO();
+            item.setUserId(userId);
+            item.setChatId(chat.getId());
+            item.setMessageId(saved.getId());
+            item.setDelivered(true);
+            results.add(item);
+        }
+
+        response.setResults(results);
+        response.setDeliveredUsers(results.size());
+        return response;
     }
 
     @Override
@@ -593,21 +676,19 @@ public class ChatServiceImpl implements ChatService {
                         // Chat ocultado para el usuario y sin mensajes nuevos desde el ocultado.
                         return null;
                     }
+                    if (chat.isAdminDirect() && last == null) {
+                        return null;
+                    }
 
-                    if (last == null) {
+                    if (last == null || !isVisibleMessageForUser(last)) {
                         dto.setUltimaMensaje(ChatConstants.MSG_SIN_MENSAJES);
                         dto.setUltimaFecha(null);
                         applyLastMessageMeta(dto, null);
-                    } else if (isTemporalExpirado(last)) {
-                        dto.setUltimaMensaje(buildPlaceholderTemporal(last));
-                        applyLastMessageMeta(dto, last);
-                    } else if (!last.isActivo()) {
-                        dto.setUltimaMensaje(ChatConstants.MSG_MENSAJE_ELIMINADO);
-                        applyLastMessageMeta(dto, last);
                     } else {
                         dto.setUltimaMensaje(buildIndividualPreview(last, usuarioId));
                         applyLastMessageMeta(dto, last);
                     }
+                    dto.setAdminDirect(chat.isAdminDirect());
                     return dto;
                 })
                 .filter(Objects::nonNull)
@@ -663,16 +744,10 @@ public class ChatServiceImpl implements ChatService {
                         return null;
                     }
 
-                    if (last == null) {
+                    if (last == null || !isVisibleMessageForUser(last)) {
                         dto.setUltimaMensaje(ChatConstants.MSG_SIN_MENSAJES);
                         dto.setUltimaFecha(null);
                         applyLastMessageMeta(dto, null);
-                    } else if (isTemporalExpirado(last)) {
-                        dto.setUltimaMensaje(buildPlaceholderTemporal(last));
-                        applyLastMessageMeta(dto, last);
-                    } else if (!last.isActivo()) {
-                        dto.setUltimaMensaje(ChatConstants.MSG_MENSAJE_ELIMINADO);
-                        applyLastMessageMeta(dto, last);
                     } else {
                         dto.setUltimaMensaje(buildGroupPreview(last, usuarioId));
                         applyLastMessageMeta(dto, last);
@@ -733,8 +808,8 @@ public class ChatServiceImpl implements ChatService {
         if (last == null) {
             return ChatConstants.MSG_SIN_MENSAJES;
         }
-        if (isTemporalExpirado(last)) {
-            return buildPlaceholderTemporal(last);
+        if (!isVisibleMessageForUser(last)) {
+            return ChatConstants.MSG_SIN_MENSAJES;
         }
         boolean soyYo = last.getEmisor() != null && Objects.equals(last.getEmisor().getId(), viewerId);
         String prefix = soyYo ? "Tu: " : "";
@@ -765,8 +840,8 @@ public class ChatServiceImpl implements ChatService {
         if (last == null) {
             return ChatConstants.MSG_SIN_MENSAJES;
         }
-        if (isTemporalExpirado(last)) {
-            return buildPlaceholderTemporal(last);
+        if (!isVisibleMessageForUser(last)) {
+            return ChatConstants.MSG_SIN_MENSAJES;
         }
         MessageType tipo = last.getTipo() == null ? MessageType.TEXT : last.getTipo();
         if (tipo == MessageType.SYSTEM) {
@@ -885,6 +960,25 @@ public class ChatServiceImpl implements ChatService {
                 && !mensaje.getExpiraEn().isAfter(LocalDateTime.now());
     }
 
+    private boolean isAdminTemporalExpiradoOculto(MensajeEntity mensaje) {
+        return mensaje != null
+                && mensaje.isAdminMessage()
+                && mensaje.isMensajeTemporal()
+                && (isTemporalExpirado(mensaje)
+                || "TEMPORAL_EXPIRADO".equalsIgnoreCase(mensaje.getMotivoEliminacion())
+                || mensaje.isExpiredByPolicy());
+    }
+
+    private boolean isVisibleMessageForUser(MensajeEntity mensaje) {
+        if (mensaje == null || !mensaje.isActivo()) {
+            return false;
+        }
+        if (isAdminTemporalExpiradoOculto(mensaje)) {
+            return false;
+        }
+        return !isTemporalExpirado(mensaje);
+    }
+
     private String buildPlaceholderTemporal(MensajeEntity mensaje) {
         if (mensaje == null) {
             return Utils.construirPlaceholderTemporal(null);
@@ -896,7 +990,7 @@ public class ChatServiceImpl implements ChatService {
     }
 
     private void applyLastMessageMeta(ChatIndividualDTO dto, MensajeEntity last) {
-        if (dto == null || last == null) {
+        if (dto == null || last == null || !isVisibleMessageForUser(last)) {
             if (dto != null) {
                 dto.setUltimaMensajeId(null);
                 dto.setUltimaMensajeTipo(null);
@@ -916,26 +1010,11 @@ public class ChatServiceImpl implements ChatService {
             return;
         }
         MessageType tipo = last.getTipo() == null ? MessageType.TEXT : last.getTipo();
-        boolean temporalExpirado = isTemporalExpirado(last);
         dto.setUltimaMensajeId(last.getId());
-        dto.setUltimaMensajeTipo(temporalExpirado ? MessageType.TEXT.name() : tipo.name());
+        dto.setUltimaMensajeTipo(tipo.name());
         dto.setUltimaMensajeEmisorId(last.getEmisor() == null ? null : last.getEmisor().getId());
-        dto.setUltimaMensajeRaw(temporalExpirado ? buildPlaceholderTemporal(last) : last.getContenido());
+        dto.setUltimaMensajeRaw(last.getContenido());
         dto.setUltimaFecha(last.getFechaEnvio());
-
-        if (temporalExpirado) {
-            dto.setUltimaMensajeImageUrl(null);
-            dto.setUltimaMensajeImageMime(null);
-            dto.setUltimaMensajeImageNombre(null);
-            dto.setUltimaMensajeAudioUrl(null);
-            dto.setUltimaMensajeAudioMime(null);
-            dto.setUltimaMensajeAudioDuracionMs(null);
-            dto.setUltimaMensajeFileUrl(null);
-            dto.setUltimaMensajeFileMime(null);
-            dto.setUltimaMensajeFileNombre(null);
-            dto.setUltimaMensajeFileSizeBytes(null);
-            return;
-        }
 
         GroupMediaMeta meta = extractMediaMeta(last);
         if (tipo == MessageType.IMAGE) {
@@ -990,7 +1069,7 @@ public class ChatServiceImpl implements ChatService {
     }
 
     private void applyLastMessageMeta(ChatGrupalDTO dto, MensajeEntity last) {
-        if (dto == null || last == null) {
+        if (dto == null || last == null || !isVisibleMessageForUser(last)) {
             if (dto != null) {
                 dto.setUltimaMensajeId(null);
                 dto.setUltimaMensajeTipo(null);
@@ -1010,26 +1089,11 @@ public class ChatServiceImpl implements ChatService {
             return;
         }
         MessageType tipo = last.getTipo() == null ? MessageType.TEXT : last.getTipo();
-        boolean temporalExpirado = isTemporalExpirado(last);
         dto.setUltimaMensajeId(last.getId());
-        dto.setUltimaMensajeTipo(temporalExpirado ? MessageType.TEXT.name() : tipo.name());
+        dto.setUltimaMensajeTipo(tipo.name());
         dto.setUltimaMensajeEmisorId(last.getEmisor() == null ? null : last.getEmisor().getId());
-        dto.setUltimaMensajeRaw(temporalExpirado ? buildPlaceholderTemporal(last) : last.getContenido());
+        dto.setUltimaMensajeRaw(last.getContenido());
         dto.setUltimaFecha(last.getFechaEnvio());
-
-        if (temporalExpirado) {
-            dto.setUltimaMensajeImageUrl(null);
-            dto.setUltimaMensajeImageMime(null);
-            dto.setUltimaMensajeImageNombre(null);
-            dto.setUltimaMensajeAudioUrl(null);
-            dto.setUltimaMensajeAudioMime(null);
-            dto.setUltimaMensajeAudioDuracionMs(null);
-            dto.setUltimaMensajeFileUrl(null);
-            dto.setUltimaMensajeFileMime(null);
-            dto.setUltimaMensajeFileNombre(null);
-            dto.setUltimaMensajeFileSizeBytes(null);
-            return;
-        }
 
         GroupMediaMeta meta = extractMediaMeta(last);
         if (tipo == MessageType.IMAGE) {
@@ -1147,6 +1211,7 @@ public class ChatServiceImpl implements ChatService {
         boolean groupChat = chat instanceof ChatGrupalEntity;
         Long cutoff = chatUserStateService.resolveCutoff(chatId, requesterId);
         List<MensajeEntity> mensajes = fetchMessagesPageChronological(chatId, cutoff, page, size);
+        marcarAdminTemporalesComoLeidosAlAbrirChat(mensajes, requesterId);
         Map<Long, List<MensajeReaccionEntity>> reaccionesPorMensaje = loadReaccionesPorMensaje(mensajes);
 
         List<MensajeDTO> salida = mensajes.stream()
@@ -1693,10 +1758,14 @@ public class ChatServiceImpl implements ChatService {
 
         List<ChatResumenDTO> resumenes = new ArrayList<>();
         for (ChatIndividualEntity ci : individuales) {
+            if (ci.isAdminDirect() && totalMensajesPorChat.getOrDefault(ci.getId(), 0) == 0) {
+                continue;
+            }
             ChatResumenDTO dto = new ChatResumenDTO();
             dto.setId(ci.getId());
             dto.setTipo(Constantes.CHAT_TIPO_INDIVIDUAL);
             dto.setNombreChat(ci.getUsuario1().getNombre() + Constantes.MSG_Y + ci.getUsuario2().getNombre());
+            dto.setAdminDirect(ci.isAdminDirect());
             dto.setTotalMensajes(totalMensajesPorChat.getOrDefault(ci.getId(), 0));
             MensajeEntity ultimo = ultimoMensajePorChat.get(ci.getId());
             applyAdminRawMetadata(
@@ -1729,6 +1798,72 @@ public class ChatServiceImpl implements ChatService {
         }
 
         return resumenes;
+    }
+
+    private long normalizeAdminDirectExpiry(Long requestedSeconds) {
+        if (requestedSeconds == null || requestedSeconds <= 0) {
+            return DEFAULT_ADMIN_DIRECT_EXPIRES_AFTER_READ_SECONDS;
+        }
+        return requestedSeconds;
+    }
+
+    private ChatIndividualEntity resolveOrCreateAdminDirectChat(UsuarioEntity admin,
+                                                                UsuarioEntity receptor,
+                                                                Long requestedChatId) {
+        if (admin == null || admin.getId() == null || receptor == null || receptor.getId() == null) {
+            throw new IllegalArgumentException("participantes invalidos para chat admin directo");
+        }
+
+        if (requestedChatId != null) {
+            ChatIndividualEntity chat = chatIndRepo.findById(requestedChatId)
+                    .orElseThrow(() -> new RecursoNoEncontradoException(Constantes.MSG_CHAT_INDIVIDUAL_NO_ENCONTRADO));
+            boolean samePair = (Objects.equals(chat.getUsuario1().getId(), admin.getId())
+                    && Objects.equals(chat.getUsuario2().getId(), receptor.getId()))
+                    || (Objects.equals(chat.getUsuario1().getId(), receptor.getId())
+                    && Objects.equals(chat.getUsuario2().getId(), admin.getId()));
+            if (!chat.isAdminDirect() || !samePair) {
+                throw new IllegalArgumentException("chatId no pertenece a chat admin directo del par solicitado");
+            }
+            return chat;
+        }
+
+        return chatIndRepo.findAdminDirectChatBetween(admin.getId(), receptor.getId())
+                .orElseGet(() -> {
+                    ChatIndividualEntity chat = new ChatIndividualEntity();
+                    chat.setUsuario1(admin);
+                    chat.setUsuario2(receptor);
+                    chat.setAdminDirect(true);
+                    return chatIndRepo.save(chat);
+                });
+    }
+
+    private MensajeEntity persistAdminDirectMessage(UsuarioEntity admin,
+                                                    UsuarioEntity receptor,
+                                                    ChatIndividualEntity chat,
+                                                    String contenido,
+                                                    long expiresAfterReadSeconds) {
+        LocalDateTime ahora = LocalDateTime.now();
+        MensajeEntity mensaje = new MensajeEntity();
+        mensaje.setChat(chat);
+        mensaje.setEmisor(admin);
+        mensaje.setReceptor(receptor);
+        mensaje.setTipo(MessageType.TEXT);
+        mensaje.setContenido(contenido);
+        mensaje.setContenidoBusqueda(normalizeForSearch(contenido));
+        mensaje.setFechaEnvio(ahora);
+        mensaje.setActivo(true);
+        mensaje.setLeido(false);
+        mensaje.setReenviado(false);
+        mensaje.setEditado(false);
+        mensaje.setMensajeTemporal(true);
+        mensaje.setMensajeTemporalSegundos(expiresAfterReadSeconds);
+        mensaje.setExpiraEn(null);
+        mensaje.setAdminMessage(true);
+        mensaje.setExpiresAfterReadSeconds(expiresAfterReadSeconds);
+        mensaje.setFirstReadAt(null);
+        mensaje.setExpireAt(null);
+        mensaje.setExpiredByPolicy(false);
+        return mensajeRepository.save(mensaje);
     }
 
     @Override
@@ -2049,8 +2184,88 @@ public class ChatServiceImpl implements ChatService {
     private List<MensajeEntity> fetchMessagesPageChronological(Long chatId, Long cutoff, Integer page, Integer size) {
         Pageable pageable = buildMessagesPageable(page, size);
         List<MensajeEntity> content = new ArrayList<>(mensajeRepository.findByChatIdVisibleAfter(chatId, cutoff, pageable).getContent());
+        content.removeIf(m -> !isVisibleMessageForUser(m));
         content.sort(Comparator.comparing(MensajeEntity::getFechaEnvio).thenComparing(MensajeEntity::getId));
         return content;
+    }
+
+    private void marcarAdminTemporalesComoLeidosAlAbrirChat(List<MensajeEntity> mensajes, Long requesterId) {
+        if (mensajes == null || mensajes.isEmpty() || requesterId == null) {
+            return;
+        }
+        LocalDateTime ahora = LocalDateTime.now();
+        List<MensajeEntity> pendientes = mensajes.stream()
+                .filter(Objects::nonNull)
+                .filter(m -> !m.isLeido())
+                .filter(m -> m.isActivo())
+                .filter(m -> m.getReceptor() != null && Objects.equals(m.getReceptor().getId(), requesterId))
+                .collect(Collectors.toList());
+        if (pendientes.isEmpty()) {
+            return;
+        }
+
+        pendientes.forEach(mensaje -> {
+            Long chatId = mensaje.getChat() == null ? null : mensaje.getChat().getId();
+            boolean adminTemporal = mensaje.isAdminMessage()
+                    && (mensaje.isMensajeTemporal()
+                    || (mensaje.getExpiresAfterReadSeconds() != null && mensaje.getExpiresAfterReadSeconds() > 0));
+            LOGGER.info("[ADMIN-TEMP-READ] start mensajeId={} chatId={} receptorId={} authUserId={} adminMessage={} mensajeTemporal={} leidoAntes={}",
+                    mensaje.getId(),
+                    chatId,
+                    mensaje.getReceptor() == null ? null : mensaje.getReceptor().getId(),
+                    requesterId,
+                    mensaje.isAdminMessage(),
+                    mensaje.isMensajeTemporal(),
+                    mensaje.isLeido());
+            mensaje.setLeido(true);
+            if (adminTemporal) {
+                iniciarExpiracionAdminSiCorrespondeDesdeChatOpen(mensaje, ahora);
+            }
+            String estadoTemporal = mensaje.getExpiraEn() == null ? "NO_TEMPORAL"
+                    : (mensaje.getExpiraEn().isAfter(LocalDateTime.now()) ? "ACTIVO" : "EXPIRADO");
+            LOGGER.info("[ADMIN-TEMP-READ] persisted mensajeId={} leidoDespues=true firstReadAt={} expireAt={} estadoTemporal={}",
+                    mensaje.getId(),
+                    mensaje.getFirstReadAt(),
+                    mensaje.getExpireAt(),
+                    estadoTemporal);
+        });
+        mensajeRepository.saveAll(pendientes);
+
+        pendientes.forEach(mensaje -> {
+            Long emisorId = mensaje.getEmisor() == null ? null : mensaje.getEmisor().getId();
+            if (emisorId != null) {
+                Map<String, Long> payload = new HashMap<>();
+                payload.put(Constantes.KEY_MENSAJE_ID, mensaje.getId());
+                messagingTemplate.convertAndSend(Constantes.WS_TOPIC_LEIDO + emisorId, payload);
+                MensajeDTO dto = MappingUtils.mensajeEntityADto(mensaje);
+                messagingTemplate.convertAndSend(Constantes.TOPIC_CHAT + emisorId, dto);
+                messagingTemplate.convertAndSend(Constantes.TOPIC_CHAT + requesterId, dto);
+            } else {
+                LOGGER.info("[ADMIN-TEMP-READ] skip mensajeId={} chatId={} receptorId={} authUserId={} reason=no-emisor-id",
+                        mensaje.getId(),
+                        mensaje.getChat() == null ? null : mensaje.getChat().getId(),
+                        mensaje.getReceptor() == null ? null : mensaje.getReceptor().getId(),
+                        requesterId);
+            }
+        });
+    }
+
+    private void iniciarExpiracionAdminSiCorrespondeDesdeChatOpen(MensajeEntity mensaje, LocalDateTime ahora) {
+        if (mensaje == null || !mensaje.isAdminMessage() || mensaje.getFirstReadAt() != null) {
+            return;
+        }
+        long segundos = mensaje.getExpiresAfterReadSeconds() != null && mensaje.getExpiresAfterReadSeconds() > 0
+                ? mensaje.getExpiresAfterReadSeconds()
+                : (mensaje.getMensajeTemporalSegundos() != null && mensaje.getMensajeTemporalSegundos() > 0
+                ? mensaje.getMensajeTemporalSegundos()
+                : DEFAULT_ADMIN_DIRECT_EXPIRES_AFTER_READ_SECONDS);
+        LocalDateTime base = ahora != null ? ahora : LocalDateTime.now();
+        LocalDateTime expireAt = base.plusSeconds(segundos);
+        mensaje.setFirstReadAt(base);
+        mensaje.setExpireAt(expireAt);
+        mensaje.setExpiraEn(expireAt);
+        mensaje.setMensajeTemporal(true);
+        mensaje.setMensajeTemporalSegundos(segundos);
     }
 
     private Pageable buildMessagesPageable(Integer page, Integer size) {

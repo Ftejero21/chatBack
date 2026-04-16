@@ -26,6 +26,7 @@ public class ChatIndividualDTO {
     private LocalDateTime pinnedAt;
 
     private Long unreadCount;
+    private Boolean adminDirect;
 
     public Long getId() {
         return id;
@@ -161,6 +162,14 @@ public class ChatIndividualDTO {
 
     public void setUnreadCount(Long unreadCount) {
         this.unreadCount = unreadCount;
+    }
+
+    public Boolean getAdminDirect() {
+        return adminDirect;
+    }
+
+    public void setAdminDirect(Boolean adminDirect) {
+        this.adminDirect = adminDirect;
     }
 
     public void setUltimaFecha(LocalDateTime ultimaFecha) {

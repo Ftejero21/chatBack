@@ -3,6 +3,8 @@ package com.chat.chat.Controller;
 import com.chat.chat.DTO.AddUsuariosGrupoDTO;
 import com.chat.chat.DTO.AddUsuariosGrupoWSResponse;
 import com.chat.chat.DTO.AdminGroupListDTO;
+import com.chat.chat.DTO.AdminDirectMessageRequestDTO;
+import com.chat.chat.DTO.AdminDirectMessageResponseDTO;
 import com.chat.chat.DTO.ChatGrupalDTO;
 import com.chat.chat.DTO.ChatIndividualCreateDTO;
 import com.chat.chat.DTO.ChatIndividualDTO;
@@ -100,6 +102,17 @@ public class ChatController {
     })
     public ChatIndividualDTO crearChatIndividual(@RequestBody ChatIndividualCreateDTO dto) {
         return chatService.crearChatIndividual(dto.getUsuario1Id(), dto.getUsuario2Id());
+    }
+
+    @PostMapping(Constantes.ADMIN_DIRECT_MESSAGES)
+    @Operation(summary = "Enviar mensaje administrativo directo efimero", description = "Crea o reutiliza un chat directo administrativo dedicado y entrega mensajes 1:1 por WebSocket.")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Mensajes administrativos entregados", content = @Content(schema = @Schema(implementation = AdminDirectMessageResponseDTO.class))),
+            @ApiResponse(responseCode = "403", description = "Solo administradores", content = @Content(schema = @Schema(implementation = ApiError.class))),
+            @ApiResponse(responseCode = "400", description = "Payload invalido", content = @Content(schema = @Schema(implementation = ApiError.class)))
+    })
+    public AdminDirectMessageResponseDTO enviarMensajeDirectoAdmin(@RequestBody AdminDirectMessageRequestDTO request) {
+        return chatService.enviarMensajeDirectoAdmin(request);
     }
 
     @GetMapping(Constantes.GRUPAL_ES_MIEMBRO)

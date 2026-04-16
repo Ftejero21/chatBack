@@ -67,6 +67,11 @@ public class MensajeDTO {
     private String audioUrlAuditoria;
     private String imageUrlAuditoria;
     private Boolean tieneOriginalAuditoria;
+    private Boolean adminMessage;
+    private Long expiresAfterReadSeconds;
+    private LocalDateTime firstReadAt;
+    private LocalDateTime expireAt;
+    private Boolean expiredByPolicy;
 
     private String emisorNombre;
     private String emisorApellido;
@@ -380,6 +385,46 @@ public class MensajeDTO {
 
     public void setTieneOriginalAuditoria(Boolean tieneOriginalAuditoria) {
         this.tieneOriginalAuditoria = tieneOriginalAuditoria;
+    }
+
+    public Boolean getAdminMessage() {
+        return adminMessage;
+    }
+
+    public void setAdminMessage(Boolean adminMessage) {
+        this.adminMessage = adminMessage;
+    }
+
+    public Long getExpiresAfterReadSeconds() {
+        return expiresAfterReadSeconds;
+    }
+
+    public void setExpiresAfterReadSeconds(Long expiresAfterReadSeconds) {
+        this.expiresAfterReadSeconds = expiresAfterReadSeconds;
+    }
+
+    public LocalDateTime getFirstReadAt() {
+        return firstReadAt;
+    }
+
+    public void setFirstReadAt(LocalDateTime firstReadAt) {
+        this.firstReadAt = firstReadAt;
+    }
+
+    public LocalDateTime getExpireAt() {
+        return expireAt;
+    }
+
+    public void setExpireAt(LocalDateTime expireAt) {
+        this.expireAt = expireAt;
+    }
+
+    public Boolean getExpiredByPolicy() {
+        return expiredByPolicy;
+    }
+
+    public void setExpiredByPolicy(Boolean expiredByPolicy) {
+        this.expiredByPolicy = expiredByPolicy;
     }
 
     public String getTipo() {

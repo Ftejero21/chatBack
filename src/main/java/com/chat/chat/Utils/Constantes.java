@@ -106,6 +106,7 @@ public class Constantes {
     public static final String ADMIN_CHAT_MENSAJES = "/admin/chat/{chatId}/mensajes";
     public static final String ADMIN_GRUPOS = "/admin/grupos";
     public static final String ADMIN_GRUPO_CLOSE = "/admin/grupos/{chatId}/close";
+    public static final String ADMIN_DIRECT_MESSAGES = "/admin/direct-messages";
     public static final String ADMIN_USUARIO_BAN = "/admin/{id}/ban";
     public static final String ADMIN_USUARIO_UNBAN = "/admin/{id}/unban";
     public static final String ADMIN_SOLICITUD_DESBANEO_LIST = "/admin/solicitudes-desbaneo";
@@ -460,6 +461,9 @@ public class Constantes {
     // System message events
     public static final String SYSTEM_EVENT_GROUP_MEMBER_REMOVED = "GROUP_MEMBER_REMOVED";
     public static final String SYSTEM_EVENT_GROUP_MEMBER_EXPELLED = "GROUP_MEMBER_EXPELLED";
+    public static final String SYSTEM_EVENT_ADMIN_DIRECT_CHAT_EXPIRED = "ADMIN_DIRECT_CHAT_EXPIRED";
+    public static final String SYSTEM_EVENT_ADMIN_DIRECT_CHAT_LIST_UPDATED = "ADMIN_DIRECT_CHAT_LIST_UPDATED";
+    public static final String SYSTEM_EVENT_ADMIN_DIRECT_CHAT_REMOVED = "ADMIN_DIRECT_CHAT_REMOVED";
 
     // Labels
     public static final String LABEL_INVITACION = "Invitación";

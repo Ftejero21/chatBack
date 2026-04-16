@@ -153,6 +153,11 @@ public class MappingUtils {
         e.setMotivoEliminacion(dto.getMotivoEliminacion());
         e.setPlaceholderTexto(dto.getPlaceholderTexto());
         e.setFechaEliminacion(dto.getFechaEliminacion());
+        e.setAdminMessage(Boolean.TRUE.equals(dto.getAdminMessage()));
+        e.setExpiresAfterReadSeconds(dto.getExpiresAfterReadSeconds());
+        e.setFirstReadAt(dto.getFirstReadAt());
+        e.setExpireAt(dto.getExpireAt());
+        e.setExpiredByPolicy(Boolean.TRUE.equals(dto.getExpiredByPolicy()));
         return e;
     }
 
@@ -219,6 +224,11 @@ public class MappingUtils {
         dto.setMotivoEliminacion(e.getMotivoEliminacion());
         dto.setPlaceholderTexto(e.getPlaceholderTexto());
         dto.setFechaEliminacion(e.getFechaEliminacion());
+        dto.setAdminMessage(e.isAdminMessage());
+        dto.setExpiresAfterReadSeconds(e.getExpiresAfterReadSeconds());
+        dto.setFirstReadAt(e.getFirstReadAt());
+        dto.setExpireAt(e.getExpireAt());
+        dto.setExpiredByPolicy(e.isExpiredByPolicy());
 
         if (isTemporalExpirado(e)) {
             String placeholder = firstNonBlank(
@@ -304,6 +314,7 @@ public class MappingUtils {
                                                              UsuarioEntity usuarioLogueado) {
         ChatIndividualDTO dto = new ChatIndividualDTO();
         dto.setId(entity.getId());
+        dto.setAdminDirect(entity.isAdminDirect());
 
         UsuarioEntity receptor = entity.getUsuario1().getId().equals(usuarioLogueado.getId())
                 ? entity.getUsuario2()
@@ -317,6 +328,7 @@ public class MappingUtils {
     public static ChatIndividualDTO chatIndividualEntityADto(ChatIndividualEntity entity) {
         ChatIndividualDTO dto = new ChatIndividualDTO();
         dto.setId(entity.getId());
+        dto.setAdminDirect(entity.isAdminDirect());
         dto.setReceptor(null);
         return dto;
     }

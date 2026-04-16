@@ -140,8 +140,7 @@ public class MensajeriaServiceImpl implements MensajeriaService {
         UsuarioEntity emisor = usuarioRepository.findById(authenticatedUserId).orElseThrow();
         UsuarioEntity receptor = usuarioRepository.findById(dto.getReceptorId()).orElseThrow();
 
-        ChatIndividualEntity chat = chatIndividualRepository.findByUsuario1AndUsuario2(emisor, receptor)
-                .or(() -> chatIndividualRepository.findByUsuario1AndUsuario2(receptor, emisor))
+        ChatIndividualEntity chat = chatIndividualRepository.findRegularChatBetween(emisor, receptor)
                 .orElseThrow(() -> new RuntimeException(Constantes.MSG_CHAT_INDIVIDUAL_NO_ENCONTRADO));
 
         normalizeReenvio(dto, authenticatedUserId);
@@ -761,10 +760,26 @@ public class MensajeriaServiceImpl implements MensajeriaService {
 
         List<MensajeEntity> autorizadosParaMarcar = mensajes.stream()
                 .filter(Objects::nonNull)
-                .filter(mensaje -> !mensaje.isLeido())
-                .filter(MensajeEntity::isActivo)
-                .filter(mensaje -> !isMensajeExpirado(mensaje.getExpiraEn()))
-                .filter(mensaje -> canMarkAsReadByUser(mensaje, authenticatedUserId))
+                .filter(mensaje -> {
+                    logAdminTempReadStart(mensaje, authenticatedUserId);
+                    if (mensaje.isLeido()) {
+                        logAdminTempReadSkip(mensaje, "already-read", authenticatedUserId);
+                        return false;
+                    }
+                    if (!mensaje.isActivo()) {
+                        logAdminTempReadSkip(mensaje, "inactive", authenticatedUserId);
+                        return false;
+                    }
+                    if (isMensajeExpirado(mensaje.getExpiraEn())) {
+                        logAdminTempReadSkip(mensaje, "already-expired", authenticatedUserId);
+                        return false;
+                    }
+                    boolean allowed = canMarkAsReadByUser(mensaje, authenticatedUserId);
+                    if (!allowed) {
+                        logAdminTempReadSkip(mensaje, "not-allowed", authenticatedUserId);
+                    }
+                    return allowed;
+                })
                 .collect(Collectors.toList());
 
         if (autorizadosParaMarcar.isEmpty()) {
@@ -772,12 +787,18 @@ public class MensajeriaServiceImpl implements MensajeriaService {
             return;
         }
 
-        mensajeRepository.saveAll(autorizadosParaMarcar.stream()
-                .peek(mensaje -> mensaje.setLeido(true))
-                .collect(Collectors.toList()));
+        LocalDateTime ahora = LocalDateTime.now();
+        List<MensajeEntity> actualizados = autorizadosParaMarcar.stream()
+                .peek(mensaje -> {
+                    mensaje.setLeido(true);
+                    iniciarExpiracionAdminSiCorresponde(mensaje, ahora);
+                    logAdminTempReadPersisted(mensaje);
+                })
+                .collect(Collectors.toList());
+        mensajeRepository.saveAll(actualizados);
 
         // Notificar por WebSocket al emisor de cada mensaje efectivamente marcado
-        autorizadosParaMarcar.forEach(mensaje -> {
+        actualizados.forEach(mensaje -> {
             if (mensaje.getEmisor() == null || mensaje.getEmisor().getId() == null) {
                 LOGGER.debug(Constantes.LOG_WS_MARK_READ_NO_EMISOR, mensaje.getId());
                 return;
@@ -788,7 +809,34 @@ public class MensajeriaServiceImpl implements MensajeriaService {
 
             messagingTemplate.convertAndSend(Constantes.WS_TOPIC_LEIDO + emisorId, payload);
             LOGGER.debug(Constantes.LOG_WS_SEND_LEIDO, emisorId, mensaje.getId());
+
+            if (mensaje.isAdminMessage()) {
+                MensajeDTO dto = MappingUtils.mensajeEntityADto(mensaje);
+                Long receptorId = mensaje.getReceptor() == null ? null : mensaje.getReceptor().getId();
+                messagingTemplate.convertAndSend(Constantes.TOPIC_CHAT + emisorId, dto);
+                if (receptorId != null) {
+                    messagingTemplate.convertAndSend(Constantes.TOPIC_CHAT + receptorId, dto);
+                }
+            }
         });
+    }
+
+    private void iniciarExpiracionAdminSiCorresponde(MensajeEntity mensaje, LocalDateTime ahora) {
+        if (mensaje == null || !mensaje.isAdminMessage() || mensaje.getFirstReadAt() != null) {
+            return;
+        }
+        long segundos = mensaje.getExpiresAfterReadSeconds() != null && mensaje.getExpiresAfterReadSeconds() > 0
+                ? mensaje.getExpiresAfterReadSeconds()
+                : (mensaje.getMensajeTemporalSegundos() != null && mensaje.getMensajeTemporalSegundos() > 0
+                ? mensaje.getMensajeTemporalSegundos()
+                : 86400L);
+        LocalDateTime base = ahora != null ? ahora : LocalDateTime.now();
+        LocalDateTime expireAt = base.plusSeconds(segundos);
+        mensaje.setFirstReadAt(base);
+        mensaje.setExpireAt(expireAt);
+        mensaje.setExpiraEn(expireAt);
+        mensaje.setMensajeTemporal(true);
+        mensaje.setMensajeTemporalSegundos(segundos);
     }
 
     private boolean canMarkAsReadByUser(MensajeEntity mensaje, Long authenticatedUserId) {
@@ -797,9 +845,15 @@ public class MensajeriaServiceImpl implements MensajeriaService {
         }
 
         ChatEntity chat = mensaje.getChat();
-        if (chat instanceof ChatIndividualEntity) {
-            Long receptorId = mensaje.getReceptor() == null ? null : mensaje.getReceptor().getId();
-            return Objects.equals(receptorId, authenticatedUserId) && usuarioPerteneceAlChat(authenticatedUserId, chat);
+        Long receptorId = mensaje.getReceptor() == null ? null : mensaje.getReceptor().getId();
+        if (Objects.equals(receptorId, authenticatedUserId)) {
+            if (chat == null || chat.getId() == null) {
+                return true;
+            }
+            if (chat instanceof ChatGrupalEntity) {
+                return usuarioPerteneceAlChat(authenticatedUserId, chat);
+            }
+            return usuarioPerteneceAlChat(authenticatedUserId, resolveChatIfNeeded(chat));
         }
 
         if (chat instanceof ChatGrupalEntity) {
@@ -1185,12 +1239,13 @@ public class MensajeriaServiceImpl implements MensajeriaService {
         if (authenticatedUserId == null || chat == null) {
             return false;
         }
-        if (chat instanceof ChatIndividualEntity chatIndividual) {
+        ChatEntity resolvedChat = resolveChatIfNeeded(chat);
+        if (resolvedChat instanceof ChatIndividualEntity chatIndividual) {
             Long user1Id = chatIndividual.getUsuario1() == null ? null : chatIndividual.getUsuario1().getId();
             Long user2Id = chatIndividual.getUsuario2() == null ? null : chatIndividual.getUsuario2().getId();
             return Objects.equals(user1Id, authenticatedUserId) || Objects.equals(user2Id, authenticatedUserId);
         }
-        if (chat instanceof ChatGrupalEntity chatGrupal) {
+        if (resolvedChat instanceof ChatGrupalEntity chatGrupal) {
             if (!chatGrupal.isActivo()) {
                 return false;
             }
@@ -1199,6 +1254,58 @@ public class MensajeriaServiceImpl implements MensajeriaService {
                     .anyMatch(u -> Objects.equals(u.getId(), authenticatedUserId) && u.isActivo());
         }
         return false;
+    }
+
+    private ChatEntity resolveChatIfNeeded(ChatEntity chat) {
+        if (chat == null || chat.getId() == null) {
+            return chat;
+        }
+        if (chat instanceof ChatIndividualEntity || chat instanceof ChatGrupalEntity) {
+            return chat;
+        }
+        return chatIndividualRepository.findById(chat.getId())
+                .<ChatEntity>map(c -> c)
+                .orElseGet(() -> chatGrupalRepository.findById(chat.getId())
+                        .<ChatEntity>map(c -> c)
+                        .orElse(chat));
+    }
+
+    private void logAdminTempReadStart(MensajeEntity mensaje, Long authenticatedUserId) {
+        if (mensaje == null || !mensaje.isAdminMessage() || !mensaje.isMensajeTemporal()) {
+            return;
+        }
+        LOGGER.info("[ADMIN-TEMP-READ] start mensajeId={} chatId={} receptorId={} authUserId={} adminMessage={} mensajeTemporal={} leidoAntes={}",
+                mensaje.getId(),
+                mensaje.getChat() == null ? null : mensaje.getChat().getId(),
+                mensaje.getReceptor() == null ? null : mensaje.getReceptor().getId(),
+                authenticatedUserId,
+                mensaje.isAdminMessage(),
+                mensaje.isMensajeTemporal(),
+                mensaje.isLeido());
+    }
+
+    private void logAdminTempReadPersisted(MensajeEntity mensaje) {
+        if (mensaje == null || !mensaje.isAdminMessage() || !mensaje.isMensajeTemporal()) {
+            return;
+        }
+        String estadoTemporal = mensaje.getExpiraEn() == null ? "NO_TEMPORAL" : (isMensajeExpirado(mensaje.getExpiraEn()) ? "EXPIRADO" : "ACTIVO");
+        LOGGER.info("[ADMIN-TEMP-READ] persisted mensajeId={} leidoDespues=true firstReadAt={} expireAt={} estadoTemporal={}",
+                mensaje.getId(),
+                mensaje.getFirstReadAt(),
+                mensaje.getExpireAt(),
+                estadoTemporal);
+    }
+
+    private void logAdminTempReadSkip(MensajeEntity mensaje, String reason, Long authenticatedUserId) {
+        if (mensaje == null || !mensaje.isAdminMessage() || !mensaje.isMensajeTemporal()) {
+            return;
+        }
+        LOGGER.info("[ADMIN-TEMP-READ] skip mensajeId={} chatId={} receptorId={} authUserId={} reason={}",
+                mensaje.getId(),
+                mensaje.getChat() == null ? null : mensaje.getChat().getId(),
+                mensaje.getReceptor() == null ? null : mensaje.getReceptor().getId(),
+                authenticatedUserId,
+                reason);
     }
 
     private MensajeDestacadoDTO mapDestacadoDto(MensajeDestacadoEntity destacado) {

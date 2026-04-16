@@ -5,6 +5,7 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
+import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
@@ -29,15 +30,15 @@ public class MensajeEntity {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @ManyToOne
+    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "emisor_id")
     private UsuarioEntity emisor;
 
-    @ManyToOne
+    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "receptor_id")
     private UsuarioEntity receptor;
 
-    @ManyToOne
+    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "chat_id")
     private ChatEntity chat;
 
@@ -110,6 +111,21 @@ public class MensajeEntity {
 
     @Column(name = "fecha_eliminacion")
     private LocalDateTime fechaEliminacion;
+
+    @Column(name = "admin_message", nullable = false)
+    private boolean adminMessage = false;
+
+    @Column(name = "expires_after_read_seconds")
+    private Long expiresAfterReadSeconds;
+
+    @Column(name = "first_read_at")
+    private LocalDateTime firstReadAt;
+
+    @Column(name = "expire_at")
+    private LocalDateTime expireAt;
+
+    @Column(name = "expired_by_policy", nullable = false)
+    private boolean expiredByPolicy = false;
 
     public Long getId() {
         return id;
@@ -325,5 +341,45 @@ public class MensajeEntity {
 
     public void setFechaEliminacion(LocalDateTime fechaEliminacion) {
         this.fechaEliminacion = fechaEliminacion;
+    }
+
+    public boolean isAdminMessage() {
+        return adminMessage;
+    }
+
+    public void setAdminMessage(boolean adminMessage) {
+        this.adminMessage = adminMessage;
+    }
+
+    public Long getExpiresAfterReadSeconds() {
+        return expiresAfterReadSeconds;
+    }
+
+    public void setExpiresAfterReadSeconds(Long expiresAfterReadSeconds) {
+        this.expiresAfterReadSeconds = expiresAfterReadSeconds;
+    }
+
+    public LocalDateTime getFirstReadAt() {
+        return firstReadAt;
+    }
+
+    public void setFirstReadAt(LocalDateTime firstReadAt) {
+        this.firstReadAt = firstReadAt;
+    }
+
+    public LocalDateTime getExpireAt() {
+        return expireAt;
+    }
+
+    public void setExpireAt(LocalDateTime expireAt) {
+        this.expireAt = expireAt;
+    }
+
+    public boolean isExpiredByPolicy() {
+        return expiredByPolicy;
+    }
+
+    public void setExpiredByPolicy(boolean expiredByPolicy) {
+        this.expiredByPolicy = expiredByPolicy;
     }
 }

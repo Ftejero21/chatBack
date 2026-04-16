@@ -35,6 +35,8 @@ public interface MensajeRepository extends JpaRepository<MensajeEntity, Long> {
 
     @Query(value = "select * from mensajes m " +
             "where m.chat_id = :chatId " +
+            "and m.activo = true " +
+            "and (m.expira_en is null or m.expira_en > CURRENT_TIMESTAMP) " +
             "and (:cutoff is null or m.id > :cutoff) " +
             "order by m.fecha_envio desc, m.id desc " +
             "limit 1", nativeQuery = true)
@@ -93,6 +95,8 @@ public interface MensajeRepository extends JpaRepository<MensajeEntity, Long> {
 
     @Query("select m from MensajeEntity m " +
             "where m.chat.id = :chatId " +
+            "and m.activo = true " +
+            "and (m.expiraEn is null or m.expiraEn > CURRENT_TIMESTAMP) " +
             "and (:cutoff is null or m.id > :cutoff)")
     Page<MensajeEntity> findByChatIdVisibleAfter(@Param("chatId") Long chatId,
                                                   @Param("cutoff") Long cutoff,
@@ -196,6 +200,13 @@ public interface MensajeRepository extends JpaRepository<MensajeEntity, Long> {
             @Param("ahora") LocalDateTime ahora,
             @Param("motivo") String motivo,
             Pageable pageable);
+
+    @Query("select m from MensajeEntity m " +
+            "where m.chat.id = :chatId " +
+            "and m.adminMessage = true " +
+            "and m.activo = true " +
+            "and (m.expiraEn is null or m.expiraEn > CURRENT_TIMESTAMP)")
+    List<MensajeEntity> findVisibleAdminMessagesByChatId(@Param("chatId") Long chatId);
 
     @Query("select count(m) from MensajeEntity m " +
             "where m.mensajeTemporal = true " +

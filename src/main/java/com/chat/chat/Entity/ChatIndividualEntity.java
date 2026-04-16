@@ -14,6 +14,9 @@ public class ChatIndividualEntity extends ChatEntity {
     @JoinColumn(name = "usuario2_id")
     private UsuarioEntity usuario2;
 
+    @Column(name = "admin_direct", nullable = false)
+    private boolean adminDirect = false;
+
     public UsuarioEntity getUsuario1() {
         return usuario1;
     }
@@ -28,5 +31,13 @@ public class ChatIndividualEntity extends ChatEntity {
 
     public void setUsuario2(UsuarioEntity usuario2) {
         this.usuario2 = usuario2;
+    }
+
+    public boolean isAdminDirect() {
+        return adminDirect;
+    }
+
+    public void setAdminDirect(boolean adminDirect) {
+        this.adminDirect = adminDirect;
     }
 }

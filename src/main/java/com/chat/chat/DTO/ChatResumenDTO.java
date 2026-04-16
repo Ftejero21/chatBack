@@ -25,6 +25,7 @@ public class ChatResumenDTO {
     private String chatCerradoMotivo;
     private Boolean closed;
     private String reason;
+    private Boolean adminDirect;
 
     public Long getId() {
         return id;
@@ -200,5 +201,13 @@ public class ChatResumenDTO {
 
     public void setReason(String reason) {
         this.reason = reason;
+    }
+
+    public Boolean getAdminDirect() {
+        return adminDirect;
+    }
+
+    public void setAdminDirect(Boolean adminDirect) {
+        this.adminDirect = adminDirect;
     }
 }

@@ -10,6 +10,7 @@ import org.springframework.data.domain.Page;
 public interface ChatService {
 
     ChatIndividualDTO crearChatIndividual(Long usuario1Id, Long usuario2Id);
+    AdminDirectMessageResponseDTO enviarMensajeDirectoAdmin(AdminDirectMessageRequestDTO request);
     ChatGrupalDTO crearChatGrupal(ChatGrupalDTO dto);
 
     MessagueSalirGrupoDTO salirDeChatGrupal(Long groupId, Long userId);

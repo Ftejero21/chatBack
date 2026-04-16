@@ -13,7 +13,24 @@ import java.util.Optional;
 @Repository
 public interface ChatIndividualRepository extends JpaRepository<ChatIndividualEntity, Long> {
     List<ChatIndividualEntity> findAllByUsuario1IdOrUsuario2Id(Long usuario1Id, Long usuario2Id);
-    Optional<ChatIndividualEntity> findByUsuario1AndUsuario2(UsuarioEntity u1, UsuarioEntity u2);
+    Optional<ChatIndividualEntity> findByUsuario1AndUsuario2AndAdminDirectFalse(UsuarioEntity u1, UsuarioEntity u2);
+
+    @Query("""
+            select ci from ChatIndividualEntity ci
+            where ci.adminDirect = false
+              and ((ci.usuario1 = :u1 and ci.usuario2 = :u2) or (ci.usuario1 = :u2 and ci.usuario2 = :u1))
+            """)
+    Optional<ChatIndividualEntity> findRegularChatBetween(@Param("u1") UsuarioEntity u1,
+                                                          @Param("u2") UsuarioEntity u2);
+
+    @Query("""
+            select ci from ChatIndividualEntity ci
+            where ci.adminDirect = true
+              and ((ci.usuario1.id = :userAId and ci.usuario2.id = :userBId)
+                or (ci.usuario1.id = :userBId and ci.usuario2.id = :userAId))
+            """)
+    Optional<ChatIndividualEntity> findAdminDirectChatBetween(@Param("userAId") Long userAId,
+                                                              @Param("userBId") Long userBId);
 
     @Query("""
             select distinct

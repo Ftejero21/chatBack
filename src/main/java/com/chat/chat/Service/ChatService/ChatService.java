@@ -6,11 +6,13 @@ import com.chat.chat.DTO.*;
 
 import java.util.List;
 import org.springframework.data.domain.Page;
+import org.springframework.web.multipart.MultipartFile;
 
 public interface ChatService {
 
     ChatIndividualDTO crearChatIndividual(Long usuario1Id, Long usuario2Id);
     AdminDirectMessageResponseDTO enviarMensajeDirectoAdmin(AdminDirectMessageRequestDTO request);
+    BulkEmailResponseDTO enviarBulkEmailAdmin(BulkEmailRequestDTO request, List<MultipartFile> attachments);
     ChatGrupalDTO crearChatGrupal(ChatGrupalDTO dto);
 
     MessagueSalirGrupoDTO salirDeChatGrupal(Long groupId, Long userId);

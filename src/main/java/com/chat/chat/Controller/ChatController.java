@@ -5,6 +5,9 @@ import com.chat.chat.DTO.AddUsuariosGrupoWSResponse;
 import com.chat.chat.DTO.AdminGroupListDTO;
 import com.chat.chat.DTO.AdminDirectMessageRequestDTO;
 import com.chat.chat.DTO.AdminDirectMessageResponseDTO;
+import com.chat.chat.DTO.AdminDirectMessageScheduledRequestDTO;
+import com.chat.chat.DTO.BulkEmailRequestDTO;
+import com.chat.chat.DTO.BulkEmailResponseDTO;
 import com.chat.chat.DTO.ChatGrupalDTO;
 import com.chat.chat.DTO.ChatIndividualCreateDTO;
 import com.chat.chat.DTO.ChatIndividualDTO;
@@ -29,6 +32,7 @@ import com.chat.chat.DTO.MensajeProgramadoDTO;
 import com.chat.chat.DTO.MessagueSalirGrupoDTO;
 import com.chat.chat.DTO.ProgramarMensajeRequestDTO;
 import com.chat.chat.DTO.ProgramarMensajeResponseDTO;
+import com.chat.chat.DTO.ScheduledBatchResponseDTO;
 import com.chat.chat.DTO.SolicitudDesbaneoDTO;
 import com.chat.chat.DTO.UserPinnedChatRequestDTO;
 import com.chat.chat.DTO.UserPinnedChatResponseDTO;
@@ -49,9 +53,13 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -63,7 +71,9 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.List;
@@ -75,6 +85,8 @@ import java.util.Objects;
 @CrossOrigin(Constantes.CORS_ANY_ORIGIN)
 @Tag(name = "Chats", description = "Endpoints para crear y gestionar conversaciones individuales y grupales.")
 public class ChatController {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(ChatController.class);
 
     @Autowired
     private ChatService chatService;
@@ -113,6 +125,62 @@ public class ChatController {
     })
     public AdminDirectMessageResponseDTO enviarMensajeDirectoAdmin(@RequestBody AdminDirectMessageRequestDTO request) {
         return chatService.enviarMensajeDirectoAdmin(request);
+    }
+
+    @PostMapping(value = Constantes.ADMIN_BULK_EMAIL, consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PreAuthorize("hasRole('ADMIN')")
+    @Operation(summary = "Enviar correo administrativo masivo", description = "Procesa multipart/form-data con payload JSON y attachments para envio parcial a multiples destinatarios.")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Bulk email procesado", content = @Content(schema = @Schema(implementation = BulkEmailResponseDTO.class))),
+            @ApiResponse(responseCode = "403", description = "Solo administradores", content = @Content(schema = @Schema(implementation = ApiError.class))),
+            @ApiResponse(responseCode = "400", description = "Payload invalido", content = @Content(schema = @Schema(implementation = ApiError.class)))
+    })
+    public BulkEmailResponseDTO enviarBulkEmailAdmin(
+            @RequestPart("payload") BulkEmailRequestDTO payload,
+            @RequestPart(value = "attachments", required = false) List<MultipartFile> attachments) {
+        return chatService.enviarBulkEmailAdmin(payload, attachments);
+    }
+
+    @PostMapping(Constantes.ADMIN_DIRECT_MESSAGES_SCHEDULED)
+    @PreAuthorize("hasRole('ADMIN')")
+    @Operation(summary = "Programar mensajes administrativos directos", description = "Programa envios administrativos directos para una fecha/hora futura.")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Envio programado"),
+            @ApiResponse(responseCode = "403", description = "Solo administradores", content = @Content(schema = @Schema(implementation = ApiError.class))),
+            @ApiResponse(responseCode = "400", description = "Payload invalido", content = @Content(schema = @Schema(implementation = ApiError.class)))
+    })
+    public ResponseEntity<ScheduledBatchResponseDTO> programarMensajesDirectosAdmin(
+            @RequestBody AdminDirectMessageScheduledRequestDTO payload) {
+        LOGGER.info("[ADMIN_DIRECT_SCHEDULED_REQUEST] audienceMode={} userIds={} scheduledAtUTC={} scheduledAtLocal={} hasContenido={} hasMessage={}",
+                payload == null ? null : payload.getAudienceMode(),
+                payload == null ? null : payload.getUserIds(),
+                payload == null ? null : payload.getScheduledAt(),
+                payload == null ? null : payload.getScheduledAtLocal(),
+                payload != null && payload.getContenido() != null && !payload.getContenido().isBlank(),
+                payload != null && payload.getMessage() != null && !payload.getMessage().isBlank());
+        return ResponseEntity.ok(mensajeProgramadoService.crearMensajesDirectosAdminProgramados(payload));
+    }
+
+    @PostMapping(value = Constantes.ADMIN_BULK_EMAIL_SCHEDULED, consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PreAuthorize("hasRole('ADMIN')")
+    @Operation(summary = "Programar bulk email administrativo", description = "Programa el envio futuro de correos administrativos con adjuntos.")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Bulk email programado"),
+            @ApiResponse(responseCode = "403", description = "Solo administradores", content = @Content(schema = @Schema(implementation = ApiError.class))),
+            @ApiResponse(responseCode = "400", description = "Payload invalido", content = @Content(schema = @Schema(implementation = ApiError.class)))
+    })
+    public ResponseEntity<ScheduledBatchResponseDTO> programarBulkEmailAdmin(
+            @RequestPart("payload") BulkEmailRequestDTO payload,
+            @RequestPart(value = "attachments", required = false) List<MultipartFile> attachments) {
+        LOGGER.info("[ADMIN_BULK_EMAIL_SCHEDULED_REQUEST] audienceMode={} userIds={} recipientEmails={} scheduledAtUTC={} scheduledAtLocal={} attachmentCountDeclared={} attachmentCountReceived={}",
+                payload == null ? null : payload.getAudienceMode(),
+                payload == null ? null : payload.getUserIds(),
+                payload == null ? null : payload.getRecipientEmails(),
+                payload == null ? null : payload.getScheduledAt(),
+                payload == null ? null : payload.getScheduledAtLocal(),
+                payload == null ? null : payload.getAttachmentCount(),
+                attachments == null ? 0 : attachments.size());
+        return ResponseEntity.ok(mensajeProgramadoService.crearBulkEmailsProgramados(payload, attachments));
     }
 
     @GetMapping(Constantes.GRUPAL_ES_MIEMBRO)

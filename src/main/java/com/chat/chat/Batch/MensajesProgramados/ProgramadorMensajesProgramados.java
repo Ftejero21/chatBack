@@ -41,6 +41,11 @@ public class ProgramadorMensajesProgramados {
         }
         Instant nowUtc = Instant.now();
         String lockToken = UUID.randomUUID().toString();
+        LOGGER.info("[SCHEDULED_CYCLE_START] nowUTC={} batchSize={} lockSeconds={} token={}",
+                nowUtc,
+                Math.max(1, batchSize),
+                Math.max(10, lockSeconds),
+                lockToken);
         List<Long> ids = mensajeProgramadoService.reclamarMensajesVencidos(
                 nowUtc,
                 lockToken,

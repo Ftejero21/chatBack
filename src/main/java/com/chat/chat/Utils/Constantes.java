@@ -107,6 +107,9 @@ public class Constantes {
     public static final String ADMIN_GRUPOS = "/admin/grupos";
     public static final String ADMIN_GRUPO_CLOSE = "/admin/grupos/{chatId}/close";
     public static final String ADMIN_DIRECT_MESSAGES = "/admin/direct-messages";
+    public static final String ADMIN_DIRECT_MESSAGES_SCHEDULED = "/admin/direct-messages/scheduled";
+    public static final String ADMIN_BULK_EMAIL = "/admin/bulk-email";
+    public static final String ADMIN_BULK_EMAIL_SCHEDULED = "/admin/bulk-email/scheduled";
     public static final String ADMIN_USUARIO_BAN = "/admin/{id}/ban";
     public static final String ADMIN_USUARIO_UNBAN = "/admin/{id}/unban";
     public static final String ADMIN_SOLICITUD_DESBANEO_LIST = "/admin/solicitudes-desbaneo";
@@ -324,8 +327,13 @@ public class Constantes {
     public static final String EMAIL_TEMPLATE_PASSWORD_CHANGE = "templates/password-reset.html";
     public static final String EMAIL_SUBJECT_REGISTRATION_VERIFICATION = "Código de verificación para completar tu registro - TejeChat";
     public static final String EMAIL_TEMPLATE_REGISTRATION_VERIFICATION = "templates/registration-verification.html";
+    public static final String EMAIL_TEMPLATE_ADMIN_BULK = "templates/admin-bulk-email.html";
     public static final String KEY_MINUTES = "minutes";
     public static final String KEY_TITLE = "title";
+    public static final String EMAIL_VAR_SUBJECT = "subject";
+    public static final String EMAIL_VAR_BODY = "body";
+    public static final String SCHEDULED_DELIVERY_TYPE_CHAT_MESSAGE = "CHAT_MESSAGE";
+    public static final String SCHEDULED_DELIVERY_TYPE_ADMIN_BULK_EMAIL = "ADMIN_BULK_EMAIL";
     public static final String TITLE_PASSWORD_RESET = "Recuperación de contraseña";
     public static final String TITLE_PASSWORD_CHANGE = "Verificación de cambio de contraseña";
     public static final String TITLE_REGISTRATION_VERIFICATION = "Verificación de registro";

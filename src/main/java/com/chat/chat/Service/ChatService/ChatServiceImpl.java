@@ -7,8 +7,10 @@ import com.chat.chat.Mapper.GroupMediaItemMapper;
 import com.chat.chat.Mapper.GroupMediaMeta;
 import com.chat.chat.Exceptions.SemanticApiException;
 import com.chat.chat.Exceptions.RecursoNoEncontradoException;
+import com.chat.chat.Exceptions.ValidacionPayloadException;
 import com.chat.chat.Repository.*;
 import com.chat.chat.Service.EncuestaService.EncuestaService;
+import com.chat.chat.Service.EmailService.EmailService;
 import com.chat.chat.Utils.*;
 import com.chat.chat.Utils.ExceptionConstants;
 import com.chat.chat.Utils.ChatConstants;
@@ -26,6 +28,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
+import org.springframework.web.multipart.MultipartFile;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -130,6 +134,9 @@ public class ChatServiceImpl implements ChatService {
     @Autowired
     private ChatUserStateService chatUserStateService;
 
+    @Autowired
+    private EmailService emailService;
+
     @Override
     public ChatIndividualDTO crearChatIndividual(Long usuario1Id, Long usuario2Id) {
         Long authenticatedUserId = securityUtils.getAuthenticatedUserId();
@@ -231,6 +238,72 @@ public class ChatServiceImpl implements ChatService {
 
         response.setResults(results);
         response.setDeliveredUsers(results.size());
+        return response;
+    }
+
+    @Override
+    @Transactional
+    public BulkEmailResponseDTO enviarBulkEmailAdmin(BulkEmailRequestDTO request, List<MultipartFile> attachments) {
+        validateAdminOnly();
+        validateBulkEmailRequest(request, attachments);
+
+        List<String> recipientEmails = request.getRecipientEmails().stream()
+                .filter(Objects::nonNull)
+                .map(String::trim)
+                .filter(StringUtils::hasText)
+                .toList();
+        List<Long> userIds = request.getUserIds() == null ? List.of() : request.getUserIds();
+        List<MultipartFile> safeAttachments = attachments == null ? List.of() : attachments.stream()
+                .filter(Objects::nonNull)
+                .filter(file -> !file.isEmpty())
+                .toList();
+
+        BulkEmailResponseDTO response = new BulkEmailResponseDTO();
+        List<BulkEmailItemResponseDTO> items = new ArrayList<>();
+        int sentCount = 0;
+
+        for (int i = 0; i < recipientEmails.size(); i++) {
+            String email = recipientEmails.get(i);
+            Long userId = i < userIds.size() ? userIds.get(i) : null;
+
+            BulkEmailItemResponseDTO item = new BulkEmailItemResponseDTO();
+            item.setUserId(userId);
+            item.setEmail(email);
+
+            try {
+                Map<String, String> variables = new HashMap<>();
+                variables.put(Constantes.EMAIL_VAR_SUBJECT, sanitizeEmailVariable(request.getSubject()));
+                variables.put(Constantes.EMAIL_VAR_BODY, sanitizeEmailBody(request.getBody()));
+                emailService.sendHtmlEmailOrThrow(
+                        email,
+                        request.getSubject().trim(),
+                        Constantes.EMAIL_TEMPLATE_ADMIN_BULK,
+                        variables,
+                        safeAttachments);
+                item.setOk(true);
+                item.setStatus("SENT");
+                item.setError(null);
+                sentCount++;
+                LOGGER.info("[ADMIN_BULK_EMAIL] status=SENT email={} userId={} attachments={}", email, userId, safeAttachments.size());
+            } catch (Exception ex) {
+                item.setOk(false);
+                item.setStatus("FAILED");
+                item.setError(resolveSafeBulkEmailError(ex));
+                LOGGER.error("[ADMIN_BULK_EMAIL] status=FAILED email={} userId={} attachments={} error={}",
+                        email,
+                        userId,
+                        safeAttachments.size(),
+                        ex.getMessage(),
+                        ex);
+            }
+            items.add(item);
+        }
+
+        response.setOk(true);
+        response.setSentCount(sentCount);
+        response.setFailedCount(items.size() - sentCount);
+        response.setItems(items);
+        response.setMessage("Bulk email processed");
         return response;
     }
 
@@ -3080,6 +3153,70 @@ public class ChatServiceImpl implements ChatService {
         if (!isAdmin) {
             throw new AccessDeniedException(Constantes.MSG_SOLO_ADMIN);
         }
+    }
+
+    private void validateBulkEmailRequest(BulkEmailRequestDTO request, List<MultipartFile> attachments) {
+        if (request == null) {
+            throw new IllegalArgumentException("payload es obligatorio");
+        }
+
+        List<String> errors = new ArrayList<>();
+        List<String> recipientEmails = request.getRecipientEmails() == null ? List.of() : request.getRecipientEmails().stream()
+                .filter(Objects::nonNull)
+                .map(String::trim)
+                .filter(StringUtils::hasText)
+                .toList();
+        if (recipientEmails.isEmpty()) {
+            errors.add("recipientEmails no puede estar vacio");
+        }
+        if (!StringUtils.hasText(request.getSubject())) {
+            errors.add("subject no puede estar vacio");
+        }
+        if (!StringUtils.hasText(request.getBody())) {
+            errors.add("body no puede estar vacio");
+        }
+
+        int actualAttachmentCount = attachments == null ? 0 : (int) attachments.stream()
+                .filter(Objects::nonNull)
+                .filter(file -> !file.isEmpty())
+                .count();
+        int declaredAttachmentCount = request.getAttachmentCount() == null ? 0 : request.getAttachmentCount();
+        if (declaredAttachmentCount != actualAttachmentCount) {
+            errors.add("attachmentCount no coincide con attachments recibidos");
+        }
+
+        if (request.getAttachmentCount() != null && request.getAttachmentCount() < 0) {
+            errors.add("attachmentCount no puede ser negativo");
+        }
+
+        if (!errors.isEmpty()) {
+            throw new ValidacionPayloadException("Bulk email payload invalido", errors);
+        }
+    }
+
+    private String sanitizeEmailVariable(String value) {
+        return value == null ? "" : value.replace("\u0000", "").trim();
+    }
+
+    private String sanitizeEmailBody(String body) {
+        if (body == null) {
+            return "";
+        }
+        return body.replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+                .replace("\"", "&quot;")
+                .replace("'", "&#39;")
+                .replace("\r\n", "<br/>")
+                .replace("\n", "<br/>");
+    }
+
+    private String resolveSafeBulkEmailError(Exception ex) {
+        String message = ex == null ? null : ex.getMessage();
+        if (!StringUtils.hasText(message)) {
+            return "Email send failed";
+        }
+        return message.length() > 300 ? message.substring(0, 300) : message;
     }
 
     private ChatCloseStateDTO toChatCloseState(ChatGrupalEntity chat) {

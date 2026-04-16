@@ -1,5 +1,9 @@
 package com.chat.chat.Service.EmailService;
 
+import com.chat.chat.DTO.EmailAttachmentDTO;
+import org.springframework.web.multipart.MultipartFile;
+
+import java.util.List;
 import java.util.Map;
 
 public interface EmailService {
@@ -15,4 +19,16 @@ public interface EmailService {
      * Variante estricta: propaga excepciones si no se puede enviar.
      */
     public void sendHtmlEmailOrThrow(String to, String subject, String templatePath, Map<String, String> variables);
+
+    public void sendHtmlEmailOrThrow(String to,
+                                     String subject,
+                                     String templatePath,
+                                     Map<String, String> variables,
+                                     List<MultipartFile> attachments);
+
+    public void sendHtmlEmailWithAttachmentsOrThrow(String to,
+                                                    String subject,
+                                                    String templatePath,
+                                                    Map<String, String> variables,
+                                                    List<EmailAttachmentDTO> attachments);
 }

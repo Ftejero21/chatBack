@@ -26,7 +26,7 @@ public class MensajeProgramadoEntity {
     private UsuarioEntity createdBy;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "chat_id", nullable = false)
+    @JoinColumn(name = "chat_id")
     private ChatEntity chat;
 
     @Lob
@@ -79,6 +79,28 @@ public class MensajeProgramadoEntity {
     @Column(name = "persisted_message_id")
     private Long persistedMessageId;
 
+    @Column(name = "delivery_type", nullable = false, length = 40)
+    private String deliveryType = "CHAT_MESSAGE";
+
+    @Column(name = "recipient_email", length = 320)
+    private String recipientEmail;
+
+    @Column(name = "email_subject", length = 255)
+    private String emailSubject;
+
+    @Lob
+    @Column(name = "attachment_payload", columnDefinition = "TEXT")
+    private String attachmentPayload;
+
+    @Column(name = "admin_message", nullable = false)
+    private boolean adminMessage = false;
+
+    @Column(name = "message_temporal", nullable = false)
+    private boolean messageTemporal = false;
+
+    @Column(name = "expires_after_read_seconds")
+    private Long expiresAfterReadSeconds;
+
     @PrePersist
     public void prePersist() {
         Instant now = Instant.now();
@@ -93,6 +115,9 @@ public class MensajeProgramadoEntity {
         }
         if (status == null) {
             status = EstadoMensajeProgramado.PENDING;
+        }
+        if (deliveryType == null || deliveryType.isBlank()) {
+            deliveryType = "CHAT_MESSAGE";
         }
     }
 
@@ -251,5 +276,61 @@ public class MensajeProgramadoEntity {
 
     public void setPersistedMessageId(Long persistedMessageId) {
         this.persistedMessageId = persistedMessageId;
+    }
+
+    public String getDeliveryType() {
+        return deliveryType;
+    }
+
+    public void setDeliveryType(String deliveryType) {
+        this.deliveryType = deliveryType;
+    }
+
+    public String getRecipientEmail() {
+        return recipientEmail;
+    }
+
+    public void setRecipientEmail(String recipientEmail) {
+        this.recipientEmail = recipientEmail;
+    }
+
+    public String getEmailSubject() {
+        return emailSubject;
+    }
+
+    public void setEmailSubject(String emailSubject) {
+        this.emailSubject = emailSubject;
+    }
+
+    public String getAttachmentPayload() {
+        return attachmentPayload;
+    }
+
+    public void setAttachmentPayload(String attachmentPayload) {
+        this.attachmentPayload = attachmentPayload;
+    }
+
+    public boolean isAdminMessage() {
+        return adminMessage;
+    }
+
+    public void setAdminMessage(boolean adminMessage) {
+        this.adminMessage = adminMessage;
+    }
+
+    public boolean isMessageTemporal() {
+        return messageTemporal;
+    }
+
+    public void setMessageTemporal(boolean messageTemporal) {
+        this.messageTemporal = messageTemporal;
+    }
+
+    public Long getExpiresAfterReadSeconds() {
+        return expiresAfterReadSeconds;
+    }
+
+    public void setExpiresAfterReadSeconds(Long expiresAfterReadSeconds) {
+        this.expiresAfterReadSeconds = expiresAfterReadSeconds;
     }
 }

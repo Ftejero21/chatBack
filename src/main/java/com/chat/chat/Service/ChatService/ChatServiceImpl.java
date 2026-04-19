@@ -67,7 +67,7 @@ public class ChatServiceImpl implements ChatService {
     private static final long PIN_DURATION_30D_SECONDS = 2592000L;
     private static final long MUTE_DURATION_8H_SECONDS = 28800L;
     private static final long MUTE_DURATION_1W_SECONDS = 604800L;
-    private static final long DEFAULT_ADMIN_DIRECT_EXPIRES_AFTER_READ_SECONDS = 86400L;
+    private static final long DEFAULT_ADMIN_DIRECT_EXPIRES_AFTER_READ_SECONDS = 60L;
     private static final int MAX_CLOSE_REASON_LENGTH = 500;
     private static final String DEFAULT_CLOSE_REASON = "Chat cerrado por un administrador";
     private static final String CURSOR_SEPARATOR = "_";
@@ -176,31 +176,9 @@ public class ChatServiceImpl implements ChatService {
         UsuarioEntity admin = usuarioRepo.findById(adminId)
                 .orElseThrow(() -> new RecursoNoEncontradoException(Constantes.MSG_USUARIO_AUTENTICADO_NO_ENCONTRADO));
 
-        LinkedHashSet<Long> userIds = new LinkedHashSet<>();
-        if (request.getUserIds() != null) {
-            request.getUserIds().stream()
-                    .filter(Objects::nonNull)
-                    .forEach(userIds::add);
-        }
-        if (request.getEncryptedPayloads() != null) {
-            request.getEncryptedPayloads().stream()
-                    .filter(Objects::nonNull)
-                    .map(AdminDirectMessagePayloadDTO::getUserId)
-                    .filter(Objects::nonNull)
-                    .forEach(userIds::add);
-        }
-        if (userIds.isEmpty()) {
-            throw new IllegalArgumentException("userIds es obligatorio");
-        }
-
         long expiresAfterReadSeconds = normalizeAdminDirectExpiry(request.getExpiresAfterReadSeconds());
-        Map<Long, AdminDirectMessagePayloadDTO> payloadsByUserId = new LinkedHashMap<>();
-        if (request.getEncryptedPayloads() != null) {
-            request.getEncryptedPayloads().stream()
-                    .filter(Objects::nonNull)
-                    .filter(p -> p.getUserId() != null)
-                    .forEach(p -> payloadsByUserId.put(p.getUserId(), p));
-        }
+        Map<Long, AdminDirectMessagePayloadDTO> payloadsByUserId = resolveAdminDirectPayloads(request);
+        LinkedHashSet<Long> userIds = new LinkedHashSet<>(payloadsByUserId.keySet());
 
         AdminDirectMessageResponseDTO response = new AdminDirectMessageResponseDTO();
         response.setRequestedUsers(userIds.size());
@@ -213,9 +191,7 @@ public class ChatServiceImpl implements ChatService {
             UsuarioEntity receptor = usuarioRepo.findById(userId)
                     .orElseThrow(() -> new RecursoNoEncontradoException(Constantes.MSG_USUARIO_NO_EXISTE_ID + userId));
             AdminDirectMessagePayloadDTO payload = payloadsByUserId.get(userId);
-            String contenido = payload != null && payload.getContenido() != null
-                    ? payload.getContenido()
-                    : request.getContenido();
+            String contenido = payload == null ? null : payload.getContenido();
             if (contenido == null || contenido.isBlank()) {
                 throw new IllegalArgumentException("contenido es obligatorio para userId=" + userId);
             }
@@ -239,6 +215,50 @@ public class ChatServiceImpl implements ChatService {
         response.setResults(results);
         response.setDeliveredUsers(results.size());
         return response;
+    }
+
+    private Map<Long, AdminDirectMessagePayloadDTO> resolveAdminDirectPayloads(AdminDirectMessageRequestDTO request) {
+        Map<Long, AdminDirectMessagePayloadDTO> payloadsByUserId = new LinkedHashMap<>();
+        List<AdminDirectMessagePayloadDTO> encryptedPayloads = request.getEncryptedPayloads() == null
+                ? List.of()
+                : request.getEncryptedPayloads();
+
+        if (!encryptedPayloads.isEmpty()) {
+            for (AdminDirectMessagePayloadDTO payload : encryptedPayloads) {
+                if (payload == null) {
+                    throw new IllegalArgumentException("encryptedPayloads contiene item null");
+                }
+                if (payload.getUserId() == null || payload.getUserId() <= 0) {
+                    throw new IllegalArgumentException("encryptedPayloads.userId es obligatorio");
+                }
+                if (!StringUtils.hasText(payload.getContenido())) {
+                    throw new IllegalArgumentException("encryptedPayloads.contenido es obligatorio para userId=" + payload.getUserId());
+                }
+                if (payloadsByUserId.putIfAbsent(payload.getUserId(), payload) != null) {
+                    throw new IllegalArgumentException("encryptedPayloads duplicado para userId=" + payload.getUserId());
+                }
+            }
+            return payloadsByUserId;
+        }
+
+        if (!StringUtils.hasText(request.getContenido())) {
+            throw new IllegalArgumentException("encryptedPayloads es obligatorio");
+        }
+        if (request.getUserIds() == null || request.getUserIds().isEmpty()) {
+            throw new IllegalArgumentException("userIds es obligatorio");
+        }
+        for (Long userId : request.getUserIds()) {
+            if (userId == null || userId <= 0) {
+                throw new IllegalArgumentException("userIds contiene userId invalido");
+            }
+            AdminDirectMessagePayloadDTO payload = new AdminDirectMessagePayloadDTO();
+            payload.setUserId(userId);
+            payload.setContenido(request.getContenido());
+            if (payloadsByUserId.putIfAbsent(userId, payload) != null) {
+                throw new IllegalArgumentException("userIds duplicado: " + userId);
+            }
+        }
+        return payloadsByUserId;
     }
 
     @Override

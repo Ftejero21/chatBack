@@ -1,6 +1,7 @@
 package com.chat.chat.Service.MensajeProgramadoService;
 
 import com.chat.chat.DTO.AdminDirectMessageScheduledRequestDTO;
+import com.chat.chat.DTO.AdminDirectMessagePayloadDTO;
 import com.chat.chat.DTO.BulkEmailRequestDTO;
 import com.chat.chat.DTO.EmailAttachmentDTO;
 import com.chat.chat.DTO.MensajeDTO;
@@ -8,7 +9,9 @@ import com.chat.chat.DTO.MensajeProgramadoDTO;
 import com.chat.chat.DTO.ProgramarMensajeItemDTO;
 import com.chat.chat.DTO.ProgramarMensajeRequestDTO;
 import com.chat.chat.DTO.ProgramarMensajeResponseDTO;
+import com.chat.chat.DTO.ScheduledAttachmentMetaDTO;
 import com.chat.chat.DTO.ScheduledBatchResponseDTO;
+import com.chat.chat.DTO.ScheduledRecipientUserDTO;
 import com.chat.chat.Entity.ChatEntity;
 import com.chat.chat.Entity.ChatGrupalEntity;
 import com.chat.chat.Entity.ChatIndividualEntity;
@@ -34,12 +37,17 @@ import com.chat.chat.Utils.EstadoMensajeProgramado;
 import com.chat.chat.Utils.MappingUtils;
 import com.chat.chat.Utils.MessageType;
 import com.chat.chat.Utils.SecurityUtils;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.annotation.JsonAlias;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.transaction.Transactional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.Pageable;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.security.access.AccessDeniedException;
@@ -52,6 +60,7 @@ import org.springframework.web.multipart.MultipartFile;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.text.Normalizer;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -66,7 +75,9 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.Locale;
 import java.util.stream.Collectors;
+import java.util.regex.Pattern;
 
 @Service
 public class MensajeProgramadoServiceImpl implements MensajeProgramadoService {
@@ -80,8 +91,25 @@ public class MensajeProgramadoServiceImpl implements MensajeProgramadoService {
     private static final String TYPE_E2E_FILE = "E2E_FILE";
     private static final String TYPE_E2E_GROUP_FILE = "E2E_GROUP_FILE";
     private static final String SCHEDULED_ATTACHMENTS_DIR = "scheduled-email-attachments";
-    private static final long DEFAULT_ADMIN_DIRECT_EXPIRES_AFTER_READ_SECONDS = 86400L;
+    private static final long DEFAULT_ADMIN_DIRECT_EXPIRES_AFTER_READ_SECONDS = 60L;
     private static final ZoneId SCHEDULED_LOCAL_ZONE = ZoneId.of("Europe/Madrid");
+    private static final Pattern DIACRITICS_PATTERN = Pattern.compile("\\p{M}+");
+    private static final Pattern EMAIL_PATTERN = Pattern.compile("^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$");
+    private static final Set<String> ALLOWED_ATTACHMENT_MIME_TYPES = Set.of(
+            "application/pdf",
+            "application/msword",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "application/vnd.ms-excel",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "text/plain",
+            "image/png",
+            "image/jpeg"
+    );
+    private static final int MAX_SCHEDULED_SUBJECT_LENGTH = 255;
+    private static final int MAX_SCHEDULED_BODY_LENGTH = 20000;
+    private static final int MAX_SCHEDULED_MESSAGE_LENGTH = 4000;
+    private static final int MAX_SCHEDULED_RECIPIENTS = 500;
+    private static final int MAX_SCHEDULED_ATTACHMENTS = 5;
 
     private final SecurityUtils securityUtils;
     private final UsuarioRepository usuarioRepository;
@@ -249,15 +277,17 @@ public class MensajeProgramadoServiceImpl implements MensajeProgramadoService {
                 request.getScheduledAtLocal(),
                 Instant.now());
         Instant scheduledAt = resolveAndValidateScheduledAt(request.getScheduledAt(), request.getScheduledAtLocal(), "ADMIN_DIRECT");
-        String contenido = firstNonBlank(request.getContenido(), request.getMessage());
+        validateScheduledAdminDirectRequest(request, scheduledAt);
         List<String> errors = new ArrayList<>();
-        if (!StringUtils.hasText(contenido)) {
-            errors.add("message/contenido");
-        }
         List<UsuarioEntity> destinatarios = resolveAdminAudienceUsers(request.getAudienceMode(), request.getUserIds());
         if (destinatarios.isEmpty()) {
             errors.add("userIds/audienceMode");
         }
+        Map<Long, AdminDirectMessagePayloadDTO> payloadsByUserId = validateAndMapScheduledAdminPayloads(
+                request.getEncryptedPayloads(),
+                destinatarios,
+                scheduledAt,
+                errors);
         if (!errors.isEmpty()) {
             throw new ValidacionPayloadException("Payload invalido para programar mensaje administrativo", errors);
         }
@@ -265,15 +295,33 @@ public class MensajeProgramadoServiceImpl implements MensajeProgramadoService {
         Long adminId = securityUtils.getAuthenticatedUserId();
         UsuarioEntity admin = usuarioRepository.findById(adminId)
                 .orElseThrow(() -> new RecursoNoEncontradoException(Constantes.MSG_USUARIO_AUTENTICADO_NO_ENCONTRADO));
+        long expiresAfterReadSeconds = normalizeAdminDirectExpiry(request.getExpiresAfterReadSeconds());
+        List<ScheduledRecipientUserDTO> recipientUsers = buildRecipientUsers(destinatarios);
+        boolean encryptedFlow = hasEncryptedAdminPayloads(request.getEncryptedPayloads());
+        String legacyPlainContent = encryptedFlow ? null : resolveLegacyAdminDirectContent(request);
+        String adminPayload = serializeAdminPayload(new AdminScheduledPayload(
+                "DIRECT_MESSAGE",
+                normalizeAudienceMode(request.getAudienceMode()),
+                encryptedFlow ? null : sanitizePlainText(request.getMessage(), MAX_SCHEDULED_MESSAGE_LENGTH),
+                null,
+                null,
+                collectUserIds(recipientUsers),
+                collectRecipientEmails(recipientUsers),
+                recipientUsers,
+                List.of(),
+                expiresAfterReadSeconds));
 
         String batchId = UUID.randomUUID().toString();
         List<MensajeProgramadoEntity> rows = new ArrayList<>();
         for (UsuarioEntity destinatario : destinatarios) {
-            ChatIndividualEntity chat = resolveOrCreateAdminDirectChat(admin, destinatario);
+            AdminDirectMessagePayloadDTO payload = payloadsByUserId.get(destinatario.getId());
+            ChatIndividualEntity chat = resolveOrCreateAdminDirectChat(admin,
+                    destinatario,
+                    payload == null ? null : payload.getChatId());
             MensajeProgramadoEntity row = new MensajeProgramadoEntity();
             row.setCreatedBy(admin);
             row.setChat(chat);
-            row.setMessageContent(contenido.trim());
+            row.setMessageContent(payload == null ? legacyPlainContent : payload.getContenido());
             row.setScheduledAt(scheduledAt);
             row.setStatus(EstadoMensajeProgramado.PENDING);
             row.setAttempts(0);
@@ -282,7 +330,8 @@ public class MensajeProgramadoServiceImpl implements MensajeProgramadoService {
             row.setDeliveryType(Constantes.SCHEDULED_DELIVERY_TYPE_CHAT_MESSAGE);
             row.setAdminMessage(true);
             row.setMessageTemporal(true);
-            row.setExpiresAfterReadSeconds(DEFAULT_ADMIN_DIRECT_EXPIRES_AFTER_READ_SECONDS);
+            row.setExpiresAfterReadSeconds(expiresAfterReadSeconds);
+            row.setAdminPayload(adminPayload);
             rows.add(row);
         }
 
@@ -310,6 +359,10 @@ public class MensajeProgramadoServiceImpl implements MensajeProgramadoService {
     @Transactional
     public ScheduledBatchResponseDTO crearBulkEmailsProgramados(BulkEmailRequestDTO request, List<MultipartFile> attachments) {
         validateAdminOnly();
+        Instant scheduledAt = resolveAndValidateScheduledAt(
+                request == null ? null : request.getScheduledAt(),
+                request == null ? null : request.getScheduledAtLocal(),
+                "ADMIN_BULK_EMAIL");
         validateScheduledBulkEmailRequest(request, attachments);
 
         LOGGER.info("[SCHEDULED_ADMIN_BULK_EMAIL_CREATE_REQUEST] authUserId={} audienceMode={} userIds={} recipientEmails={} scheduledAtUTC={} scheduledAtLocal={} attachmentCountDeclared={} attachmentCountReceived={} nowUTC={}",
@@ -330,12 +383,25 @@ public class MensajeProgramadoServiceImpl implements MensajeProgramadoService {
         Long adminId = securityUtils.getAuthenticatedUserId();
         UsuarioEntity admin = usuarioRepository.findById(adminId)
                 .orElseThrow(() -> new RecursoNoEncontradoException(Constantes.MSG_USUARIO_AUTENTICADO_NO_ENCONTRADO));
-        Instant scheduledAt = resolveAndValidateScheduledAt(request.getScheduledAt(), request.getScheduledAtLocal(), "ADMIN_BULK_EMAIL");
         String batchId = UUID.randomUUID().toString();
         String attachmentPayload = persistScheduledAttachments(batchId, attachments);
+        List<ScheduledEmailRecipient> destinatariosSeguros = normalizeScheduledRecipients(destinatarios);
+        List<ScheduledRecipientUserDTO> recipientUsers = buildRecipientUsersFromScheduledRecipients(destinatariosSeguros);
+        List<ScheduledAttachmentMetaDTO> attachmentsMeta = readAttachmentMeta(attachmentPayload);
+        String adminPayload = serializeAdminPayload(new AdminScheduledPayload(
+                "BULK_EMAIL",
+                normalizeAudienceMode(request.getAudienceMode()),
+                null,
+                sanitizePlainText(request.getSubject(), MAX_SCHEDULED_SUBJECT_LENGTH),
+                sanitizeBodyText(request.getBody(), MAX_SCHEDULED_BODY_LENGTH),
+                collectUserIds(recipientUsers),
+                collectRecipientEmails(recipientUsers),
+                recipientUsers,
+                attachmentsMeta,
+                null));
 
         List<MensajeProgramadoEntity> rows = new ArrayList<>();
-        for (ScheduledEmailRecipient destinatario : destinatarios) {
+        for (ScheduledEmailRecipient destinatario : destinatariosSeguros) {
             MensajeProgramadoEntity row = new MensajeProgramadoEntity();
             row.setCreatedBy(admin);
             row.setChat(null);
@@ -349,6 +415,7 @@ public class MensajeProgramadoServiceImpl implements MensajeProgramadoService {
             row.setRecipientEmail(destinatario.email());
             row.setEmailSubject(request.getSubject().trim());
             row.setAttachmentPayload(attachmentPayload);
+            row.setAdminPayload(adminPayload);
             rows.add(row);
         }
 
@@ -486,7 +553,100 @@ public class MensajeProgramadoServiceImpl implements MensajeProgramadoService {
         return users;
     }
 
+    private Map<Long, AdminDirectMessagePayloadDTO> validateAndMapScheduledAdminPayloads(List<AdminDirectMessagePayloadDTO> encryptedPayloads,
+                                                                                          List<UsuarioEntity> destinatarios,
+                                                                                          Instant scheduledAt,
+                                                                                          List<String> errors) {
+        if (encryptedPayloads == null || encryptedPayloads.isEmpty()) {
+            return Map.of();
+        }
+
+        Long authUserId = securityUtils.getAuthenticatedUserId();
+        Set<Long> destinatarioIds = destinatarios == null
+                ? Set.of()
+                : destinatarios.stream()
+                .filter(Objects::nonNull)
+                .map(UsuarioEntity::getId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+
+        Map<Long, AdminDirectMessagePayloadDTO> payloadsByUserId = new java.util.LinkedHashMap<>();
+        for (AdminDirectMessagePayloadDTO payload : encryptedPayloads) {
+            if (payload == null) {
+                errors.add("encryptedPayloads contiene item null");
+                continue;
+            }
+            if (payload.getUserId() == null) {
+                errors.add("encryptedPayloads.userId es obligatorio");
+                continue;
+            }
+            if (!StringUtils.hasText(payload.getContenido())) {
+                errors.add("encryptedPayloads.contenido es obligatorio para userId=" + payload.getUserId());
+                continue;
+            }
+            if (payloadsByUserId.putIfAbsent(payload.getUserId(), payload) != null) {
+                errors.add("encryptedPayloads duplicado para userId=" + payload.getUserId());
+                continue;
+            }
+
+            ValidatedE2EPayload validated = validarPayloadE2EProgramadoOrThrow(
+                    payload.getContenido(),
+                    authUserId,
+                    payload.getChatId() == null ? List.of() : List.of(payload.getChatId()),
+                    scheduledAt);
+
+            if (!destinatarioIds.contains(payload.getUserId())) {
+                errors.add("encryptedPayloads contiene userId no incluido en userIds/audienceMode: " + payload.getUserId());
+                continue;
+            }
+            if (validated != null && payload.getChatId() != null) {
+                ChatEntity chat = chatRepository.findById(payload.getChatId())
+                        .orElseThrow(() -> new RecursoNoEncontradoException(Constantes.MSG_CHAT_NO_ENCONTRADO_ID + payload.getChatId()));
+                validarCompatibilidadTipoE2EConChat(
+                        validated.type(),
+                        chat,
+                        authUserId,
+                        Set.of(payload.getChatId()),
+                        scheduledAt);
+            }
+        }
+
+        if (!payloadsByUserId.isEmpty()) {
+            for (Long destinatarioId : destinatarioIds) {
+                if (!payloadsByUserId.containsKey(destinatarioId)) {
+                    errors.add("encryptedPayloads faltante para userId=" + destinatarioId);
+                }
+            }
+        }
+        return payloadsByUserId;
+    }
+
     private ChatIndividualEntity resolveOrCreateAdminDirectChat(UsuarioEntity admin, UsuarioEntity receptor) {
+        return resolveOrCreateAdminDirectChat(admin, receptor, null);
+    }
+
+    private ChatIndividualEntity resolveOrCreateAdminDirectChat(UsuarioEntity admin,
+                                                                UsuarioEntity receptor,
+                                                                Long requestedChatId) {
+        if (admin == null || admin.getId() == null || receptor == null || receptor.getId() == null) {
+            throw new IllegalArgumentException("participantes invalidos para chat admin directo");
+        }
+        if (requestedChatId != null) {
+            ChatIndividualEntity chat = chatIndividualRepository.findById(requestedChatId)
+                    .orElseThrow(() -> new RecursoNoEncontradoException(Constantes.MSG_CHAT_INDIVIDUAL_NO_ENCONTRADO));
+            boolean samePair = (Objects.equals(chat.getUsuario1().getId(), admin.getId())
+                    && Objects.equals(chat.getUsuario2().getId(), receptor.getId()))
+                    || (Objects.equals(chat.getUsuario1().getId(), receptor.getId())
+                    && Objects.equals(chat.getUsuario2().getId(), admin.getId()));
+            if (!samePair) {
+                throw new AccessDeniedException(Constantes.MSG_NO_PERTENECE_CHAT);
+            }
+            if (!chat.isAdminDirect()) {
+                chat.setAdminDirect(true);
+                return chatIndividualRepository.save(chat);
+            }
+            return chat;
+        }
         return chatIndividualRepository.findAdminDirectChatBetween(admin.getId(), receptor.getId())
                 .orElseGet(() -> {
                     ChatIndividualEntity chat = new ChatIndividualEntity();
@@ -497,24 +657,65 @@ public class MensajeProgramadoServiceImpl implements MensajeProgramadoService {
                 });
     }
 
+    private void validateScheduledAdminDirectRequest(AdminDirectMessageScheduledRequestDTO request, Instant scheduledAt) {
+        List<String> errors = new ArrayList<>();
+        if (request == null) {
+            throw new ValidacionPayloadException("payload requerido", List.of("payload"));
+        }
+        String audienceMode = normalizeAudienceMode(request.getAudienceMode());
+        if (!"all".equals(audienceMode) && !"selected".equals(audienceMode)) {
+            errors.add("audienceMode debe ser all o selected");
+        }
+        if ("selected".equals(audienceMode)) {
+            int userCount = request.getUserIds() == null ? 0 : (int) request.getUserIds().stream().filter(Objects::nonNull).distinct().count();
+            if (userCount <= 0) {
+                errors.add("userIds requeridos para selected");
+            }
+            if (userCount > MAX_SCHEDULED_RECIPIENTS) {
+                errors.add("userIds excede maximo permitido");
+            }
+        }
+        String plainMessage = request.getMessage();
+        if (StringUtils.hasText(plainMessage) && plainMessage.trim().length() > MAX_SCHEDULED_MESSAGE_LENGTH) {
+            errors.add("message excede longitud maxima");
+        }
+        if (scheduledAt == null || !scheduledAt.isAfter(Instant.now())) {
+            errors.add("scheduledAt debe ser futuro UTC");
+        }
+        boolean hasEncryptedPayloads = hasEncryptedAdminPayloads(request.getEncryptedPayloads());
+        boolean hasLegacyPlaintext = StringUtils.hasText(resolveLegacyAdminDirectContent(request));
+        if (!hasEncryptedPayloads && !hasLegacyPlaintext) {
+            errors.add("encryptedPayloads");
+        } else if (hasEncryptedPayloads && request.getEncryptedPayloads().size() > MAX_SCHEDULED_RECIPIENTS) {
+            errors.add("encryptedPayloads excede maximo permitido");
+        }
+        if (!errors.isEmpty()) {
+            throw new ValidacionPayloadException("Payload invalido para programar mensaje administrativo", errors);
+        }
+    }
+
     private void validateScheduledBulkEmailRequest(BulkEmailRequestDTO request, List<MultipartFile> attachments) {
         if (request == null) {
             throw new ValidacionPayloadException("payload requerido", List.of("payload"));
         }
         List<String> errors = new ArrayList<>();
-        String audienceMode = request.getAudienceMode() == null ? "" : request.getAudienceMode().trim().toLowerCase();
+        String audienceMode = normalizeAudienceMode(request.getAudienceMode());
         if (!"all".equals(audienceMode) && !"selected".equals(audienceMode)) {
             errors.add("audienceMode debe ser all o selected");
         }
         if (!StringUtils.hasText(request.getSubject())) {
             errors.add("subject no puede estar vacio");
+        } else if (request.getSubject().trim().length() > MAX_SCHEDULED_SUBJECT_LENGTH) {
+            errors.add("subject excede longitud maxima");
         }
         if (!StringUtils.hasText(request.getBody())) {
             errors.add("body no puede estar vacio");
+        } else if (request.getBody().trim().length() > MAX_SCHEDULED_BODY_LENGTH) {
+            errors.add("body excede longitud maxima");
         }
-        if (request.getScheduledAt() == null) {
+        if (request.getScheduledAt() == null && !StringUtils.hasText(request.getScheduledAtLocal())) {
             errors.add("scheduledAt/fechaProgramada");
-        } else if (!request.getScheduledAt().isAfter(Instant.now())) {
+        } else if (request.getScheduledAt() != null && !request.getScheduledAt().isAfter(Instant.now())) {
             errors.add("scheduledAt debe ser futuro UTC");
         }
         int actualAttachmentCount = attachments == null ? 0 : (int) attachments.stream()
@@ -525,11 +726,31 @@ public class MensajeProgramadoServiceImpl implements MensajeProgramadoService {
         if (declaredAttachmentCount != actualAttachmentCount) {
             errors.add("attachmentCount no coincide con attachments recibidos");
         }
+        if (actualAttachmentCount > MAX_SCHEDULED_ATTACHMENTS) {
+            errors.add("attachments excede maximo permitido");
+        }
         if ("selected".equals(audienceMode)) {
             boolean hasEmails = request.getRecipientEmails() != null && request.getRecipientEmails().stream().anyMatch(StringUtils::hasText);
             boolean hasUserIds = request.getUserIds() != null && request.getUserIds().stream().anyMatch(Objects::nonNull);
             if (!hasEmails && !hasUserIds) {
                 errors.add("recipientEmails o userIds requeridos para selected");
+            }
+        }
+        if (request.getUserIds() != null && request.getUserIds().stream().filter(Objects::nonNull).distinct().count() > MAX_SCHEDULED_RECIPIENTS) {
+            errors.add("userIds excede maximo permitido");
+        }
+        if (request.getRecipientEmails() != null && request.getRecipientEmails().stream().filter(StringUtils::hasText).count() > MAX_SCHEDULED_RECIPIENTS) {
+            errors.add("recipientEmails excede maximo permitido");
+        }
+        if (request.getRecipientEmails() != null) {
+            for (String email : request.getRecipientEmails()) {
+                if (!StringUtils.hasText(email)) {
+                    continue;
+                }
+                if (!isValidEmail(email)) {
+                    errors.add("recipientEmails contiene email invalido");
+                    break;
+                }
             }
         }
         if (!errors.isEmpty()) {
@@ -538,7 +759,7 @@ public class MensajeProgramadoServiceImpl implements MensajeProgramadoService {
     }
 
     private List<ScheduledEmailRecipient> resolveScheduledEmailRecipients(BulkEmailRequestDTO request) {
-        String audienceMode = request.getAudienceMode() == null ? "" : request.getAudienceMode().trim().toLowerCase();
+        String audienceMode = normalizeAudienceMode(request.getAudienceMode());
         if ("all".equals(audienceMode)) {
             Long adminId = securityUtils.getAuthenticatedUserId();
             return usuarioRepository.findByActivoTrueAndIdNot(adminId).stream()
@@ -553,6 +774,7 @@ public class MensajeProgramadoServiceImpl implements MensajeProgramadoService {
         List<String> recipientEmails = request.getRecipientEmails() == null ? List.of() : request.getRecipientEmails().stream()
                 .filter(StringUtils::hasText)
                 .map(String::trim)
+                .filter(this::isValidEmail)
                 .toList();
         List<Long> userIds = request.getUserIds() == null ? List.of() : request.getUserIds();
 
@@ -587,6 +809,7 @@ public class MensajeProgramadoServiceImpl implements MensajeProgramadoService {
                             .resolve(batchId);
                     Files.createDirectories(baseDir);
                     String safeName = sanitizeFileName(attachment.getOriginalFilename());
+                    String safeMimeType = sanitizeAttachmentMimeType(attachment.getContentType());
                     Path target = baseDir.resolve(safeName).normalize();
                     if (!target.startsWith(baseDir)) {
                         throw new IllegalArgumentException("nombre de adjunto invalido");
@@ -594,8 +817,9 @@ public class MensajeProgramadoServiceImpl implements MensajeProgramadoService {
                     Files.write(target, attachment.getBytes());
                     storedAttachments.add(new StoredEmailAttachment(
                             safeName,
-                            StringUtils.hasText(attachment.getContentType()) ? attachment.getContentType() : "application/octet-stream",
-                            target.toString()));
+                            safeMimeType,
+                            batchId + "/" + safeName,
+                            attachment.getSize()));
                 } catch (Exception ex) {
                     throw new IllegalStateException("No se pudieron persistir adjuntos programados", ex);
                 }
@@ -614,36 +838,488 @@ public class MensajeProgramadoServiceImpl implements MensajeProgramadoService {
     }
 
     @Override
-    public List<MensajeProgramadoDTO> listarMensajesProgramados(EstadoMensajeProgramado status) {
-        Long authUserId = securityUtils.getAuthenticatedUserId();
-        List<MensajeProgramadoEntity> rows = status == null
-                ? mensajeProgramadoRepository.findByCreatedByIdOrderByCreatedAtDesc(authUserId)
-                : mensajeProgramadoRepository.findByCreatedByIdAndStatusOrderByCreatedAtDesc(authUserId, status);
-        return rows.stream().map(mensajeProgramadoMapper::toDto).collect(Collectors.toList());
+    public Page<MensajeProgramadoDTO> listarMensajesProgramados(EstadoMensajeProgramado status, Pageable pageable) {
+        validateAdminOnly();
+        List<MensajeProgramadoDTO> items = mensajeProgramadoRepository.findAdminScheduledRows().stream()
+                .filter(this::isAdminScheduledRow)
+                .collect(Collectors.groupingBy(this::resolveBatchKey, java.util.LinkedHashMap::new, Collectors.toList()))
+                .values().stream()
+                .map(this::toAdminScheduledDto)
+                .filter(Objects::nonNull)
+                .filter(dto -> status == null || status.name().equalsIgnoreCase(dto.getStatus()))
+                .sorted((a, b) -> {
+                    Instant left = a.getScheduledAt() == null ? Instant.EPOCH : a.getScheduledAt();
+                    Instant right = b.getScheduledAt() == null ? Instant.EPOCH : b.getScheduledAt();
+                    int byScheduled = right.compareTo(left);
+                    if (byScheduled != 0) {
+                        return byScheduled;
+                    }
+                    Long leftId = a.getId() == null ? 0L : a.getId();
+                    Long rightId = b.getId() == null ? 0L : b.getId();
+                    return rightId.compareTo(leftId);
+                })
+                .toList();
+        int start = (int) Math.min(pageable.getOffset(), items.size());
+        int end = Math.min(start + pageable.getPageSize(), items.size());
+        return new PageImpl<>(items.subList(start, end), pageable, items.size());
+    }
+
+    @Override
+    @Transactional
+    public MensajeProgramadoDTO editarMensajeDirectoAdminProgramado(Long id, AdminDirectMessageScheduledRequestDTO request) {
+        validateAdminOnly();
+        if (request == null) {
+            throw new ValidacionPayloadException("payload requerido", List.of("payload"));
+        }
+
+        MensajeProgramadoEntity root = mensajeProgramadoRepository.findByIdForUpdate(id)
+                .orElseThrow(() -> new RecursoNoEncontradoException("Mensaje programado no encontrado: " + id));
+        if (!isAdminScheduledRow(root) || isScheduledBulkEmail(root)) {
+            throw new RecursoNoEncontradoException("Mensaje programado no encontrado: " + id);
+        }
+
+        List<MensajeProgramadoEntity> rows = mensajeProgramadoRepository.findAllByBatchOrSelfForUpdate(root.getScheduledBatchId(), root.getId())
+                .stream()
+                .filter(this::isAdminScheduledRow)
+                .filter(row -> !isScheduledBulkEmail(row))
+                .toList();
+        if (rows.isEmpty()) {
+            throw new RecursoNoEncontradoException("Mensaje programado no encontrado: " + id);
+        }
+        if (rows.stream().anyMatch(row -> row.getStatus() != EstadoMensajeProgramado.PENDING)) {
+            throw new ValidacionPayloadException("Solo se pueden editar mensajes programados pendientes", List.of("status"));
+        }
+
+        Instant scheduledAt = rows.stream()
+                .map(MensajeProgramadoEntity::getScheduledAt)
+                .filter(Objects::nonNull)
+                .findFirst()
+                .orElse(root.getScheduledAt());
+        if (scheduledAt == null || !scheduledAt.isAfter(Instant.now())) {
+            throw new ValidacionPayloadException("El mensaje programado ya no es editable", List.of("scheduledAt"));
+        }
+
+        AdminScheduledPayload currentPayload = parseAdminPayload(rows.get(0).getAdminPayload());
+        List<UsuarioEntity> destinatarios = resolveScheduledDirectRecipients(rows, currentPayload);
+        List<String> errors = new ArrayList<>();
+        Map<Long, AdminDirectMessagePayloadDTO> payloadsByChatId = validateAndMapScheduledAdminPayloadsForRows(
+                request.getEncryptedPayloads(),
+                rows,
+                scheduledAt,
+                errors);
+        if (!errors.isEmpty()) {
+            throw new ValidacionPayloadException("Payload invalido para editar mensaje administrativo programado", errors);
+        }
+
+        long expiresAfterReadSeconds = request.getExpiresAfterReadSeconds() == null
+                ? rows.get(0).getExpiresAfterReadSeconds() == null ? normalizeAdminDirectExpiry(null) : rows.get(0).getExpiresAfterReadSeconds()
+                : normalizeAdminDirectExpiry(request.getExpiresAfterReadSeconds());
+        List<ScheduledRecipientUserDTO> recipientUsers = currentPayload != null && currentPayload.recipientUsers() != null && !currentPayload.recipientUsers().isEmpty()
+                ? currentPayload.recipientUsers()
+                : buildRecipientUsers(destinatarios);
+        String audienceMode = currentPayload == null ? null : currentPayload.audienceMode();
+        boolean encryptedFlow = hasEncryptedAdminPayloads(request.getEncryptedPayloads());
+        String plainMessage = !encryptedFlow && request.getMessage() != null
+                ? sanitizePlainText(request.getMessage(), MAX_SCHEDULED_MESSAGE_LENGTH)
+                : currentPayload == null ? null : currentPayload.message();
+        String adminPayload = serializeAdminPayload(new AdminScheduledPayload(
+                "DIRECT_MESSAGE",
+                audienceMode,
+                plainMessage,
+                null,
+                null,
+                collectUserIds(recipientUsers),
+                collectRecipientEmails(recipientUsers),
+                recipientUsers,
+                List.of(),
+                expiresAfterReadSeconds));
+
+        for (MensajeProgramadoEntity row : rows) {
+            Long chatId = row.getChat() == null ? null : row.getChat().getId();
+            Long expectedUserId = resolveScheduledDirectRecipientUserId(row);
+            AdminDirectMessagePayloadDTO payload = resolveScheduledEditPayload(payloadsByChatId, request.getEncryptedPayloads(), chatId, expectedUserId);
+            if (payload == null) {
+                throw new ValidacionPayloadException("Payload invalido para editar mensaje administrativo programado",
+                        List.of(expectedUserId == null
+                                ? "encryptedPayloads faltante para chatId=" + chatId
+                                : "encryptedPayloads faltante para userId=" + expectedUserId));
+            }
+            row.setMessageContent(payload.getContenido());
+            row.setAdminPayload(adminPayload);
+            row.setExpiresAfterReadSeconds(expiresAfterReadSeconds);
+            row.setLastError(null);
+        }
+
+        List<MensajeProgramadoEntity> saved = mensajeProgramadoRepository.saveAll(rows);
+        LOGGER.info("[SCHEDULED_ADMIN_DIRECT_EDIT] adminId={} scheduledId={} batchId={} recipients={} scheduledAtUTC={}",
+                securityUtils.getAuthenticatedUserId(),
+                id,
+                root.getScheduledBatchId(),
+                saved.size(),
+                scheduledAt);
+        return toAdminScheduledDto(saved);
     }
 
     @Override
     @Transactional
     public MensajeProgramadoDTO cancelarMensajeProgramado(Long id) {
-        Long authUserId = securityUtils.getAuthenticatedUserId();
-        boolean esAdmin = securityUtils.hasRole(Constantes.ADMIN) || securityUtils.hasRole(Constantes.ROLE_ADMIN);
-
+        validateAdminOnly();
         MensajeProgramadoEntity row = mensajeProgramadoRepository.findByIdForUpdate(id)
                 .orElseThrow(() -> new RecursoNoEncontradoException("Mensaje programado no encontrado: " + id));
-
-        Long ownerId = row.getCreatedBy() == null ? null : row.getCreatedBy().getId();
-        if (!esAdmin && !Objects.equals(ownerId, authUserId)) {
-            throw new AccessDeniedException(Constantes.ERR_NO_AUTORIZADO);
+        if (!isAdminScheduledRow(row)) {
+            throw new RecursoNoEncontradoException("Mensaje programado no encontrado: " + id);
         }
-        if (row.getStatus() != EstadoMensajeProgramado.PENDING) {
-            throw new IllegalArgumentException("Solo se puede cancelar en estado PENDING");
+        List<MensajeProgramadoEntity> rows = mensajeProgramadoRepository.findAllByBatchOrSelfForUpdate(row.getScheduledBatchId(), row.getId());
+        UsuarioEntity admin = usuarioRepository.findById(securityUtils.getAuthenticatedUserId())
+                .orElseThrow(() -> new RecursoNoEncontradoException(Constantes.MSG_USUARIO_AUTENTICADO_NO_ENCONTRADO));
+        Instant now = Instant.now();
+        boolean changed = false;
+        for (MensajeProgramadoEntity item : rows) {
+            if (item.getStatus() == EstadoMensajeProgramado.PENDING || item.getStatus() == EstadoMensajeProgramado.PROCESSING) {
+                item.setStatus(EstadoMensajeProgramado.CANCELED);
+                item.setLockToken(null);
+                item.setLockUntil(null);
+                item.setLastError(null);
+                item.setCanceledBy(admin);
+                item.setCanceledAt(now);
+                changed = true;
+            }
         }
+        if (changed) {
+            mensajeProgramadoRepository.saveAll(rows);
+        }
+        return toAdminScheduledDto(rows);
+    }
 
-        row.setStatus(EstadoMensajeProgramado.CANCELED);
-        row.setLockToken(null);
-        row.setLockUntil(null);
-        row.setLastError(null);
-        return mensajeProgramadoMapper.toDto(mensajeProgramadoRepository.save(row));
+    private boolean isAdminScheduledRow(MensajeProgramadoEntity row) {
+        return row != null && (row.isAdminMessage()
+                || Constantes.SCHEDULED_DELIVERY_TYPE_ADMIN_BULK_EMAIL.equalsIgnoreCase(row.getDeliveryType()));
+    }
+
+    private String resolveBatchKey(MensajeProgramadoEntity row) {
+        if (row == null) {
+            return "null";
+        }
+        if (StringUtils.hasText(row.getScheduledBatchId())) {
+            return row.getScheduledBatchId().trim();
+        }
+        return "row:" + row.getId();
+    }
+
+    private List<UsuarioEntity> resolveScheduledDirectRecipients(List<MensajeProgramadoEntity> rows, AdminScheduledPayload payload) {
+        List<Long> userIds = payload == null || payload.userIds() == null || payload.userIds().isEmpty()
+                ? rows.stream()
+                .map(this::resolveScheduledDirectRecipientUserId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList()
+                : payload.userIds().stream().filter(Objects::nonNull).distinct().toList();
+        return resolveAdminAudienceUsers("selected", userIds);
+    }
+
+    private Map<Long, AdminDirectMessagePayloadDTO> validateAndMapScheduledAdminPayloadsForRows(List<AdminDirectMessagePayloadDTO> encryptedPayloads,
+                                                                                                List<MensajeProgramadoEntity> rows,
+                                                                                                Instant scheduledAt,
+                                                                                                List<String> errors) {
+        if (encryptedPayloads == null || encryptedPayloads.isEmpty()) {
+            errors.add("encryptedPayloads");
+            return Map.of();
+        }
+        Long authUserId = securityUtils.getAuthenticatedUserId();
+        Map<Long, MensajeProgramadoEntity> rowsByChatId = rows.stream()
+                .filter(Objects::nonNull)
+                .filter(row -> row.getChat() != null && row.getChat().getId() != null)
+                .collect(Collectors.toMap(
+                        row -> row.getChat().getId(),
+                        row -> row,
+                        (left, right) -> left,
+                        java.util.LinkedHashMap::new));
+        Map<Long, Long> expectedChatIdByUserId = rows.stream()
+                .filter(Objects::nonNull)
+                .map(row -> Map.entry(resolveScheduledDirectRecipientUserId(row), row.getChat() == null ? null : row.getChat().getId()))
+                .filter(entry -> entry.getKey() != null && entry.getValue() != null)
+                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (left, right) -> left, java.util.LinkedHashMap::new));
+        Map<Long, AdminDirectMessagePayloadDTO> payloadsByChatId = new java.util.LinkedHashMap<>();
+        for (AdminDirectMessagePayloadDTO payload : encryptedPayloads) {
+            if (payload == null) {
+                errors.add("encryptedPayloads contiene item null");
+                continue;
+            }
+            if (payload.getUserId() == null) {
+                errors.add("encryptedPayloads.userId es obligatorio");
+                continue;
+            }
+            Long resolvedChatId = payload.getChatId() != null ? payload.getChatId() : expectedChatIdByUserId.get(payload.getUserId());
+            if (resolvedChatId == null) {
+                errors.add("encryptedPayloads.userId no coincide con batch para userId=" + payload.getUserId());
+                continue;
+            }
+            MensajeProgramadoEntity row = rowsByChatId.get(resolvedChatId);
+            if (row == null) {
+                errors.add("encryptedPayloads contiene chatId no incluido en el batch: " + resolvedChatId);
+                continue;
+            }
+            if (!StringUtils.hasText(payload.getContenido())) {
+                errors.add("encryptedPayloads.contenido es obligatorio para userId=" + payload.getUserId());
+                continue;
+            }
+            if (payloadsByChatId.putIfAbsent(resolvedChatId, payload) != null) {
+                errors.add("encryptedPayloads duplicado para " + (payload.getChatId() != null ? "chatId=" + resolvedChatId : "userId=" + payload.getUserId()));
+                continue;
+            }
+            Long expectedChatId = row.getChat() == null ? null : row.getChat().getId();
+            if (payload.getChatId() != null && !Objects.equals(payload.getChatId(), expectedChatId)) {
+                errors.add("encryptedPayloads.chatId no coincide para userId=" + payload.getUserId());
+                continue;
+            }
+            Long expectedUserId = resolveScheduledDirectRecipientUserId(row);
+            if (expectedUserId != null && !Objects.equals(payload.getUserId(), expectedUserId)) {
+                errors.add("encryptedPayloads.userId no coincide para chatId=" + payload.getChatId());
+                continue;
+            }
+            ValidatedE2EPayload validated = validarPayloadE2EProgramadoOrThrow(
+                    payload.getContenido(),
+                    authUserId,
+                    expectedChatId == null ? List.of() : List.of(expectedChatId),
+                    scheduledAt);
+            if (validated == null) {
+                errors.add("encryptedPayloads.contenido invalido para userId=" + payload.getUserId());
+            }
+        }
+        for (Long chatId : rowsByChatId.keySet()) {
+            if (!payloadsByChatId.containsKey(chatId)) {
+                errors.add("encryptedPayloads faltante para chatId=" + chatId);
+            }
+        }
+        return payloadsByChatId;
+    }
+
+    private Long resolveScheduledDirectRecipientUserId(MensajeProgramadoEntity row) {
+        UsuarioEntity recipient = resolveScheduledDirectRecipientUser(row);
+        return recipient == null ? null : recipient.getId();
+    }
+
+    private boolean hasEncryptedAdminPayloads(List<AdminDirectMessagePayloadDTO> encryptedPayloads) {
+        return encryptedPayloads != null && !encryptedPayloads.isEmpty();
+    }
+
+    private String resolveLegacyAdminDirectContent(AdminDirectMessageScheduledRequestDTO request) {
+        if (request == null) {
+            return null;
+        }
+        if (StringUtils.hasText(request.getContenido())) {
+            return request.getContenido();
+        }
+        return request.getMessage();
+    }
+
+    private AdminDirectMessagePayloadDTO resolveScheduledEditPayload(Map<Long, AdminDirectMessagePayloadDTO> payloadsByChatId,
+                                                                    List<AdminDirectMessagePayloadDTO> rawPayloads,
+                                                                    Long chatId,
+                                                                    Long userId) {
+        if (chatId != null && payloadsByChatId != null) {
+            AdminDirectMessagePayloadDTO byChat = payloadsByChatId.get(chatId);
+            if (byChat != null) {
+                return byChat;
+            }
+        }
+        if (userId == null || rawPayloads == null) {
+            return null;
+        }
+        return rawPayloads.stream()
+                .filter(Objects::nonNull)
+                .filter(payload -> Objects.equals(userId, payload.getUserId()))
+                .findFirst()
+                .orElse(null);
+    }
+
+    private UsuarioEntity resolveScheduledDirectRecipientUser(MensajeProgramadoEntity row) {
+        if (row == null || !(row.getChat() instanceof ChatIndividualEntity chat)) {
+            return null;
+        }
+        Long adminId = row.getCreatedBy() == null ? null : row.getCreatedBy().getId();
+        if (chat.getUsuario1() != null && !Objects.equals(chat.getUsuario1().getId(), adminId)) {
+            return chat.getUsuario1();
+        }
+        return chat.getUsuario2();
+    }
+
+    private MensajeProgramadoDTO toAdminScheduledDto(List<MensajeProgramadoEntity> rows) {
+        if (rows == null || rows.isEmpty()) {
+            return null;
+        }
+        List<MensajeProgramadoEntity> sorted = rows.stream()
+                .filter(Objects::nonNull)
+                .sorted((a, b) -> {
+                    int byId = Long.compare(a.getId() == null ? 0L : a.getId(), b.getId() == null ? 0L : b.getId());
+                    if (byId != 0) {
+                        return byId;
+                    }
+                    Instant left = a.getScheduledAt() == null ? Instant.EPOCH : a.getScheduledAt();
+                    Instant right = b.getScheduledAt() == null ? Instant.EPOCH : b.getScheduledAt();
+                    return right.compareTo(left);
+                })
+                .toList();
+        MensajeProgramadoEntity first = sorted.get(0);
+        AdminScheduledPayload payload = parseAdminPayload(first.getAdminPayload());
+        MensajeProgramadoDTO dto = mensajeProgramadoMapper.toDto(first);
+        List<ScheduledRecipientUserDTO> resolvedRecipientUsers = resolveRecipientUsers(sorted, payload);
+        dto.setId(first.getId());
+        dto.setChatId(first.getChat() == null ? null : first.getChat().getId());
+        dto.setCreatedBy(first.getCreatedBy() == null ? null : first.getCreatedBy().getId());
+        dto.setCanceledBy(first.getCanceledBy() == null ? null : first.getCanceledBy().getId());
+        dto.setCanceledAt(resolveCanceledAt(sorted));
+        dto.setDeliveryType(resolveFrontDeliveryType(first));
+        dto.setType(payload == null ? resolveFrontType(first) : payload.type());
+        dto.setAudienceMode(payload == null ? null : payload.audienceMode());
+        dto.setMessage(payload == null ? null : payload.message());
+        dto.setContenido(isScheduledBulkEmail(first) ? null : first.getMessageContent());
+        dto.setSubject(first.getEmailSubject());
+        dto.setBody(isScheduledBulkEmail(first) ? first.getMessageContent() : null);
+        dto.setUserIds(resolveUserIds(payload, resolvedRecipientUsers));
+        dto.setRecipientEmails(resolveRecipientEmails(sorted, payload));
+        dto.setRecipientUsers(resolvedRecipientUsers);
+        dto.setRecipientCount(dto.getRecipientUsers() == null ? 0 : dto.getRecipientUsers().size());
+        dto.setRecipientLabel(buildRecipientLabel(payload, dto.getRecipientCount()));
+        dto.setRecipientsSummary(dto.getRecipientLabel());
+        dto.setAttachmentNames(resolveAttachmentNames(first, payload));
+        dto.setAttachmentsMeta(resolveAttachmentsMeta(first, payload));
+        dto.setAttachmentCount(dto.getAttachmentsMeta() == null ? 0 : dto.getAttachmentsMeta().size());
+        dto.setStatus(resolveAggregateStatus(sorted).name());
+        dto.setAttempts(sorted.stream().map(MensajeProgramadoEntity::getAttempts).filter(Objects::nonNull).max(Integer::compareTo).orElse(0));
+        dto.setLastError(resolveAggregateLastError(sorted));
+        dto.setCreatedAt(sorted.stream().map(MensajeProgramadoEntity::getCreatedAt).filter(Objects::nonNull).min(Instant::compareTo).orElse(first.getCreatedAt()));
+        dto.setUpdatedAt(sorted.stream().map(MensajeProgramadoEntity::getUpdatedAt).filter(Objects::nonNull).max(Instant::compareTo).orElse(first.getUpdatedAt()));
+        dto.setSentAt(sorted.stream().map(MensajeProgramadoEntity::getSentAt).filter(Objects::nonNull).max(Instant::compareTo).orElse(null));
+        dto.setMessageContent(first.getMessageContent());
+        return dto;
+    }
+
+    private EstadoMensajeProgramado resolveAggregateStatus(List<MensajeProgramadoEntity> rows) {
+        boolean hasProcessing = rows.stream().anyMatch(row -> row.getStatus() == EstadoMensajeProgramado.PROCESSING);
+        if (hasProcessing) {
+            return EstadoMensajeProgramado.PROCESSING;
+        }
+        boolean hasPending = rows.stream().anyMatch(row -> row.getStatus() == EstadoMensajeProgramado.PENDING);
+        if (hasPending) {
+            return EstadoMensajeProgramado.PENDING;
+        }
+        boolean hasFailed = rows.stream().anyMatch(row -> row.getStatus() == EstadoMensajeProgramado.FAILED);
+        if (hasFailed) {
+            return EstadoMensajeProgramado.FAILED;
+        }
+        boolean hasSent = rows.stream().anyMatch(row -> row.getStatus() == EstadoMensajeProgramado.SENT);
+        if (hasSent) {
+            return EstadoMensajeProgramado.SENT;
+        }
+        return EstadoMensajeProgramado.CANCELED;
+    }
+
+    private String resolveAggregateLastError(List<MensajeProgramadoEntity> rows) {
+        return rows.stream()
+                .map(MensajeProgramadoEntity::getLastError)
+                .filter(StringUtils::hasText)
+                .map(this::truncarError)
+                .findFirst()
+                .orElse(null);
+    }
+
+    private Instant resolveCanceledAt(List<MensajeProgramadoEntity> rows) {
+        return rows.stream()
+                .map(MensajeProgramadoEntity::getCanceledAt)
+                .filter(Objects::nonNull)
+                .max(Instant::compareTo)
+                .orElse(null);
+    }
+
+    private String resolveFrontDeliveryType(MensajeProgramadoEntity row) {
+        return isScheduledBulkEmail(row) ? "email" : "message";
+    }
+
+    private String resolveFrontType(MensajeProgramadoEntity row) {
+        return isScheduledBulkEmail(row) ? "BULK_EMAIL" : "DIRECT_MESSAGE";
+    }
+
+    private String buildRecipientLabel(AdminScheduledPayload payload, int recipientCount) {
+        String audienceMode = payload == null ? null : payload.audienceMode();
+        if ("all".equalsIgnoreCase(audienceMode)) {
+            return recipientCount + " usuarios";
+        }
+        return recipientCount + (recipientCount == 1 ? " usuario seleccionado" : " usuarios seleccionados");
+    }
+
+    private List<String> resolveRecipientEmails(List<MensajeProgramadoEntity> rows, AdminScheduledPayload payload) {
+        if (payload != null && payload.recipientEmails() != null && !payload.recipientEmails().isEmpty()) {
+            return payload.recipientEmails();
+        }
+        return rows.stream()
+                .map(MensajeProgramadoEntity::getRecipientEmail)
+                .filter(StringUtils::hasText)
+                .map(String::trim)
+                .distinct()
+                .toList();
+    }
+
+    private List<Long> resolveUserIds(AdminScheduledPayload payload, List<ScheduledRecipientUserDTO> recipientUsers) {
+        if (payload != null && payload.userIds() != null && !payload.userIds().isEmpty()) {
+            return payload.userIds();
+        }
+        return collectUserIds(recipientUsers);
+    }
+
+    private List<ScheduledRecipientUserDTO> resolveRecipientUsers(List<MensajeProgramadoEntity> rows, AdminScheduledPayload payload) {
+        if (!isScheduledBulkEmail(rows.get(0))) {
+            Map<Long, ScheduledRecipientUserDTO> payloadUsersById = payload != null && payload.recipientUsers() != null
+                    ? payload.recipientUsers().stream()
+                    .filter(Objects::nonNull)
+                    .filter(item -> item.getUserId() != null)
+                    .collect(Collectors.toMap(
+                            ScheduledRecipientUserDTO::getUserId,
+                            item -> item,
+                            (left, right) -> left))
+                    : java.util.Collections.emptyMap();
+            return rows.stream()
+                    .map(row -> {
+                        Long recipientUserId = resolveScheduledDirectRecipientUserId(row);
+                        UsuarioEntity recipientUser = resolveScheduledDirectRecipientUser(row);
+                        ScheduledRecipientUserDTO payloadUser = recipientUserId == null ? null : payloadUsersById.get(recipientUserId);
+                        Long chatId = row.getChat() == null ? null : row.getChat().getId();
+                        if (recipientUser != null) {
+                            String email = payloadUser != null && StringUtils.hasText(payloadUser.getEmail()) ? payloadUser.getEmail() : recipientUser.getEmail();
+                            String fullName = payloadUser != null && StringUtils.hasText(payloadUser.getFullName()) ? payloadUser.getFullName() : buildFullName(recipientUser);
+                            return toRecipientUser(recipientUser.getId(), chatId, email, fullName);
+                        }
+                        return toRecipientUser(
+                                recipientUserId,
+                                chatId,
+                                payloadUser == null ? null : payloadUser.getEmail(),
+                                payloadUser == null ? null : payloadUser.getFullName());
+                    })
+                    .filter(Objects::nonNull)
+                    .toList();
+        }
+        if (payload != null && payload.recipientUsers() != null && !payload.recipientUsers().isEmpty()) {
+            return payload.recipientUsers();
+        }
+        if (isScheduledBulkEmail(rows.get(0))) {
+            return rows.stream()
+                    .map(row -> toRecipientUser(null, null, row.getRecipientEmail(), null))
+                    .filter(Objects::nonNull)
+                    .toList();
+        }
+        return List.of();
+    }
+
+    private List<String> resolveAttachmentNames(MensajeProgramadoEntity first, AdminScheduledPayload payload) {
+        List<ScheduledAttachmentMetaDTO> meta = resolveAttachmentsMeta(first, payload);
+        return meta.stream().map(ScheduledAttachmentMetaDTO::getFileName).filter(StringUtils::hasText).toList();
+    }
+
+    private List<ScheduledAttachmentMetaDTO> resolveAttachmentsMeta(MensajeProgramadoEntity first, AdminScheduledPayload payload) {
+        if (payload != null && payload.attachmentsMeta() != null && !payload.attachmentsMeta().isEmpty()) {
+            return payload.attachmentsMeta();
+        }
+        return readAttachmentMeta(first.getAttachmentPayload());
     }
 
     @Override
@@ -831,6 +1507,21 @@ public class MensajeProgramadoServiceImpl implements MensajeProgramadoService {
         }
 
         throw new AccessDeniedException(Constantes.ERR_NO_AUTORIZADO);
+    }
+
+    private long normalizeAdminDirectExpiry(Long requestedSeconds) {
+        if (requestedSeconds == null || requestedSeconds <= 0) {
+            return DEFAULT_ADMIN_DIRECT_EXPIRES_AFTER_READ_SECONDS;
+        }
+        return requestedSeconds;
+    }
+
+    private String normalizeForSearch(String value) {
+        if (value == null || value.isBlank()) {
+            return "";
+        }
+        String normalized = Normalizer.normalize(value.toLowerCase(Locale.ROOT), Normalizer.Form.NFD);
+        return DIACRITICS_PATTERN.matcher(normalized).replaceAll("");
     }
 
     private boolean isScheduledBulkEmail(MensajeProgramadoEntity row) {
@@ -1070,6 +1761,7 @@ public class MensajeProgramadoServiceImpl implements MensajeProgramadoService {
         }
 
         mensaje.setContenido(payloadJsonFinal);
+        mensaje.setContenidoBusqueda(normalizeForSearch(payloadJsonFinal));
 
         MensajeEntity saved = mensajeRepository.save(mensaje);
         MensajeDTO out = MappingUtils.mensajeEntityADto(saved);
@@ -1225,13 +1917,17 @@ public class MensajeProgramadoServiceImpl implements MensajeProgramadoService {
         if (payloadType == null || chat == null) {
             return;
         }
-        boolean compatible = (chat instanceof ChatIndividualEntity && (TYPE_E2E.equals(payloadType) || TYPE_E2E_FILE.equals(payloadType)))
-                || (chat instanceof ChatGrupalEntity && (TYPE_E2E_GROUP.equals(payloadType) || TYPE_E2E_GROUP_FILE.equals(payloadType)));
+        Long chatId = chat.getId();
+        boolean isIndividual = chat instanceof ChatIndividualEntity
+                || (chatId != null && chatIndividualRepository.findById(chatId).isPresent());
+        boolean isGroup = chat instanceof ChatGrupalEntity
+                || (chatId != null && chatGrupalRepository.findById(chatId).isPresent());
+        boolean compatible = (isIndividual && (TYPE_E2E.equals(payloadType) || TYPE_E2E_FILE.equals(payloadType)))
+                || (isGroup && (TYPE_E2E_GROUP.equals(payloadType) || TYPE_E2E_GROUP_FILE.equals(payloadType)));
         if (compatible) {
             return;
         }
-        Long chatId = chat.getId();
-        String tipoChat = chat instanceof ChatGrupalEntity ? "GRUPAL" : "INDIVIDUAL";
+        String tipoChat = isGroup ? "GRUPAL" : "INDIVIDUAL";
         String detail = "contenido type=" + payloadType + " no compatible con chatId=" + chatId + " tipoChat=" + tipoChat;
         String code = isFilePayloadType(payloadType)
                 ? Constantes.ERR_E2E_FILE_PAYLOAD_INVALID
@@ -1361,6 +2057,138 @@ public class MensajeProgramadoServiceImpl implements MensajeProgramadoService {
         return isFilePayloadType(parsed.type()) ? Constantes.TIPO_FILE : Constantes.TIPO_TEXT;
     }
 
+    private List<ScheduledEmailRecipient> normalizeScheduledRecipients(List<ScheduledEmailRecipient> recipients) {
+        if (recipients == null) {
+            return List.of();
+        }
+        LinkedHashSet<String> seen = new LinkedHashSet<>();
+        List<ScheduledEmailRecipient> out = new ArrayList<>();
+        for (ScheduledEmailRecipient recipient : recipients) {
+            if (recipient == null || !StringUtils.hasText(recipient.email()) || !isValidEmail(recipient.email())) {
+                continue;
+            }
+            String email = recipient.email().trim().toLowerCase(Locale.ROOT);
+            if (seen.add(email)) {
+                out.add(new ScheduledEmailRecipient(recipient.userId(), email));
+            }
+        }
+        return out;
+    }
+
+    private List<ScheduledRecipientUserDTO> buildRecipientUsers(List<UsuarioEntity> users) {
+        if (users == null) {
+            return List.of();
+        }
+        return users.stream().map(this::toRecipientUser).filter(Objects::nonNull).toList();
+    }
+
+    private List<ScheduledRecipientUserDTO> buildRecipientUsersFromScheduledRecipients(List<ScheduledEmailRecipient> recipients) {
+        if (recipients == null) {
+            return List.of();
+        }
+        return recipients.stream()
+                .map(recipient -> {
+                    UsuarioEntity user = recipient.userId() == null ? null : usuarioRepository.findById(recipient.userId()).orElse(null);
+                    return user != null ? toRecipientUser(user) : toRecipientUser(recipient.userId(), null, recipient.email(), null);
+                })
+                .filter(Objects::nonNull)
+                .toList();
+    }
+
+    private ScheduledRecipientUserDTO toRecipientUser(UsuarioEntity user) {
+        if (user == null) {
+            return null;
+        }
+        return toRecipientUser(user.getId(), null, user.getEmail(), buildFullName(user));
+    }
+
+    private ScheduledRecipientUserDTO toRecipientUser(Long userId, Long chatId, String email, String fullName) {
+        ScheduledRecipientUserDTO dto = new ScheduledRecipientUserDTO();
+        dto.setUserId(userId);
+        dto.setChatId(chatId);
+        dto.setEmail(StringUtils.hasText(email) ? email.trim() : null);
+        dto.setFullName(StringUtils.hasText(fullName) ? fullName.trim() : null);
+        return dto;
+    }
+
+    private String buildFullName(UsuarioEntity user) {
+        if (user == null) {
+            return null;
+        }
+        String nombre = user.getNombre() == null ? "" : user.getNombre().trim();
+        String apellido = user.getApellido() == null ? "" : user.getApellido().trim();
+        String fullName = (nombre + " " + apellido).trim();
+        return fullName.isBlank() ? null : fullName;
+    }
+
+    private List<Long> collectUserIds(List<ScheduledRecipientUserDTO> recipientUsers) {
+        if (recipientUsers == null) {
+            return List.of();
+        }
+        return recipientUsers.stream()
+                .map(ScheduledRecipientUserDTO::getUserId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+    }
+
+    private List<String> collectRecipientEmails(List<ScheduledRecipientUserDTO> recipientUsers) {
+        if (recipientUsers == null) {
+            return List.of();
+        }
+        return recipientUsers.stream()
+                .map(ScheduledRecipientUserDTO::getEmail)
+                .filter(StringUtils::hasText)
+                .map(String::trim)
+                .distinct()
+                .toList();
+    }
+
+    private String serializeAdminPayload(AdminScheduledPayload payload) {
+        try {
+            return OBJECT_MAPPER.writeValueAsString(payload);
+        } catch (Exception ex) {
+            throw new IllegalStateException("No se pudo serializar metadata administrativa programada", ex);
+        }
+    }
+
+    private AdminScheduledPayload parseAdminPayload(String raw) {
+        if (!StringUtils.hasText(raw)) {
+            return null;
+        }
+        try {
+            return OBJECT_MAPPER.readValue(raw, AdminScheduledPayload.class);
+        } catch (Exception ex) {
+            LOGGER.warn("[SCHEDULED_ADMIN_PAYLOAD_PARSE_WARN] errorType={}", ex.getClass().getSimpleName());
+            return null;
+        }
+    }
+
+    private List<ScheduledAttachmentMetaDTO> readAttachmentMeta(String attachmentPayload) {
+        if (!StringUtils.hasText(attachmentPayload)) {
+            return List.of();
+        }
+        try {
+            List<StoredEmailAttachment> stored = OBJECT_MAPPER.readValue(attachmentPayload, new TypeReference<List<StoredEmailAttachment>>() {
+            });
+            List<ScheduledAttachmentMetaDTO> out = new ArrayList<>();
+            for (StoredEmailAttachment item : stored) {
+                if (item == null) {
+                    continue;
+                }
+                ScheduledAttachmentMetaDTO dto = new ScheduledAttachmentMetaDTO();
+                dto.setFileName(item.fileName());
+                dto.setMimeType(item.mimeType());
+                dto.setSizeBytes(item.sizeBytes());
+                out.add(dto);
+            }
+            return out;
+        } catch (Exception ex) {
+            LOGGER.warn("[SCHEDULED_ATTACHMENT_META_PARSE_WARN] errorType={}", ex.getClass().getSimpleName());
+            return List.of();
+        }
+    }
+
     private List<EmailAttachmentDTO> loadScheduledEmailAttachments(String attachmentPayload) {
         if (!StringUtils.hasText(attachmentPayload)) {
             return List.of();
@@ -1368,11 +2196,12 @@ public class MensajeProgramadoServiceImpl implements MensajeProgramadoService {
         try {
             StoredEmailAttachment[] stored = OBJECT_MAPPER.readValue(attachmentPayload, StoredEmailAttachment[].class);
             List<EmailAttachmentDTO> attachments = new ArrayList<>();
+            Path scheduledRoot = Paths.get(uploadsRoot).toAbsolutePath().normalize().resolve(SCHEDULED_ATTACHMENTS_DIR);
             for (StoredEmailAttachment item : stored) {
-                if (item == null || !StringUtils.hasText(item.path())) {
+                if (item == null || !StringUtils.hasText(item.storageKey())) {
                     continue;
                 }
-                Path path = Paths.get(item.path()).toAbsolutePath().normalize();
+                Path path = resolveStoredAttachmentPath(scheduledRoot, item.storageKey());
                 if (!Files.exists(path)) {
                     throw new IllegalStateException("Adjunto programado no encontrado: " + item.fileName());
                 }
@@ -1386,6 +2215,56 @@ public class MensajeProgramadoServiceImpl implements MensajeProgramadoService {
         } catch (Exception ex) {
             throw new IllegalStateException("No se pudieron cargar adjuntos programados", ex);
         }
+    }
+
+    private Path resolveStoredAttachmentPath(Path scheduledRoot, String storageKey) {
+        String normalizedKey = storageKey == null ? "" : storageKey.replace("\\", "/").trim();
+        Path candidate;
+        if (normalizedKey.contains(":") || normalizedKey.startsWith("/")) {
+            candidate = Paths.get(normalizedKey).toAbsolutePath().normalize();
+        } else {
+            candidate = scheduledRoot.resolve(normalizedKey).normalize();
+        }
+        if (!candidate.startsWith(scheduledRoot)) {
+            throw new IllegalArgumentException("Adjunto programado con ruta invalida");
+        }
+        return candidate;
+    }
+
+    private String sanitizeAttachmentMimeType(String mimeType) {
+        String normalized = StringUtils.hasText(mimeType) ? mimeType.trim().toLowerCase(Locale.ROOT) : Constantes.MIME_APPLICATION_OCTET_STREAM;
+        if (!ALLOWED_ATTACHMENT_MIME_TYPES.contains(normalized)) {
+            throw new IllegalArgumentException("mimeType de adjunto no permitido");
+        }
+        return normalized;
+    }
+
+    private boolean isValidEmail(String email) {
+        if (!StringUtils.hasText(email)) {
+            return false;
+        }
+        String normalized = email.trim().toLowerCase(Locale.ROOT);
+        return normalized.length() <= 320 && EMAIL_PATTERN.matcher(normalized).matches();
+    }
+
+    private String normalizeAudienceMode(String audienceMode) {
+        return audienceMode == null ? "" : audienceMode.trim().toLowerCase(Locale.ROOT);
+    }
+
+    private String sanitizePlainText(String value, int maxLength) {
+        if (!StringUtils.hasText(value)) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.length() > maxLength ? trimmed.substring(0, maxLength) : trimmed;
+    }
+
+    private String sanitizeBodyText(String value, int maxLength) {
+        if (value == null) {
+            return null;
+        }
+        String cleaned = value.replace("\u0000", "").trim();
+        return cleaned.length() > maxLength ? cleaned.substring(0, maxLength) : cleaned;
     }
 
     private String sanitizeEmailVariable(String value) {
@@ -1419,7 +2298,14 @@ public class MensajeProgramadoServiceImpl implements MensajeProgramadoService {
         if (error == null) {
             return null;
         }
-        String normalized = error.trim();
+        String normalized = error.replaceAll("[\\r\\n\\t]+", " ").trim();
+        normalized = normalized.replaceAll("(?i)select\\s+.+", "internal error");
+        normalized = normalized.replaceAll("(?i)insert\\s+.+", "internal error");
+        normalized = normalized.replaceAll("(?i)update\\s+.+", "internal error");
+        normalized = normalized.replaceAll("(?i)delete\\s+.+", "internal error");
+        normalized = normalized.replaceAll("(?i)password=[^\\s]+", "password=***");
+        normalized = normalized.replaceAll("(?i)token=[^\\s]+", "token=***");
+        normalized = normalized.replaceAll("(?i)secret=[^\\s]+", "secret=***");
         if (normalized.length() <= 1000) {
             return normalized;
         }
@@ -1628,6 +2514,18 @@ public class MensajeProgramadoServiceImpl implements MensajeProgramadoService {
     private record ScheduledEmailRecipient(Long userId, String email) {
     }
 
-    private record StoredEmailAttachment(String fileName, String mimeType, String path) {
+    private record AdminScheduledPayload(String type,
+                                         String audienceMode,
+                                         String message,
+                                         String subject,
+                                         String body,
+                                         List<Long> userIds,
+                                         List<String> recipientEmails,
+                                         @JsonAlias({"recipients", "recipient_users"}) List<ScheduledRecipientUserDTO> recipientUsers,
+                                         List<ScheduledAttachmentMetaDTO> attachmentsMeta,
+                                         Long expiresAfterReadSeconds) {
+    }
+
+    private record StoredEmailAttachment(String fileName, String mimeType, String storageKey, Long sizeBytes) {
     }
 }

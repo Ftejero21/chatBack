@@ -9,6 +9,8 @@ public class AdminGroupListDTO {
     private Long id;
     private String nombreGrupo;
     private String descripcion;
+    private String imagen;
+    private String fotoGrupo;
     private String visibilidad;
     private boolean activo;
     private LocalDateTime fechaCreacion;
@@ -24,6 +26,7 @@ public class AdminGroupListDTO {
     public AdminGroupListDTO(Long id,
                              String nombreGrupo,
                              String descripcion,
+                             String imagen,
                              GroupVisibility visibilidad,
                              boolean activo,
                              LocalDateTime fechaCreacion,
@@ -36,6 +39,8 @@ public class AdminGroupListDTO {
         this.id = id;
         this.nombreGrupo = nombreGrupo;
         this.descripcion = descripcion;
+        this.imagen = imagen;
+        this.fotoGrupo = imagen;
         this.visibilidad = visibilidad == null ? null : visibilidad.name();
         this.activo = activo;
         this.fechaCreacion = fechaCreacion;
@@ -60,6 +65,14 @@ public class AdminGroupListDTO {
 
     public String getDescripcion() {
         return descripcion;
+    }
+
+    public String getImagen() {
+        return imagen;
+    }
+
+    public String getFotoGrupo() {
+        return fotoGrupo;
     }
 
     public String getVisibilidad() {

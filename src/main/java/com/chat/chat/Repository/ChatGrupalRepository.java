@@ -43,6 +43,7 @@ public interface ChatGrupalRepository extends JpaRepository<ChatGrupalEntity, Lo
                 c.id,
                 c.nombreGrupo,
                 c.descripcion,
+                c.fotoUrl,
                 c.visibilidad,
                 c.activo,
                 c.fechaCreacion,

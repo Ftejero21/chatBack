@@ -209,6 +209,15 @@ public interface MensajeRepository extends JpaRepository<MensajeEntity, Long> {
     List<MensajeEntity> findVisibleAdminMessagesByChatId(@Param("chatId") Long chatId);
 
     @Query("select count(m) from MensajeEntity m " +
+            "where m.chat.id = :chatId " +
+            "and m.adminMessage = true " +
+            "and m.activo = true " +
+            "and m.receptor.id = :userId " +
+            "and (m.expiraEn is null or m.expiraEn > CURRENT_TIMESTAMP)")
+    long countVisibleAdminMessagesByChatIdAndUserId(@Param("chatId") Long chatId,
+                                                    @Param("userId") Long userId);
+
+    @Query("select count(m) from MensajeEntity m " +
             "where m.mensajeTemporal = true " +
             "and m.expiraEn is not null " +
             "and m.expiraEn <= :ahora")

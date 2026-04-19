@@ -11,9 +11,11 @@ public class AdminDirectMessageScheduledRequestDTO {
     private List<Long> userIds = new ArrayList<>();
     private String message;
     private String contenido;
+    private List<AdminDirectMessagePayloadDTO> encryptedPayloads = new ArrayList<>();
     @JsonAlias({"fechaProgramada", "scheduled_at"})
     private Instant scheduledAt;
     private String scheduledAtLocal;
+    private Long expiresAfterReadSeconds;
 
     public String getAudienceMode() {
         return audienceMode;
@@ -47,6 +49,14 @@ public class AdminDirectMessageScheduledRequestDTO {
         this.contenido = contenido;
     }
 
+    public List<AdminDirectMessagePayloadDTO> getEncryptedPayloads() {
+        return encryptedPayloads;
+    }
+
+    public void setEncryptedPayloads(List<AdminDirectMessagePayloadDTO> encryptedPayloads) {
+        this.encryptedPayloads = encryptedPayloads;
+    }
+
     public Instant getScheduledAt() {
         return scheduledAt;
     }
@@ -61,5 +71,13 @@ public class AdminDirectMessageScheduledRequestDTO {
 
     public void setScheduledAtLocal(String scheduledAtLocal) {
         this.scheduledAtLocal = scheduledAtLocal;
+    }
+
+    public Long getExpiresAfterReadSeconds() {
+        return expiresAfterReadSeconds;
+    }
+
+    public void setExpiresAfterReadSeconds(Long expiresAfterReadSeconds) {
+        this.expiresAfterReadSeconds = expiresAfterReadSeconds;
     }
 }

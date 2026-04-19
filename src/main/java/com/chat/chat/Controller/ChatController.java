@@ -57,6 +57,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -150,15 +151,36 @@ public class ChatController {
             @ApiResponse(responseCode = "400", description = "Payload invalido", content = @Content(schema = @Schema(implementation = ApiError.class)))
     })
     public ResponseEntity<ScheduledBatchResponseDTO> programarMensajesDirectosAdmin(
-            @RequestBody AdminDirectMessageScheduledRequestDTO payload) {
-        LOGGER.info("[ADMIN_DIRECT_SCHEDULED_REQUEST] audienceMode={} userIds={} scheduledAtUTC={} scheduledAtLocal={} hasContenido={} hasMessage={}",
+            @RequestBody AdminDirectMessageScheduledRequestDTO payload,
+            HttpServletRequest servletRequest) {
+        httpRateLimitService.checkAdminEndpoint(servletRequest, "chat-scheduled-create-direct");
+        LOGGER.info("[ADMIN_DIRECT_SCHEDULED_REQUEST] audienceMode={} userIds={} scheduledAtUTC={} scheduledAtLocal={} hasContenido={} hasMessage={} encryptedPayloads={} expiresAfterReadSeconds={}",
                 payload == null ? null : payload.getAudienceMode(),
                 payload == null ? null : payload.getUserIds(),
                 payload == null ? null : payload.getScheduledAt(),
                 payload == null ? null : payload.getScheduledAtLocal(),
                 payload != null && payload.getContenido() != null && !payload.getContenido().isBlank(),
-                payload != null && payload.getMessage() != null && !payload.getMessage().isBlank());
+                payload != null && payload.getMessage() != null && !payload.getMessage().isBlank(),
+                payload == null || payload.getEncryptedPayloads() == null ? 0 : payload.getEncryptedPayloads().size(),
+                payload == null ? null : payload.getExpiresAfterReadSeconds());
         return ResponseEntity.ok(mensajeProgramadoService.crearMensajesDirectosAdminProgramados(payload));
+    }
+
+    @PutMapping(Constantes.ADMIN_DIRECT_MESSAGES_SCHEDULED + "/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
+    @Operation(summary = "Editar mensajes administrativos directos programados", description = "Actualiza el contenido de un envio administrativo directo programado pendiente sin cambiar su programacion.")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Envio programado editado"),
+            @ApiResponse(responseCode = "403", description = "Solo administradores", content = @Content(schema = @Schema(implementation = ApiError.class))),
+            @ApiResponse(responseCode = "400", description = "Payload invalido o mensaje ya no editable", content = @Content(schema = @Schema(implementation = ApiError.class))),
+            @ApiResponse(responseCode = "404", description = "Mensaje programado no encontrado", content = @Content(schema = @Schema(implementation = ApiError.class)))
+    })
+    public ResponseEntity<MensajeProgramadoDTO> editarMensajesDirectosAdminProgramados(
+            @PathVariable("id") Long id,
+            @RequestBody AdminDirectMessageScheduledRequestDTO payload,
+            HttpServletRequest servletRequest) {
+        httpRateLimitService.checkAdminEndpoint(servletRequest, "chat-scheduled-edit-direct");
+        return ResponseEntity.ok(mensajeProgramadoService.editarMensajeDirectoAdminProgramado(id, payload));
     }
 
     @PostMapping(value = Constantes.ADMIN_BULK_EMAIL_SCHEDULED, consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
@@ -171,7 +193,9 @@ public class ChatController {
     })
     public ResponseEntity<ScheduledBatchResponseDTO> programarBulkEmailAdmin(
             @RequestPart("payload") BulkEmailRequestDTO payload,
-            @RequestPart(value = "attachments", required = false) List<MultipartFile> attachments) {
+            @RequestPart(value = "attachments", required = false) List<MultipartFile> attachments,
+            HttpServletRequest servletRequest) {
+        httpRateLimitService.checkAdminEndpoint(servletRequest, "chat-scheduled-create-email");
         LOGGER.info("[ADMIN_BULK_EMAIL_SCHEDULED_REQUEST] audienceMode={} userIds={} recipientEmails={} scheduledAtUTC={} scheduledAtLocal={} attachmentCountDeclared={} attachmentCountReceived={}",
                 payload == null ? null : payload.getAudienceMode(),
                 payload == null ? null : payload.getUserIds(),
@@ -605,16 +629,24 @@ public class ChatController {
     }
 
     @GetMapping(Constantes.MENSAJES_PROGRAMADOS)
-    @Operation(summary = "Listar mensajes programados", description = "Lista mensajes programados del usuario autenticado, opcionalmente filtrados por estado.")
+    @PreAuthorize("hasRole('ADMIN')")
+    @Operation(summary = "Listar mensajes programados", description = "Lista programados administrativos reales, opcionalmente filtrados por estado.")
     @ApiResponse(responseCode = "200", description = "Mensajes programados obtenidos")
-    public ResponseEntity<List<MensajeProgramadoDTO>> listarMensajesProgramados(
-            @RequestParam(value = "status", required = false) String status) {
+    public ResponseEntity<Page<MensajeProgramadoDTO>> listarMensajesProgramados(
+            @RequestParam(value = "status", required = false) String status,
+            @RequestParam(value = "page", defaultValue = "0") int page,
+            @RequestParam(value = "size", defaultValue = "20") int size,
+            HttpServletRequest servletRequest) {
+        httpRateLimitService.checkAdminEndpoint(servletRequest, "chat-scheduled-list");
         EstadoMensajeProgramado estado = parseEstadoProgramado(status);
-        return ResponseEntity.ok(mensajeProgramadoService.listarMensajesProgramados(estado));
+        int safePage = Math.max(page, 0);
+        int safeSize = Math.min(Math.max(size, 1), 100);
+        return ResponseEntity.ok(mensajeProgramadoService.listarMensajesProgramados(estado, PageRequest.of(safePage, safeSize)));
     }
 
     @PostMapping(Constantes.MENSAJES_PROGRAMADOS_CANCELAR)
-    @Operation(summary = "Cancelar mensaje programado", description = "Cancela un mensaje programado en estado PENDING.")
+    @PreAuthorize("hasRole('ADMIN')")
+    @Operation(summary = "Cancelar mensaje programado", description = "Cancela un programado administrativo visible por batch si sigue cancelable.")
     @ApiResponses(value = {
             @ApiResponse(responseCode = "200", description = "Cancelacion aplicada"),
             @ApiResponse(responseCode = "400", description = "No cancelable en estado actual", content = @Content(schema = @Schema(implementation = ApiError.class))),
@@ -622,7 +654,9 @@ public class ChatController {
             @ApiResponse(responseCode = "404", description = "No encontrado", content = @Content(schema = @Schema(implementation = ApiError.class)))
     })
     public ResponseEntity<MensajeProgramadoDTO> cancelarMensajeProgramado(
-            @PathVariable("id") Long id) {
+            @PathVariable("id") Long id,
+            HttpServletRequest servletRequest) {
+        httpRateLimitService.checkAdminEndpoint(servletRequest, "chat-scheduled-cancel");
         return ResponseEntity.ok(mensajeProgramadoService.cancelarMensajeProgramado(id));
     }
 

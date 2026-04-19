@@ -197,7 +197,7 @@ public class ProgramadorExpiracionMensajesTemporales {
         mensajeReaccionRepository.deleteByMensajeIdIn(List.of(mensaje.getId()));
         guardarAuditoriaOriginalSiNoExiste(mensaje);
         aplicarPlaceholderExpirado(mensaje);
-        MensajeEntity persisted = mensajeRepository.save(mensaje);
+        MensajeEntity persisted = mensajeRepository.saveAndFlush(mensaje);
         LOGGER.info("[TEMP-ADMIN-EXPIRE] step=mark-expired-ok mensajeId={} chatId={} receptorId={} correlationId={}",
                 persisted.getId(),
                 persisted.getChat() == null ? null : persisted.getChat().getId(),
@@ -319,6 +319,11 @@ public class ProgramadorExpiracionMensajesTemporales {
                             wsPublished,
                             wsFailed);
 
+                    LOGGER.info("[TEMP-ADMIN-EXPIRE] admin-direct-post-expire mensajeId={} chatId={} receptorId={} correlationId={} action=emitirEstadoListaChatAdmin",
+                            mensaje.getId(),
+                            chat.getId(),
+                            receptorId,
+                            correlationId);
                     emitirEstadoListaChatAdmin(chat.getId(), receptorId, correlationId, wsPublished, wsFailed);
                 }
                 LOGGER.info("[TEMP-ADMIN-EXPIRE] step=publish-ws-ok mensajeId={} chatId={} receptorId={} correlationId={}",
@@ -430,9 +435,36 @@ public class ProgramadorExpiracionMensajesTemporales {
             return;
         }
         try {
+            long visibleCount = mensajeRepository.countByChatIdAndActivoTrue(chatId);
+            List<MensajeEntity> visibleAdminMessages = mensajeRepository.findVisibleAdminMessagesByChatId(chatId);
+            long visibleAdminMessagesForUser = mensajeRepository.countVisibleAdminMessagesByChatIdAndUserId(chatId, userId);
+            LOGGER.info("[TEMP-ADMIN-EXPIRE] sidebar-eval chatId={} userId={} correlationId={} visibleCount={}",
+                    chatId,
+                    userId,
+                    correlationId,
+                    visibleCount);
+            LOGGER.info("[TEMP-ADMIN-EXPIRE] sidebar-eval-detail chatId={} userId={} correlationId={} chatClass={} adminDirect={} visibleAdminCount={} visibleAdminCountForUser={} visibleAdminIds={}",
+                    chatId,
+                    userId,
+                    correlationId,
+                    "ChatIndividualEntity",
+                    true,
+                    visibleAdminMessages.size(),
+                    visibleAdminMessagesForUser,
+                    visibleAdminMessages.stream().map(MensajeEntity::getId).toList());
             MensajeEntity lastVisible = mensajeRepository
                     .findTopVisibleByChatIdOrderByFechaEnvioDesc(chatId, null)
                     .orElse(null);
+            LOGGER.info("[TEMP-ADMIN-EXPIRE] sidebar-last-visible chatId={} userId={} correlationId={} lastVisibleId={} lastVisibleActivo={} lastVisibleMotivo={} lastVisibleExpireAt={} lastVisibleExpiraEn={} lastVisibleAdmin={}",
+                    chatId,
+                    userId,
+                    correlationId,
+                    lastVisible == null ? null : lastVisible.getId(),
+                    lastVisible == null ? null : lastVisible.isActivo(),
+                    lastVisible == null ? null : lastVisible.getMotivoEliminacion(),
+                    lastVisible == null ? null : lastVisible.getExpireAt(),
+                    lastVisible == null ? null : lastVisible.getExpiraEn(),
+                    lastVisible == null ? null : lastVisible.isAdminMessage());
             LOGGER.info("[TEMP-ADMIN-EXPIRE] step=build-ws-events-start mensajeId={} chatId={} receptorId={} correlationId={}",
                     lastVisible == null ? null : lastVisible.getId(),
                     chatId,
@@ -443,23 +475,58 @@ public class ProgramadorExpiracionMensajesTemporales {
             event.setChatId(chatId);
             event.setUserId(userId);
 
-            if (lastVisible == null) {
+            boolean removeAdminDirectChat = visibleAdminMessagesForUser == 0L;
+            LOGGER.info("[TEMP-ADMIN-EXPIRE] sidebar-remove-decision chatId={} userId={} correlationId={} removeAdminDirectChat={} reason={}",
+                    chatId,
+                    userId,
+                    correlationId,
+                    removeAdminDirectChat,
+                    removeAdminDirectChat ? "visible_admin_messages_for_user_zero" : "visible_admin_messages_for_user_present");
+            if (lastVisible == null || removeAdminDirectChat) {
                 LOGGER.info("[TEMP-ADMIN-EXPIRE] sidebar chatId={} userId={} correlationId={} removed=true reason=no_visible_messages_left",
                         chatId,
                         userId,
                         correlationId);
                 event.setSystemEvent(Constantes.SYSTEM_EVENT_ADMIN_DIRECT_CHAT_REMOVED);
                 event.setRemoved(true);
-                publishWs(
-                        Constantes.SYSTEM_EVENT_ADMIN_DIRECT_CHAT_REMOVED,
-                        Constantes.TOPIC_CHAT + userId,
-                        event,
-                        correlationId,
-                        null,
-                        chatId,
-                        userId,
-                        wsPublished,
-                        wsFailed);
+                String topic = Constantes.TOPIC_CHAT + userId;
+                try {
+                    LOGGER.info("[ADMIN_DIRECT_CHAT_REMOVED_WS] step=publish-start chatId={} userId={} correlationId={} topic={} removed={} ts={}",
+                            chatId,
+                            userId,
+                            correlationId,
+                            topic,
+                            true,
+                            LocalDateTime.now());
+                    publishWs(
+                            Constantes.SYSTEM_EVENT_ADMIN_DIRECT_CHAT_REMOVED,
+                            topic,
+                            event,
+                            correlationId,
+                            null,
+                            chatId,
+                            userId,
+                            wsPublished,
+                            wsFailed);
+                    LOGGER.info("[ADMIN_DIRECT_CHAT_REMOVED_WS] step=publish-ok chatId={} userId={} correlationId={} topic={} removed={} ts={}",
+                            chatId,
+                            userId,
+                            correlationId,
+                            topic,
+                            true,
+                            LocalDateTime.now());
+                } catch (Exception ex) {
+                    LOGGER.error("[ADMIN_DIRECT_CHAT_REMOVED_WS] step=publish-fail chatId={} userId={} correlationId={} topic={} errorType={} error={} ts={}",
+                            chatId,
+                            userId,
+                            correlationId,
+                            topic,
+                            ex.getClass().getSimpleName(),
+                            ex.getMessage(),
+                            LocalDateTime.now(),
+                            ex);
+                    throw ex;
+                }
                 return;
             }
 

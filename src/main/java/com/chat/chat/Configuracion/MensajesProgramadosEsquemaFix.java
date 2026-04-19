@@ -38,11 +38,15 @@ public class MensajesProgramadosEsquemaFix {
               recipient_email VARCHAR(320) NULL,
               email_subject VARCHAR(255) NULL,
               attachment_payload TEXT NULL,
+              admin_payload TEXT NULL,
               admin_message BOOLEAN NOT NULL DEFAULT FALSE,
               message_temporal BOOLEAN NOT NULL DEFAULT FALSE,
               expires_after_read_seconds BIGINT NULL,
+              canceled_by BIGINT NULL,
+              canceled_at TIMESTAMP NULL,
               CONSTRAINT fk_sched_created_by FOREIGN KEY (created_by) REFERENCES usuarios(id),
               CONSTRAINT fk_sched_chat FOREIGN KEY (chat_id) REFERENCES chats(id) ON DELETE CASCADE,
+              CONSTRAINT fk_sched_canceled_by FOREIGN KEY (canceled_by) REFERENCES usuarios(id),
               INDEX idx_sched_status_scheduled_at (status, scheduled_at),
               INDEX idx_sched_created_by (created_by),
               INDEX idx_sched_lock_until (lock_until),
@@ -59,9 +63,14 @@ public class MensajesProgramadosEsquemaFix {
     private static final String SQL_ADD_RECIPIENT_EMAIL = "ALTER TABLE chat_scheduled_message ADD COLUMN recipient_email VARCHAR(320) NULL";
     private static final String SQL_ADD_EMAIL_SUBJECT = "ALTER TABLE chat_scheduled_message ADD COLUMN email_subject VARCHAR(255) NULL";
     private static final String SQL_ADD_ATTACHMENT_PAYLOAD = "ALTER TABLE chat_scheduled_message ADD COLUMN attachment_payload TEXT NULL";
+    private static final String SQL_ADD_ADMIN_PAYLOAD = "ALTER TABLE chat_scheduled_message ADD COLUMN admin_payload TEXT NULL";
     private static final String SQL_ADD_ADMIN_MESSAGE = "ALTER TABLE chat_scheduled_message ADD COLUMN admin_message BOOLEAN NOT NULL DEFAULT FALSE";
     private static final String SQL_ADD_MESSAGE_TEMPORAL = "ALTER TABLE chat_scheduled_message ADD COLUMN message_temporal BOOLEAN NOT NULL DEFAULT FALSE";
     private static final String SQL_ADD_EXPIRES_AFTER_READ_SECONDS = "ALTER TABLE chat_scheduled_message ADD COLUMN expires_after_read_seconds BIGINT NULL";
+    private static final String SQL_ADD_CANCELED_BY = "ALTER TABLE chat_scheduled_message ADD COLUMN canceled_by BIGINT NULL";
+    private static final String SQL_ADD_CANCELED_AT = "ALTER TABLE chat_scheduled_message ADD COLUMN canceled_at TIMESTAMP NULL";
+    private static final String SQL_ADD_FK_CANCELED_BY = "ALTER TABLE chat_scheduled_message ADD CONSTRAINT fk_sched_canceled_by FOREIGN KEY (canceled_by) REFERENCES usuarios(id)";
+    private static final String SQL_CONSTRAINT_EXISTS = "SELECT COUNT(1) FROM information_schema.TABLE_CONSTRAINTS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'chat_scheduled_message' AND CONSTRAINT_NAME = ?";
     private static final String SQL_CHAT_ID_NULLABLE = "ALTER TABLE chat_scheduled_message MODIFY COLUMN chat_id BIGINT NULL";
 
     private final JdbcTemplate jdbcTemplate;
@@ -89,9 +98,13 @@ public class MensajesProgramadosEsquemaFix {
             agregarColumnaSiNoExiste("recipient_email", SQL_ADD_RECIPIENT_EMAIL);
             agregarColumnaSiNoExiste("email_subject", SQL_ADD_EMAIL_SUBJECT);
             agregarColumnaSiNoExiste("attachment_payload", SQL_ADD_ATTACHMENT_PAYLOAD);
+            agregarColumnaSiNoExiste("admin_payload", SQL_ADD_ADMIN_PAYLOAD);
             agregarColumnaSiNoExiste("admin_message", SQL_ADD_ADMIN_MESSAGE);
             agregarColumnaSiNoExiste("message_temporal", SQL_ADD_MESSAGE_TEMPORAL);
             agregarColumnaSiNoExiste("expires_after_read_seconds", SQL_ADD_EXPIRES_AFTER_READ_SECONDS);
+            agregarColumnaSiNoExiste("canceled_by", SQL_ADD_CANCELED_BY);
+            agregarColumnaSiNoExiste("canceled_at", SQL_ADD_CANCELED_AT);
+            agregarConstraintSiNoExiste("fk_sched_canceled_by", SQL_ADD_FK_CANCELED_BY);
             jdbcTemplate.execute(SQL_CHAT_ID_NULLABLE);
             LOGGER.info("[DB_FIX] esquema de mensajes programados verificado");
         } catch (Exception ex) {
@@ -106,5 +119,14 @@ public class MensajesProgramadosEsquemaFix {
         }
         jdbcTemplate.execute(sqlAdd);
         LOGGER.info("[DB_FIX] columna {} creada en chat_scheduled_message", columna);
+    }
+
+    private void agregarConstraintSiNoExiste(String constraint, String sqlAdd) {
+        Integer count = jdbcTemplate.queryForObject(SQL_CONSTRAINT_EXISTS, Integer.class, constraint);
+        if (count != null && count > 0) {
+            return;
+        }
+        jdbcTemplate.execute(sqlAdd);
+        LOGGER.info("[DB_FIX] constraint {} creada en chat_scheduled_message", constraint);
     }
 }

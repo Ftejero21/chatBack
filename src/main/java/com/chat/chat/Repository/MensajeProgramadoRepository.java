@@ -20,6 +20,43 @@ public interface MensajeProgramadoRepository extends JpaRepository<MensajeProgra
     List<MensajeProgramadoEntity> findByCreatedByIdAndStatusOrderByCreatedAtDesc(Long createdById,
                                                                                   EstadoMensajeProgramado status);
 
+    @Query("""
+            select m
+            from MensajeProgramadoEntity m
+            where m.adminMessage = true
+               or upper(m.deliveryType) = 'ADMIN_BULK_EMAIL'
+            order by m.scheduledAt desc, m.id desc
+            """)
+    List<MensajeProgramadoEntity> findAdminScheduledRows();
+
+    @Query("""
+            select m
+            from MensajeProgramadoEntity m
+            where (m.adminMessage = true or upper(m.deliveryType) = 'ADMIN_BULK_EMAIL')
+              and m.status = :status
+            order by m.scheduledAt desc, m.id desc
+            """)
+    List<MensajeProgramadoEntity> findAdminScheduledRowsByStatus(@Param("status") EstadoMensajeProgramado status);
+
+    @Query("""
+            select m
+            from MensajeProgramadoEntity m
+            where (m.scheduledBatchId = :batchId)
+               or (:batchId is null and m.id = :rowId)
+            order by m.id asc
+            """)
+    List<MensajeProgramadoEntity> findAllByBatchOrSelf(@Param("batchId") String batchId, @Param("rowId") Long rowId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            select m
+            from MensajeProgramadoEntity m
+            where (m.scheduledBatchId = :batchId)
+               or (:batchId is null and m.id = :rowId)
+            order by m.id asc
+            """)
+    List<MensajeProgramadoEntity> findAllByBatchOrSelfForUpdate(@Param("batchId") String batchId, @Param("rowId") Long rowId);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select m from MensajeProgramadoEntity m where m.id = :id")
     Optional<MensajeProgramadoEntity> findByIdForUpdate(@Param("id") Long id);

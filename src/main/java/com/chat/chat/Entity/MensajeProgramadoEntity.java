@@ -92,6 +92,10 @@ public class MensajeProgramadoEntity {
     @Column(name = "attachment_payload", columnDefinition = "TEXT")
     private String attachmentPayload;
 
+    @Lob
+    @Column(name = "admin_payload", columnDefinition = "TEXT")
+    private String adminPayload;
+
     @Column(name = "admin_message", nullable = false)
     private boolean adminMessage = false;
 
@@ -100,6 +104,13 @@ public class MensajeProgramadoEntity {
 
     @Column(name = "expires_after_read_seconds")
     private Long expiresAfterReadSeconds;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "canceled_by")
+    private UsuarioEntity canceledBy;
+
+    @Column(name = "canceled_at")
+    private Instant canceledAt;
 
     @PrePersist
     public void prePersist() {
@@ -310,6 +321,14 @@ public class MensajeProgramadoEntity {
         this.attachmentPayload = attachmentPayload;
     }
 
+    public String getAdminPayload() {
+        return adminPayload;
+    }
+
+    public void setAdminPayload(String adminPayload) {
+        this.adminPayload = adminPayload;
+    }
+
     public boolean isAdminMessage() {
         return adminMessage;
     }
@@ -332,5 +351,21 @@ public class MensajeProgramadoEntity {
 
     public void setExpiresAfterReadSeconds(Long expiresAfterReadSeconds) {
         this.expiresAfterReadSeconds = expiresAfterReadSeconds;
+    }
+
+    public UsuarioEntity getCanceledBy() {
+        return canceledBy;
+    }
+
+    public void setCanceledBy(UsuarioEntity canceledBy) {
+        this.canceledBy = canceledBy;
+    }
+
+    public Instant getCanceledAt() {
+        return canceledAt;
+    }
+
+    public void setCanceledAt(Instant canceledAt) {
+        this.canceledAt = canceledAt;
     }
 }

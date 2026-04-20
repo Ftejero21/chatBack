@@ -60,6 +60,7 @@ public class Constantes {
     public static final String USUARIO_PERFIL_PASSWORD_CODE = "/perfil/password/solicitar-codigo";
     public static final String USUARIO_PERFIL_PASSWORD_CHANGE = "/perfil/password/cambiar";
     public static final String SOLICITUD_DESBANEO_CREATE = "/solicitudes-desbaneo";
+    public static final String USER_COMPLAINT_CREATE = "/denuncias";
 
     // Rutas Recuperación Contraseña
     public static final String RECUPERAR_PASSWORD_SOLICITAR = "/recuperar-password/solicitar";
@@ -116,6 +117,10 @@ public class Constantes {
     public static final String ADMIN_SOLICITUD_DESBANEO_BY_ID = "/admin/solicitudes-desbaneo/{id}";
     public static final String ADMIN_SOLICITUD_DESBANEO_ESTADO = "/admin/solicitudes-desbaneo/{id}/estado";
     public static final String ADMIN_SOLICITUD_DESBANEO_STATS = "/admin/solicitudes-desbaneo/stats";
+    public static final String ADMIN_USER_COMPLAINT_LIST = "/admin/denuncias";
+    public static final String ADMIN_USER_COMPLAINT_STATS = "/admin/denuncias/stats";
+    public static final String ADMIN_USER_COMPLAINT_READ = "/admin/denuncias/{id}/read";
+    public static final String ADMIN_USER_COMPLAINT_EXPEDIENTE = "/admin/denuncias/usuario/{userId}/expediente";
     public static final String USUARIO_BLOQUEAR = "/{bloqueadoId}/bloquear";
     public static final String USUARIO_DESBLOQUEAR = "/{bloqueadoId}/desbloquear";
 
@@ -180,6 +185,7 @@ public class Constantes {
     public static final String WS_TOPIC_NOTIFICATIONS = "/topic/notifications.";
     public static final String WS_TOPIC_LEIDO = "/topic/leido.";
     public static final String TOPIC_ADMIN_SOLICITUDES_DESBANEO = "/topic/admin.solicitudes-desbaneo";
+    public static final String TOPIC_ADMIN_DENUNCIAS = "/topic/admin.denuncias";
     public static final String WS_TOPIC_USER_BLOQUEOS_PREFIX = "/topic/user/";
     public static final String WS_TOPIC_USER_BLOQUEOS_SUFFIX = "/bloqueos";
     public static final String WS_QUEUE_BANEOS = "/queue/baneos";

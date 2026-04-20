@@ -27,6 +27,7 @@ public class ChatIndividualDTO {
 
     private Long unreadCount;
     private Boolean adminDirect;
+    private Boolean denunciado;
 
     public Long getId() {
         return id;
@@ -170,6 +171,14 @@ public class ChatIndividualDTO {
 
     public void setAdminDirect(Boolean adminDirect) {
         this.adminDirect = adminDirect;
+    }
+
+    public Boolean getDenunciado() {
+        return denunciado;
+    }
+
+    public void setDenunciado(Boolean denunciado) {
+        this.denunciado = denunciado;
     }
 
     public void setUltimaFecha(LocalDateTime ultimaFecha) {

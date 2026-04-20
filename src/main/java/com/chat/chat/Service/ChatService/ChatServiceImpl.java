@@ -106,6 +106,9 @@ public class ChatServiceImpl implements ChatService {
     private UserPinnedChatRepository userPinnedChatRepository;
 
     @Autowired
+    private UserComplaintRepository userComplaintRepository;
+
+    @Autowired
     private ChatRepository chatRepository;
 
     @Autowired
@@ -736,6 +739,7 @@ public class ChatServiceImpl implements ChatService {
                         r -> (Long) r[0], // chatId
                         r -> (Long) r[1] // count
                 ));
+        Set<Long> denunciadosPorUsuario = userComplaintRepository.findDistinctDenunciadoIdsByDenuncianteId(usuarioId);
 
         // === INDIVIDUALES ===
         List<ChatIndividualDTO> individuales = individualChats.stream()
@@ -759,6 +763,7 @@ public class ChatServiceImpl implements ChatService {
                     }
 
                     dto.setUnreadCount(unreadMap.getOrDefault(dto.getId(), 0L));
+                    dto.setDenunciado(denunciadosPorUsuario.contains(peer.getId()));
 
                     // Ãšltimo mensaje por chatId
                     Long cutoff = cutoffByChatId.get(dto.getId());

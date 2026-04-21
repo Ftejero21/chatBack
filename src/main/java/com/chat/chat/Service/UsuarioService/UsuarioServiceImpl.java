@@ -9,6 +9,8 @@ import com.chat.chat.DTO.GoogleAuthRequestDTO;
 import com.chat.chat.DTO.GoogleTokenPayloadDTO;
 import com.chat.chat.Entity.E2EPrivateKeyBackupEntity;
 import com.chat.chat.Entity.SolicitudDesbaneoEntity;
+import com.chat.chat.Entity.UserBlockRelationEntity;
+import com.chat.chat.Entity.UserModerationHistoryEntity;
 import com.chat.chat.Entity.UsuarioEntity;
 import com.chat.chat.Exceptions.EmailNoRegistradoException;
 import com.chat.chat.Exceptions.EmailYaExisteException;
@@ -21,15 +23,20 @@ import com.chat.chat.Mapper.E2EPrivateKeyBackupMapper;
 import com.chat.chat.Repository.E2EPrivateKeyBackupRepository;
 import com.chat.chat.Repository.UsuarioRepository;
 import com.chat.chat.Repository.SolicitudDesbaneoRepository;
+import com.chat.chat.Repository.UserBlockRelationRepository;
+import com.chat.chat.Repository.UserModerationHistoryRepository;
 import com.chat.chat.Utils.Constantes;
 import com.chat.chat.Utils.MappingUtils;
 import com.chat.chat.Utils.Utils;
 import com.chat.chat.Utils.ExceptionConstants;
 import com.chat.chat.Utils.AdminAuditCrypto;
 import com.chat.chat.Utils.E2EDiagnosticUtils;
+import com.chat.chat.Utils.BlockSource;
+import com.chat.chat.Utils.ModerationActionType;
 import com.chat.chat.Repository.MensajeRepository;
 import com.chat.chat.Repository.ChatRepository;
 import com.chat.chat.DTO.DashboardStatsDTO;
+import com.chat.chat.DTO.BlockedUserDTO;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -85,6 +92,10 @@ public class UsuarioServiceImpl implements UsuarioService {
     private static final int MAX_KDF_ITERATIONS = 10000000;
     private static final int MIN_KEY_LENGTH_BITS = 128;
     private static final int MAX_KEY_LENGTH_BITS = 8192;
+    private static final int MAX_MODERATION_REASON_LENGTH = 500;
+    private static final int MAX_MODERATION_ORIGIN_LENGTH = 80;
+    private static final int MAX_MODERATION_DESCRIPTION_LENGTH = 5000;
+    private static final String DEFAULT_MODERATION_ORIGIN = "panel_admin";
 
     @Autowired
     private UsuarioRepository usuarioRepository;
@@ -106,6 +117,12 @@ public class UsuarioServiceImpl implements UsuarioService {
 
     @Autowired
     private E2EPrivateKeyBackupRepository e2EPrivateKeyBackupRepository;
+
+    @Autowired
+    private UserModerationHistoryRepository userModerationHistoryRepository;
+
+    @Autowired
+    private UserBlockRelationRepository userBlockRelationRepository;
 
     @Value("${app.uploads.root:uploads}") // carpeta base
     private String uploadsRoot;
@@ -180,6 +197,7 @@ public class UsuarioServiceImpl implements UsuarioService {
 
         UsuarioEntity saved = usuarioRepository.save(entity);
         UsuarioDTO savedDto = MappingUtils.usuarioEntityADto(saved);
+        applyBlockedSources(savedDto, saved.getId());
 
         // Generar Token
         UserDetails userDetails = customUserDetailsService.loadUserByUsername(saved.getEmail());
@@ -470,6 +488,7 @@ public class UsuarioServiceImpl implements UsuarioService {
 
     private AuthRespuestaDTO buildAuthResponseFromUsuario(UsuarioEntity usuario) {
         UsuarioDTO dto = MappingUtils.usuarioEntityADto(usuario);
+        applyBlockedSources(dto, usuario == null ? null : usuario.getId());
         if (dto.getFoto() != null && dto.getFoto().startsWith(Constantes.UPLOADS_PREFIX)) {
             dto.setFoto(Utils.toDataUrlFromUrl(dto.getFoto(), uploadsRoot));
         }
@@ -625,6 +644,7 @@ public class UsuarioServiceImpl implements UsuarioService {
         LOGGER.info("[E2E_DIAG] stage=USER_GET_BY_ID ts={} userId={} publicKeyFp={} publicKeyLen={}",
                 Instant.now(), id, E2EDiagnosticUtils.fingerprint12(u.getPublicKey()), u.getPublicKey() == null ? 0 : u.getPublicKey().length());
         UsuarioDTO dto = MappingUtils.usuarioEntityADto(u);
+        applyBlockedSources(dto, u.getId());
         // ðŸ‘‰ Si la foto es una URL pÃºblica (/uploads/...), la convertimos a Base64 para
         // el front
         if (dto.getFoto() != null && dto.getFoto().startsWith(Constantes.UPLOADS_PREFIX)) {
@@ -664,16 +684,25 @@ public class UsuarioServiceImpl implements UsuarioService {
     @Override
     @Transactional
     public void bloquearUsuario(Long bloqueadoId) {
+        bloquearUsuario(bloqueadoId, null);
+    }
+
+    @Override
+    @Transactional
+    public void bloquearUsuario(Long bloqueadoId, String source) {
         Long authenticatedUserId = securityUtils.getAuthenticatedUserId();
         System.out.println(Constantes.LOG_BLOCK_ATTEMPT + authenticatedUserId + " bloqueado=" + bloqueadoId);
         if (authenticatedUserId.equals(bloqueadoId)) {
             throw new RuntimeException(ExceptionConstants.ERROR_CANT_BLOCK_SELF);
         }
+        BlockSource blockSource = normalizeBlockSource(source);
 
         UsuarioEntity user = usuarioRepository.findById(authenticatedUserId).orElseThrow();
         UsuarioEntity blocked = usuarioRepository.findById(bloqueadoId).orElseThrow();
+        boolean added = user.getBloqueados().add(blocked);
+        upsertBlockSource(user, blocked, blockSource);
 
-        if (user.getBloqueados().add(blocked)) {
+        if (added) {
             System.out.println(Constantes.LOG_BLOCK_SUCCESS);
             usuarioRepository.save(user);
             // Notify the blocked user via STOMP that their status changed
@@ -691,6 +720,14 @@ public class UsuarioServiceImpl implements UsuarioService {
 
         UsuarioEntity user = usuarioRepository.findById(authenticatedUserId).orElseThrow();
         UsuarioEntity blocked = usuarioRepository.findById(bloqueadoId).orElseThrow();
+        UserBlockRelationEntity block = userBlockRelationRepository.findByBlocker_IdAndBlocked_Id(authenticatedUserId, bloqueadoId)
+                .orElse(null);
+        if (block != null && block.getSource() == BlockSource.REPORT) {
+            throw new IllegalStateException("No puedes desbloquear un bloqueo de tipo REPORT");
+        }
+        if (block != null) {
+            userBlockRelationRepository.delete(block);
+        }
 
         if (user.getBloqueados().remove(blocked)) {
             usuarioRepository.save(user);
@@ -698,6 +735,47 @@ public class UsuarioServiceImpl implements UsuarioService {
             messagingTemplate.convertAndSend(Constantes.WS_TOPIC_USER_BLOQUEOS_PREFIX + bloqueadoId + Constantes.WS_TOPIC_USER_BLOQUEOS_SUFFIX,
                     String.format(Constantes.WS_BLOCK_STATUS_PAYLOAD_TEMPLATE, authenticatedUserId, Constantes.WS_TYPE_UNBLOCKED));
         }
+    }
+
+    private BlockSource normalizeBlockSource(String source) {
+        if (source == null || source.isBlank()) {
+            return BlockSource.MANUAL;
+        }
+        try {
+            return BlockSource.valueOf(source.trim().toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException ex) {
+            throw new IllegalArgumentException("source invalido. Usa MANUAL o REPORT");
+        }
+    }
+
+    private void upsertBlockSource(UsuarioEntity blocker, UsuarioEntity blocked, BlockSource source) {
+        UserBlockRelationEntity row = userBlockRelationRepository
+                .findByBlocker_IdAndBlocked_Id(blocker.getId(), blocked.getId())
+                .orElse(null);
+        if (row == null) {
+            row = new UserBlockRelationEntity();
+            row.setBlocker(blocker);
+            row.setBlocked(blocked);
+        }
+        row.setSource(source == null ? BlockSource.MANUAL : source);
+        userBlockRelationRepository.save(row);
+    }
+
+    private void applyBlockedSources(UsuarioDTO dto, Long userId) {
+        if (dto == null || userId == null) {
+            return;
+        }
+        List<BlockedUserDTO> blocks = userBlockRelationRepository.findByBlocker_Id(userId)
+                .stream()
+                .map(row -> {
+                    BlockedUserDTO item = new BlockedUserDTO();
+                    item.setUserId(row.getBlocked() == null ? null : row.getBlocked().getId());
+                    item.setSource(row.getSource() == null ? BlockSource.MANUAL.name() : row.getSource().name());
+                    return item;
+                })
+                .filter(item -> item.getUserId() != null)
+                .collect(Collectors.toList());
+        dto.setBloqueados(blocks);
     }
 
     @Override
@@ -863,6 +941,7 @@ public class UsuarioServiceImpl implements UsuarioService {
 
         UsuarioEntity saved = usuarioRepository.save(usuario);
         UsuarioDTO out = MappingUtils.usuarioEntityADto(saved);
+        applyBlockedSources(out, saved.getId());
         if (out.getFoto() != null && out.getFoto().startsWith(Constantes.UPLOADS_PREFIX)) {
             out.setFoto(Utils.toDataUrlFromUrl(out.getFoto(), uploadsRoot));
         }
@@ -912,13 +991,19 @@ public class UsuarioServiceImpl implements UsuarioService {
         usuarioRepository.save(usuario);
         passwordChangeService.invalidateCode(usuario.getEmail());
     }
-
     @Override
     @Transactional
     public void banearUsuario(Long id, String motivo) {
-        UsuarioEntity bloqueado = usuarioRepository.findById(id).orElseThrow();
+        banearUsuario(id, motivo, null, null);
+    }
 
-        // Motivo por defecto si viene null o vacÃ­o
+    @Override
+    @Transactional
+    public void banearUsuario(Long id, String motivo, String origen, String descripcion) {
+        UsuarioEntity bloqueado = usuarioRepository.findById(id).orElseThrow();
+        Long adminId = securityUtils.getAuthenticatedUserId();
+        UsuarioEntity admin = usuarioRepository.findById(adminId).orElseThrow();
+
         String motivoFinal = (motivo == null || motivo.trim().isEmpty())
                 ? Constantes.BAN_MOTIVO_DEFAULT
                 : motivo.trim();
@@ -926,14 +1011,12 @@ public class UsuarioServiceImpl implements UsuarioService {
         bloqueado.setActivo(false);
         usuarioRepository.save(bloqueado);
 
-        // 1. WebSocket con el motivo final
         messagingTemplate.convertAndSendToUser(
                 bloqueado.getEmail(),
                 Constantes.WS_QUEUE_BANEOS,
                 String.format(Constantes.WS_BAN_PAYLOAD_TEMPLATE, escapeJson(motivoFinal))
         );
 
-        // 2. Enviar Email con el motivo final
         Map<String, String> vars = new HashMap<>();
         vars.put(Constantes.EMAIL_VAR_NOMBRE, bloqueado.getNombre());
         vars.put(Constantes.EMAIL_VAR_MOTIVO, motivoFinal);
@@ -944,6 +1027,14 @@ public class UsuarioServiceImpl implements UsuarioService {
                 Constantes.EMAIL_TEMPLATE_BAN,
                 vars
         );
+
+        registrarModeracion(
+                bloqueado,
+                admin,
+                ModerationActionType.SUSPENSION,
+                motivoFinal,
+                descripcion,
+                origen);
     }
 
     @Override
@@ -956,6 +1047,8 @@ public class UsuarioServiceImpl implements UsuarioService {
     @Transactional
     public void desbanearAdministrativamente(Long id, String motivo) {
         UsuarioEntity vetado = usuarioRepository.findById(id).orElseThrow();
+        Long adminId = securityUtils.getAuthenticatedUserId();
+        UsuarioEntity admin = usuarioRepository.findById(adminId).orElseThrow();
         String motivoFinal = (motivo == null || motivo.trim().isEmpty())
                 ? Constantes.UNBAN_MOTIVO_DEFAULT
                 : motivo.trim();
@@ -963,7 +1056,6 @@ public class UsuarioServiceImpl implements UsuarioService {
         vetado.setActivo(true);
         usuarioRepository.save(vetado);
 
-        // 3. Enviar Email de Desbaneo
         Map<String, String> vars = new HashMap<>();
         vars.put(Constantes.EMAIL_VAR_NOMBRE, vetado.getNombre());
         vars.put(Constantes.EMAIL_VAR_MOTIVO, motivoFinal);
@@ -973,6 +1065,68 @@ public class UsuarioServiceImpl implements UsuarioService {
                 Constantes.EMAIL_SUBJECT_UNBAN,
                 Constantes.EMAIL_TEMPLATE_UNBAN,
                 vars);
+
+        registrarModeracion(
+                vetado,
+                admin,
+                ModerationActionType.UNBAN,
+                motivoFinal,
+                null,
+                DEFAULT_MODERATION_ORIGIN);
+    }
+
+    private void registrarModeracion(UsuarioEntity targetUser,
+                                     UsuarioEntity admin,
+                                     ModerationActionType actionType,
+                                     String reason,
+                                     String description,
+                                     String origin) {
+        UserModerationHistoryEntity row = new UserModerationHistoryEntity();
+        row.setUser(targetUser);
+        row.setAdmin(admin);
+        row.setActionType(actionType);
+        row.setReason(normalizeModerationReason(reason));
+        row.setDescription(normalizeModerationDescription(description));
+        row.setOrigin(normalizeModerationOrigin(origin));
+        userModerationHistoryRepository.save(row);
+    }
+
+    private String normalizeModerationReason(String value) {
+        if (value == null) {
+            return "Accion administrativa";
+        }
+        String normalized = value.replaceAll("[\\p{Cntrl}&&[^\\r\\n\\t]]", " ").trim();
+        if (normalized.isEmpty()) {
+            return "Accion administrativa";
+        }
+        return normalized.length() <= MAX_MODERATION_REASON_LENGTH
+                ? normalized
+                : normalized.substring(0, MAX_MODERATION_REASON_LENGTH);
+    }
+
+    private String normalizeModerationOrigin(String value) {
+        if (value == null) {
+            return DEFAULT_MODERATION_ORIGIN;
+        }
+        String normalized = value.replaceAll("[\\p{Cntrl}&&[^\\r\\n\\t]]", " ").trim();
+        if (normalized.isEmpty()) {
+            return DEFAULT_MODERATION_ORIGIN;
+        }
+        return normalized.length() <= MAX_MODERATION_ORIGIN_LENGTH
+                ? normalized
+                : normalized.substring(0, MAX_MODERATION_ORIGIN_LENGTH);
+    }
+
+    private String normalizeModerationDescription(String value) {
+        if (value == null) {
+            return null;
+        }
+        String normalized = value.replaceAll("[\\p{Cntrl}&&[^\\r\\n\\t]]", " ").trim();
+        if (normalized.isEmpty()) {
+            return null;
+        }
+        return normalized.length() <= MAX_MODERATION_DESCRIPTION_LENGTH
+                ? normalized
+                : normalized.substring(0, MAX_MODERATION_DESCRIPTION_LENGTH);
     }
 }
-

@@ -40,6 +40,9 @@ public interface ChatService {
     List<ChatMuteStateDTO> listarChatsMuteadosActivos();
     UserPinnedChatResponseDTO setPinnedChat(UserPinnedChatRequestDTO request);
     UserPinnedChatResponseDTO getPinnedChat();
+    UserChatFavoriteResponseDTO getFavoriteChat();
+    UserChatFavoriteResponseDTO setFavoriteChat(Long chatId);
+    UserChatFavoriteResponseDTO removeFavoriteChat(Long chatId);
     ChatPinnedMessageDTO getPinnedMessage(Long chatId);
     ChatPinnedMessageDTO pinMessage(Long chatId, ChatPinMessageRequestDTO request);
     void unpinMessage(Long chatId);

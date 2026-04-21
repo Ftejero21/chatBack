@@ -5,14 +5,20 @@ import com.chat.chat.DTO.UserComplaintDTO;
 import com.chat.chat.DTO.UserComplaintStatsDTO;
 import com.chat.chat.DTO.UserComplaintWsDTO;
 import com.chat.chat.DTO.UserExpedienteDTO;
+import com.chat.chat.DTO.UserModerationHistoryItemDTO;
 import com.chat.chat.Entity.ChatIndividualEntity;
+import com.chat.chat.Entity.UserBlockRelationEntity;
 import com.chat.chat.Entity.UserComplaintEntity;
+import com.chat.chat.Entity.UserModerationHistoryEntity;
 import com.chat.chat.Entity.UsuarioEntity;
 import com.chat.chat.Exceptions.RecursoNoEncontradoException;
 import com.chat.chat.Mapper.UserComplaintMapper;
 import com.chat.chat.Repository.ChatIndividualRepository;
+import com.chat.chat.Repository.UserBlockRelationRepository;
 import com.chat.chat.Repository.UserComplaintRepository;
+import com.chat.chat.Repository.UserModerationHistoryRepository;
 import com.chat.chat.Repository.UsuarioRepository;
+import com.chat.chat.Utils.BlockSource;
 import com.chat.chat.Utils.Constantes;
 import com.chat.chat.Utils.SecurityUtils;
 import com.chat.chat.Utils.UserComplaintEstado;
@@ -26,6 +32,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -44,6 +51,8 @@ public class UserComplaintServiceImpl implements UserComplaintService {
     private static final String EVENT_UPDATED = "USER_COMPLAINT_UPDATED";
 
     private final UserComplaintRepository userComplaintRepository;
+    private final UserModerationHistoryRepository userModerationHistoryRepository;
+    private final UserBlockRelationRepository userBlockRelationRepository;
     private final UsuarioRepository usuarioRepository;
     private final ChatIndividualRepository chatIndividualRepository;
     private final SecurityUtils securityUtils;
@@ -51,12 +60,16 @@ public class UserComplaintServiceImpl implements UserComplaintService {
     private final SimpMessagingTemplate messagingTemplate;
 
     public UserComplaintServiceImpl(UserComplaintRepository userComplaintRepository,
+                                    UserModerationHistoryRepository userModerationHistoryRepository,
+                                    UserBlockRelationRepository userBlockRelationRepository,
                                     UsuarioRepository usuarioRepository,
                                     ChatIndividualRepository chatIndividualRepository,
                                     SecurityUtils securityUtils,
                                     UserComplaintMapper userComplaintMapper,
                                     SimpMessagingTemplate messagingTemplate) {
         this.userComplaintRepository = userComplaintRepository;
+        this.userModerationHistoryRepository = userModerationHistoryRepository;
+        this.userBlockRelationRepository = userBlockRelationRepository;
         this.usuarioRepository = usuarioRepository;
         this.chatIndividualRepository = chatIndividualRepository;
         this.securityUtils = securityUtils;
@@ -109,6 +122,7 @@ public class UserComplaintServiceImpl implements UserComplaintService {
         entity.setChatNombreSnapshot(trimToNullable(request.getChatNombreSnapshot(), MAX_NOMBRE_LENGTH));
 
         UserComplaintEntity saved = userComplaintRepository.save(entity);
+        ensureReportBlock(denunciante, denunciado);
         publishWsEvent(EVENT_CREATED, saved);
         return userComplaintMapper.toDto(saved);
     }
@@ -163,13 +177,37 @@ public class UserComplaintServiceImpl implements UserComplaintService {
         UserExpedienteDTO dto = new UserExpedienteDTO();
         dto.setUserId(usuario.getId());
         dto.setNombre(resolveDisplayName(usuario, null));
+        dto.setFechaRegistro(toIsoUtc(usuario.getFechaCreacion()));
         dto.setTotalDenunciasRecibidas(userComplaintRepository.countByDenunciadoId(userId));
         dto.setTotalDenunciasRealizadas(userComplaintRepository.countByDenuncianteId(userId));
         dto.setConteoPorMotivo(buildMotivoCounts(userId));
         dto.setUltimasCincoDenuncias(userComplaintRepository.findTop5ByDenunciadoIdOrderByCreatedAtDescIdDesc(userId).stream()
                 .map(userComplaintMapper::toDto)
                 .collect(Collectors.toList()));
+        dto.setCuentaActiva(usuario.isActivo());
+        dto.setEstadoCuenta(usuario.isActivo() ? "ACTIVE" : "SUSPENDED");
+        dto.setHistorialModeracion(userModerationHistoryRepository.findByUser_IdOrderByCreatedAtDescIdDesc(userId).stream()
+                .map(this::toModerationHistoryDto)
+                .collect(Collectors.toList()));
         return dto;
+    }
+
+    private UserModerationHistoryItemDTO toModerationHistoryDto(UserModerationHistoryEntity row) {
+        UserModerationHistoryItemDTO dto = new UserModerationHistoryItemDTO();
+        dto.setId(row.getId());
+        dto.setTipo(row.getActionType() == null ? null : row.getActionType().name());
+        dto.setMotivo(row.getReason());
+        dto.setDescripcion(row.getDescription());
+        dto.setOrigen(row.getOrigin());
+        dto.setAdminId(row.getAdmin() == null ? null : row.getAdmin().getId());
+        dto.setAdminNombre(resolveDisplayName(row.getAdmin(), null));
+        dto.setCreatedAt(row.getCreatedAt());
+        return dto;
+    }
+
+    private String toIsoUtc(LocalDateTime value) {
+        LocalDateTime safe = value == null ? LocalDateTime.now(ZoneOffset.UTC) : value;
+        return safe.atOffset(ZoneOffset.UTC).toInstant().toString();
     }
 
     private void validateChatOwnership(Long chatId, Long denuncianteId, Long denunciadoId) {
@@ -248,5 +286,23 @@ public class UserComplaintServiceImpl implements UserComplaintService {
         String right = apellido == null ? "" : apellido.trim();
         String full = (left + " " + right).trim();
         return full.isEmpty() ? null : full;
+    }
+
+    private void ensureReportBlock(UsuarioEntity blocker, UsuarioEntity blocked) {
+        if (blocker == null || blocked == null || blocker.getId() == null || blocked.getId() == null) {
+            return;
+        }
+        blocker.getBloqueados().add(blocked);
+        usuarioRepository.save(blocker);
+        UserBlockRelationEntity row = userBlockRelationRepository
+                .findByBlocker_IdAndBlocked_Id(blocker.getId(), blocked.getId())
+                .orElse(null);
+        if (row == null) {
+            row = new UserBlockRelationEntity();
+            row.setBlocker(blocker);
+            row.setBlocked(blocked);
+        }
+        row.setSource(BlockSource.REPORT);
+        userBlockRelationRepository.save(row);
     }
 }

@@ -23,7 +23,7 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile
-    image: chatback:2.5
+    image: chatback:3.3
     container_name: chatback
     restart: unless-stopped
     depends_on:

@@ -2,6 +2,7 @@ package com.chat.chat.Controller;
 
 import com.chat.chat.DTO.ActualizarPerfilDTO;
 import com.chat.chat.DTO.AuthRespuestaDTO;
+import com.chat.chat.DTO.AdminBanRequestDTO;
 import com.chat.chat.DTO.DashboardStatsDTO;
 import com.chat.chat.DTO.E2EPrivateKeyBackupDTO;
 import com.chat.chat.DTO.E2ERekeyRequestDTO;
@@ -12,6 +13,7 @@ import com.chat.chat.DTO.LoginRequestDTO;
 import com.chat.chat.DTO.LoginVerifyCodeRequestDTO;
 import com.chat.chat.DTO.PasswordChangeConfirmDTO;
 import com.chat.chat.DTO.PasswordChangeCodeRequestDTO;
+import com.chat.chat.DTO.UserBlockRequestDTO;
 import com.chat.chat.DTO.UsuarioDTO;
 import com.chat.chat.Exceptions.ApiError;
 import com.chat.chat.Exceptions.PasswordIncorrectaException;
@@ -294,8 +296,9 @@ public class UsuarioController {
             @ApiResponse(responseCode = "200", description = "Usuario bloqueado", content = @Content(schema = @Schema(implementation = Map.class))),
             @ApiResponse(responseCode = "404", description = "Usuario no encontrado", content = @Content(schema = @Schema(implementation = ApiError.class)))
     })
-    public ResponseEntity<Map<String, String>> bloquearUsuario(@PathVariable("bloqueadoId") Long bloqueadoId) {
-        usuarioService.bloquearUsuario(bloqueadoId);
+    public ResponseEntity<Map<String, String>> bloquearUsuario(@PathVariable("bloqueadoId") Long bloqueadoId,
+                                                               @RequestBody(required = false) UserBlockRequestDTO body) {
+        usuarioService.bloquearUsuario(bloqueadoId, body == null ? null : body.getSource());
         return ResponseEntity.ok(Map.of(Constantes.KEY_MENSAJE, Constantes.MSG_USUARIO_BLOQUEADO));
     }
 
@@ -448,8 +451,13 @@ public class UsuarioController {
     })
     public ResponseEntity<?> banear(
             @Parameter(description = "ID del usuario a suspender") @PathVariable("id") Long id,
-            @Parameter(description = "Motivo visible de la suspension") @RequestParam(Constantes.KEY_MOTIVO) String motivo) {
-        usuarioService.banearUsuario(id, motivo);
+            @Parameter(description = "Motivo visible de la suspension") @RequestParam(value = Constantes.KEY_MOTIVO, required = false) String motivoQuery,
+            @RequestParam(value = "origen", required = false) String origenQuery,
+            @RequestBody(required = false) AdminBanRequestDTO body) {
+        String motivo = (motivoQuery == null || motivoQuery.isBlank()) ? (body == null ? null : body.getMotivo()) : motivoQuery;
+        String origen = (origenQuery == null || origenQuery.isBlank()) ? (body == null ? null : body.getOrigen()) : origenQuery;
+        String descripcion = body == null ? null : body.getDescripcion();
+        usuarioService.banearUsuario(id, motivo, origen, descripcion);
         return ResponseEntity.ok().build();
     }
 

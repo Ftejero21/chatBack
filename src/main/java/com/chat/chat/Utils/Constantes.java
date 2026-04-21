@@ -80,6 +80,8 @@ public class Constantes {
     public static final String MENSAJES_PROGRAMADOS_CANCELAR = "/scheduled/{id}/cancel";
     public static final String GRUPAL_ADD_USUARIOS = "/{groupId}/usuarios";
     public static final String CHAT_PINNED = "/pinned";
+    public static final String CHAT_FAVORITE = "/favorite";
+    public static final String CHAT_SET_FAVORITE = "/{chatId}/favorite";
     public static final String CHAT_CLEAR = "/{chatId}/clear";
     public static final String CHAT_HIDE_FOR_ME = "/{chatId}/hide-for-me";
     public static final String CHAT_MUTE = "/{chatId}/mute";

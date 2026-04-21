@@ -37,6 +37,7 @@ public interface UsuarioService {
     E2EPrivateKeyBackupDTO getE2EPrivateKeyBackup(Long userId);
 
     void bloquearUsuario(Long bloqueadoId);
+    void bloquearUsuario(Long bloqueadoId, String source);
 
     void desbloquearUsuario(Long bloqueadoId);
 
@@ -53,6 +54,7 @@ public interface UsuarioService {
     void cambiarPasswordConCodigo(String code, String newPassword);
 
     void banearUsuario(Long id, String motivo);
+    void banearUsuario(Long id, String motivo, String origen, String descripcion);
 
     void desbanearAdministrativamente(Long id);
     void desbanearAdministrativamente(Long id, String motivo);

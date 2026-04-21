@@ -7,6 +7,9 @@ public class AdminDirectMessageRequestDTO {
     private String contenido;
     private List<AdminDirectMessagePayloadDTO> encryptedPayloads;
     private Long expiresAfterReadSeconds;
+    private String origen;
+    private String motivo;
+    private String descripcion;
 
     public List<Long> getUserIds() {
         return userIds;
@@ -38,5 +41,29 @@ public class AdminDirectMessageRequestDTO {
 
     public void setExpiresAfterReadSeconds(Long expiresAfterReadSeconds) {
         this.expiresAfterReadSeconds = expiresAfterReadSeconds;
+    }
+
+    public String getOrigen() {
+        return origen;
+    }
+
+    public void setOrigen(String origen) {
+        this.origen = origen;
+    }
+
+    public String getMotivo() {
+        return motivo;
+    }
+
+    public void setMotivo(String motivo) {
+        this.motivo = motivo;
+    }
+
+    public String getDescripcion() {
+        return descripcion;
+    }
+
+    public void setDescripcion(String descripcion) {
+        this.descripcion = descripcion;
     }
 }

@@ -2,6 +2,7 @@ package com.chat.chat.DTO;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 
+import java.util.List;
 import java.util.Set;
 
 public class UsuarioDTO {
@@ -18,6 +19,7 @@ public class UsuarioDTO {
     private String publicKey;
     private Boolean hasPublicKey;
     private Set<Long> bloqueadosIds;
+    private List<BlockedUserDTO> bloqueados;
     private Set<Long> meHanBloqueadoIds;
 
     public Set<Long> getMeHanBloqueadoIds() {
@@ -114,5 +116,13 @@ public class UsuarioDTO {
 
     public void setBloqueadosIds(Set<Long> bloqueadosIds) {
         this.bloqueadosIds = bloqueadosIds;
+    }
+
+    public List<BlockedUserDTO> getBloqueados() {
+        return bloqueados;
+    }
+
+    public void setBloqueados(List<BlockedUserDTO> bloqueados) {
+        this.bloqueados = bloqueados;
     }
 }

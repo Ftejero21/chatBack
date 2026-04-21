@@ -36,6 +36,7 @@ import com.chat.chat.DTO.ScheduledBatchResponseDTO;
 import com.chat.chat.DTO.SolicitudDesbaneoDTO;
 import com.chat.chat.DTO.UserPinnedChatRequestDTO;
 import com.chat.chat.DTO.UserPinnedChatResponseDTO;
+import com.chat.chat.DTO.UserChatFavoriteResponseDTO;
 import com.chat.chat.DTO.VotoEncuestaDTO;
 import com.chat.chat.Exceptions.ApiError;
 import com.chat.chat.Service.ChatService.ChatService;
@@ -475,6 +476,35 @@ public class ChatController {
     @ApiResponse(responseCode = "200", description = "Estado de chat fijado")
     public UserPinnedChatResponseDTO getPinnedChat() {
         return chatService.getPinnedChat();
+    }
+
+    @GetMapping(Constantes.CHAT_FAVORITE)
+    @Operation(summary = "Obtener chat favorito de usuario", description = "Devuelve el chat favorito del usuario autenticado o null si no tiene.")
+    @ApiResponse(responseCode = "200", description = "Estado de chat favorito")
+    public UserChatFavoriteResponseDTO getFavoriteChat() {
+        return chatService.getFavoriteChat();
+    }
+
+    @PostMapping(Constantes.CHAT_SET_FAVORITE)
+    @Operation(summary = "Marcar chat favorito", description = "Marca un chat como favorito para el usuario autenticado.")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Favorito actualizado"),
+            @ApiResponse(responseCode = "403", description = "No pertenece al chat", content = @Content(schema = @Schema(implementation = ApiError.class))),
+            @ApiResponse(responseCode = "404", description = "Chat no encontrado", content = @Content(schema = @Schema(implementation = ApiError.class)))
+    })
+    public UserChatFavoriteResponseDTO setFavoriteChat(@PathVariable("chatId") Long chatId) {
+        return chatService.setFavoriteChat(chatId);
+    }
+
+    @DeleteMapping(Constantes.CHAT_SET_FAVORITE)
+    @Operation(summary = "Quitar chat favorito", description = "Quita el favorito para el chat indicado si corresponde al favorito actual.")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Favorito actualizado"),
+            @ApiResponse(responseCode = "403", description = "No pertenece al chat", content = @Content(schema = @Schema(implementation = ApiError.class))),
+            @ApiResponse(responseCode = "404", description = "Chat no encontrado", content = @Content(schema = @Schema(implementation = ApiError.class)))
+    })
+    public UserChatFavoriteResponseDTO removeFavoriteChat(@PathVariable("chatId") Long chatId) {
+        return chatService.removeFavoriteChat(chatId);
     }
 
     @GetMapping(Constantes.LISTAR_MENSAJES_CHAT + "/{chatId}")

@@ -10,6 +10,10 @@ public class UserExpedienteDTO {
     private long totalDenunciasRealizadas;
     private Map<String, Long> conteoPorMotivo;
     private List<UserComplaintDTO> ultimasCincoDenuncias;
+    private String fechaRegistro;
+    private String estadoCuenta;
+    private boolean cuentaActiva;
+    private List<UserModerationHistoryItemDTO> historialModeracion;
 
     public Long getUserId() {
         return userId;
@@ -57,5 +61,37 @@ public class UserExpedienteDTO {
 
     public void setUltimasCincoDenuncias(List<UserComplaintDTO> ultimasCincoDenuncias) {
         this.ultimasCincoDenuncias = ultimasCincoDenuncias;
+    }
+
+    public String getFechaRegistro() {
+        return fechaRegistro;
+    }
+
+    public void setFechaRegistro(String fechaRegistro) {
+        this.fechaRegistro = fechaRegistro;
+    }
+
+    public String getEstadoCuenta() {
+        return estadoCuenta;
+    }
+
+    public void setEstadoCuenta(String estadoCuenta) {
+        this.estadoCuenta = estadoCuenta;
+    }
+
+    public boolean isCuentaActiva() {
+        return cuentaActiva;
+    }
+
+    public void setCuentaActiva(boolean cuentaActiva) {
+        this.cuentaActiva = cuentaActiva;
+    }
+
+    public List<UserModerationHistoryItemDTO> getHistorialModeracion() {
+        return historialModeracion;
+    }
+
+    public void setHistorialModeracion(List<UserModerationHistoryItemDTO> historialModeracion) {
+        this.historialModeracion = historialModeracion;
     }
 }

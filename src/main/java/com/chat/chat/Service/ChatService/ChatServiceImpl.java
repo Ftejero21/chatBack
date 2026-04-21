@@ -69,6 +69,11 @@ public class ChatServiceImpl implements ChatService {
     private static final long MUTE_DURATION_1W_SECONDS = 604800L;
     private static final long DEFAULT_ADMIN_DIRECT_EXPIRES_AFTER_READ_SECONDS = 60L;
     private static final int MAX_CLOSE_REASON_LENGTH = 500;
+    private static final int MAX_MODERATION_REASON_LENGTH = 500;
+    private static final int MAX_MODERATION_ORIGIN_LENGTH = 80;
+    private static final int MAX_MODERATION_DESCRIPTION_LENGTH = 5000;
+    private static final String DEFAULT_MODERATION_ORIGIN = "panel_admin";
+    private static final String DEFAULT_WARNING_REASON = "Advertencia administrativa";
     private static final String DEFAULT_CLOSE_REASON = "Chat cerrado por un administrador";
     private static final String CURSOR_SEPARATOR = "_";
     private static final Pattern DIACRITICS_PATTERN = Pattern.compile("\\p{M}+");
@@ -106,7 +111,13 @@ public class ChatServiceImpl implements ChatService {
     private UserPinnedChatRepository userPinnedChatRepository;
 
     @Autowired
+    private UserChatFavoriteRepository userChatFavoriteRepository;
+
+    @Autowired
     private UserComplaintRepository userComplaintRepository;
+
+    @Autowired
+    private UserModerationHistoryRepository userModerationHistoryRepository;
 
     @Autowired
     private ChatRepository chatRepository;
@@ -182,6 +193,9 @@ public class ChatServiceImpl implements ChatService {
         long expiresAfterReadSeconds = normalizeAdminDirectExpiry(request.getExpiresAfterReadSeconds());
         Map<Long, AdminDirectMessagePayloadDTO> payloadsByUserId = resolveAdminDirectPayloads(request);
         LinkedHashSet<Long> userIds = new LinkedHashSet<>(payloadsByUserId.keySet());
+        String moderationOrigin = normalizeModerationOrigin(request.getOrigen());
+        String moderationReason = normalizeModerationReason(request.getMotivo(), DEFAULT_WARNING_REASON);
+        String moderationDescription = normalizeModerationDescription(request.getDescripcion());
 
         AdminDirectMessageResponseDTO response = new AdminDirectMessageResponseDTO();
         response.setRequestedUsers(userIds.size());
@@ -213,6 +227,14 @@ public class ChatServiceImpl implements ChatService {
             item.setMessageId(saved.getId());
             item.setDelivered(true);
             results.add(item);
+
+            registrarModeracion(
+                    receptor,
+                    admin,
+                    ModerationActionType.WARNING,
+                    moderationReason,
+                    moderationDescription,
+                    moderationOrigin);
         }
 
         response.setResults(results);
@@ -1611,6 +1633,51 @@ public class ChatServiceImpl implements ChatService {
             return new UserPinnedChatResponseDTO(null, null);
         }
         return new UserPinnedChatResponseDTO(pinned.getChatId(), pinned.getPinnedAt());
+    }
+
+    @Override
+    @Transactional
+    public UserChatFavoriteResponseDTO getFavoriteChat() {
+        Long requesterId = securityUtils.getAuthenticatedUserId();
+        UserChatFavoriteEntity favorite = userChatFavoriteRepository.findById(requesterId).orElse(null);
+        if (favorite == null) {
+            return new UserChatFavoriteResponseDTO(null);
+        }
+        try {
+            validateUserPinnedChatAccess(favorite.getChatId(), requesterId);
+        } catch (AccessDeniedException | RecursoNoEncontradoException ex) {
+            userChatFavoriteRepository.deleteById(requesterId);
+            return new UserChatFavoriteResponseDTO(null);
+        }
+        return new UserChatFavoriteResponseDTO(favorite.getChatId());
+    }
+
+    @Override
+    @Transactional
+    public UserChatFavoriteResponseDTO setFavoriteChat(Long chatId) {
+        Long requesterId = securityUtils.getAuthenticatedUserId();
+        validateUserPinnedChatAccess(chatId, requesterId);
+
+        UserChatFavoriteEntity favorite = userChatFavoriteRepository.findById(requesterId)
+                .orElseGet(UserChatFavoriteEntity::new);
+        favorite.setUserId(requesterId);
+        favorite.setChatId(chatId);
+        UserChatFavoriteEntity saved = userChatFavoriteRepository.save(favorite);
+        return new UserChatFavoriteResponseDTO(saved.getChatId());
+    }
+
+    @Override
+    @Transactional
+    public UserChatFavoriteResponseDTO removeFavoriteChat(Long chatId) {
+        Long requesterId = securityUtils.getAuthenticatedUserId();
+        validateUserPinnedChatAccess(chatId, requesterId);
+
+        UserChatFavoriteEntity favorite = userChatFavoriteRepository.findById(requesterId).orElse(null);
+        if (favorite != null && Objects.equals(favorite.getChatId(), chatId)) {
+            userChatFavoriteRepository.deleteById(requesterId);
+            return new UserChatFavoriteResponseDTO(null);
+        }
+        return new UserChatFavoriteResponseDTO(favorite == null ? null : favorite.getChatId());
     }
 
     @Override
@@ -3311,6 +3378,58 @@ public class ChatServiceImpl implements ChatService {
             return trimmed;
         }
         return trimmed.substring(0, 256);
+    }
+
+    private void registrarModeracion(UsuarioEntity targetUser,
+                                     UsuarioEntity admin,
+                                     ModerationActionType actionType,
+                                     String reason,
+                                     String description,
+                                     String origin) {
+        UserModerationHistoryEntity row = new UserModerationHistoryEntity();
+        row.setUser(targetUser);
+        row.setAdmin(admin);
+        row.setActionType(actionType);
+        row.setReason(normalizeModerationReason(reason, DEFAULT_WARNING_REASON));
+        row.setDescription(normalizeModerationDescription(description));
+        row.setOrigin(normalizeModerationOrigin(origin));
+        userModerationHistoryRepository.save(row);
+    }
+
+    private String normalizeModerationReason(String value, String fallback) {
+        String normalized = value == null ? "" : value.replaceAll("[\\p{Cntrl}&&[^\\r\\n\\t]]", " ").trim();
+        if (normalized.isEmpty()) {
+            normalized = fallback;
+        }
+        if (normalized == null || normalized.isBlank()) {
+            normalized = "Accion administrativa";
+        }
+        return normalized.length() <= MAX_MODERATION_REASON_LENGTH
+                ? normalized
+                : normalized.substring(0, MAX_MODERATION_REASON_LENGTH);
+    }
+
+    private String normalizeModerationOrigin(String value) {
+        String normalized = value == null ? "" : value.replaceAll("[\\p{Cntrl}&&[^\\r\\n\\t]]", " ").trim();
+        if (normalized.isEmpty()) {
+            normalized = DEFAULT_MODERATION_ORIGIN;
+        }
+        return normalized.length() <= MAX_MODERATION_ORIGIN_LENGTH
+                ? normalized
+                : normalized.substring(0, MAX_MODERATION_ORIGIN_LENGTH);
+    }
+
+    private String normalizeModerationDescription(String value) {
+        if (value == null) {
+            return null;
+        }
+        String normalized = value.replaceAll("[\\p{Cntrl}&&[^\\r\\n\\t]]", " ").trim();
+        if (normalized.isEmpty()) {
+            return null;
+        }
+        return normalized.length() <= MAX_MODERATION_DESCRIPTION_LENGTH
+                ? normalized
+                : normalized.substring(0, MAX_MODERATION_DESCRIPTION_LENGTH);
     }
 
 

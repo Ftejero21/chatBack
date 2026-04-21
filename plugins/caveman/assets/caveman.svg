@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Caveman icon">
+  <rect width="128" height="128" rx="24" fill="#6B7280"/>
+  <path d="M40 88c0-18 11-32 24-32s24 14 24 32H40z" fill="#F3E0C7"/>
+  <circle cx="55" cy="68" r="5" fill="#1F2937"/>
+  <circle cx="73" cy="68" r="5" fill="#1F2937"/>
+  <path d="M46 52c6-12 30-12 36 0-6-4-12-6-18-6s-12 2-18 6z" fill="#1F2937"/>
+  <path d="M52 82c8 6 16 6 24 0" fill="none" stroke="#1F2937" stroke-width="6" stroke-linecap="round"/>
+</svg>

@@ -56,11 +56,14 @@ public class ChatServiceImpl implements ChatService {
     private static final int DEFAULT_SEARCH_PAGE = 0;
     private static final int DEFAULT_SEARCH_SIZE = 20;
     private static final int MAX_SEARCH_SIZE = 100;
+    private static final int MIN_SEARCH_QUERY_LENGTH = 2;
+    private static final int MAX_SEARCH_QUERY_LENGTH = 120;
     private static final int DEFAULT_ADMIN_GROUPS_PAGE = 0;
     private static final int DEFAULT_ADMIN_GROUPS_SIZE = 10;
     private static final int MAX_ADMIN_GROUPS_SIZE = 50;
     private static final int MAX_GROUP_NAME_LENGTH = 120;
     private static final int MAX_GROUP_DESCRIPTION_LENGTH = 500;
+    private static final int MAX_GROUP_CREATE_INVITEES = 100;
     private static final int SEARCH_SNIPPET_CONTEXT_CHARS = 40;
     private static final long PIN_DURATION_24H_SECONDS = 86400L;
     private static final long PIN_DURATION_7D_SECONDS = 604800L;
@@ -355,9 +358,13 @@ public class ChatServiceImpl implements ChatService {
     @Override
     @Transactional
     public ChatGrupalDTO crearChatGrupal(ChatGrupalDTO dto) {
+        if (dto == null) {
+            throw new IllegalArgumentException("payload requerido");
+        }
         // En vez de usar el ID que manda el front (que se puede falsificar), usamos el
         // del token
         Long authenticatedUserId = securityUtils.getAuthenticatedUserId();
+        validateGroupCreationPayloadOrThrow(dto, authenticatedUserId);
 
         // 1) Creador desde auth
         UsuarioEntity creador = usuarioRepo.findById(authenticatedUserId)
@@ -544,8 +551,8 @@ public class ChatServiceImpl implements ChatService {
     public Page<AdminGroupListDTO> listarGruposAdmin(Integer page, Integer size) {
         validateAdminOnly();
 
-        int safePage = page == null ? DEFAULT_ADMIN_GROUPS_PAGE : Math.max(0, page);
-        int safeSize = size == null ? DEFAULT_ADMIN_GROUPS_SIZE : Math.max(1, Math.min(size, MAX_ADMIN_GROUPS_SIZE));
+        int safePage = resolvePageOrThrow(page, DEFAULT_ADMIN_GROUPS_PAGE, "page");
+        int safeSize = resolveSizeOrThrow(size, DEFAULT_ADMIN_GROUPS_SIZE, MAX_ADMIN_GROUPS_SIZE, "size");
 
         Pageable pageable = PageRequest.of(
                 safePage,
@@ -1325,6 +1332,7 @@ public class ChatServiceImpl implements ChatService {
 
     @Override
     public List<MensajeDTO> listarMensajesPorChatId(Long chatId, Integer page, Integer size) {
+        validateMessagesPaginationOrThrow(page, size);
         Long requesterId = securityUtils.getAuthenticatedUserId();
         ChatEntity chat = validateUserPinnedChatAccess(chatId, requesterId);
         String traceId = Optional.ofNullable(E2EDiagnosticUtils.currentTraceId()).orElse(E2EDiagnosticUtils.newTraceId());
@@ -1385,6 +1393,7 @@ public class ChatServiceImpl implements ChatService {
 
     @Override
     public List<MensajeDTO> listarMensajesPorChatGrupal(Long chatId, Integer page, Integer size) {
+        validateMessagesPaginationOrThrow(page, size);
         Long requesterId = securityUtils.getAuthenticatedUserId();
         ChatEntity validatedChat = validateUserPinnedChatAccess(chatId, requesterId);
         if (!(validatedChat instanceof ChatGrupalEntity chat)) {
@@ -1472,20 +1481,20 @@ public class ChatServiceImpl implements ChatService {
     @Override
     @Transactional
     public ChatMensajeBusquedaPageDTO buscarMensajesEnChat(Long chatId, String q, Integer page, Integer size) {
+        int safePage = resolvePageOrThrow(page, DEFAULT_SEARCH_PAGE, "page");
+        int safeSize = resolveSizeOrThrow(size, DEFAULT_SEARCH_SIZE, MAX_SEARCH_SIZE, "size");
         Long requesterId = securityUtils.getAuthenticatedUserId();
         ChatEntity chat = chatRepository.findById(chatId)
                 .orElseThrow(() -> new RuntimeException(Constantes.MSG_CHAT_NO_ENCONTRADO_ID + chatId));
         validateSearchAccess(chat, requesterId);
 
-        int safePage = page == null ? DEFAULT_SEARCH_PAGE : Math.max(DEFAULT_SEARCH_PAGE, page);
-        int requestedSize = size == null ? DEFAULT_SEARCH_SIZE : size;
-        int safeSize = Math.max(1, Math.min(MAX_SEARCH_SIZE, requestedSize));
-
         ChatMensajeBusquedaPageDTO response = new ChatMensajeBusquedaPageDTO();
         response.setPage(safePage);
         response.setSize(safeSize);
 
-        String normalizedQuery = normalizeForSearch(q == null ? "" : q.trim());
+        String trimmedQuery = q == null ? "" : q.trim();
+        validateSearchQueryOrThrow(trimmedQuery);
+        String normalizedQuery = normalizeForSearch(trimmedQuery);
         if (normalizedQuery.isBlank()) {
             response.setItems(List.of());
             response.setTotal(0);
@@ -1783,7 +1792,7 @@ public class ChatServiceImpl implements ChatService {
             throw new AccessDeniedException(Constantes.MSG_NO_PERTENECE_GRUPO);
         }
 
-        int safeSize = size == null ? DEFAULT_MEDIA_SIZE : Math.max(1, Math.min(MAX_MEDIA_SIZE, size));
+        int safeSize = resolveSizeOrThrow(size, DEFAULT_MEDIA_SIZE, MAX_MEDIA_SIZE, "size");
         List<MessageType> mediaTypes = parseMediaTypes(types);
         CursorPosition cursorPosition = parseCursor(cursor, chatId);
         Long cutoff = chatUserStateService.resolveCutoff(chatId, requesterId);
@@ -2346,6 +2355,86 @@ public class ChatServiceImpl implements ChatService {
         return true;
     }
 
+    private void validateGroupCreationPayloadOrThrow(ChatGrupalDTO dto, Long creatorId) {
+        String nombre = dto.getNombreGrupo() == null ? null : dto.getNombreGrupo().trim();
+        if (!StringUtils.hasText(nombre)) {
+            throw new IllegalArgumentException("nombreGrupo no puede estar vacio");
+        }
+        if (nombre.length() > MAX_GROUP_NAME_LENGTH) {
+            throw new IllegalArgumentException("nombreGrupo supera el maximo de " + MAX_GROUP_NAME_LENGTH + " caracteres");
+        }
+
+        String descripcion = dto.getDescripcion() == null ? null : dto.getDescripcion().trim();
+        if (descripcion != null && descripcion.length() > MAX_GROUP_DESCRIPTION_LENGTH) {
+            throw new IllegalArgumentException("descripcion supera el maximo de " + MAX_GROUP_DESCRIPTION_LENGTH + " caracteres");
+        }
+
+        List<UsuarioDTO> requestedUsers = dto.getUsuarios() == null ? List.of() : dto.getUsuarios();
+        if (requestedUsers.size() > MAX_GROUP_CREATE_INVITEES) {
+            throw new IllegalArgumentException("usuarios excede maximo permitido");
+        }
+
+        Set<Long> seenIds = new LinkedHashSet<>();
+        int inviteesCount = 0;
+        for (UsuarioDTO user : requestedUsers) {
+            Long userId = user == null ? null : user.getId();
+            if (userId == null || userId <= 0) {
+                throw new IllegalArgumentException("usuarios contiene id invalido");
+            }
+            if (!seenIds.add(userId)) {
+                throw new IllegalArgumentException("usuarios contiene ids duplicados");
+            }
+            if (!Objects.equals(userId, creatorId)) {
+                inviteesCount++;
+            }
+        }
+
+        if (inviteesCount > MAX_GROUP_CREATE_INVITEES) {
+            throw new IllegalArgumentException("usuarios excede maximo permitido");
+        }
+    }
+
+    private void validateMessagesPaginationOrThrow(Integer page, Integer size) {
+        resolvePageOrThrow(page, DEFAULT_MESSAGES_PAGE, "page");
+        resolveSizeOrThrow(size, DEFAULT_MESSAGES_SIZE, MAX_MESSAGES_SIZE, "size");
+    }
+
+    private int resolvePageOrThrow(Integer page, int defaultValue, String fieldName) {
+        if (page == null) {
+            return defaultValue;
+        }
+        if (page < 0) {
+            throw new IllegalArgumentException(fieldName + " no puede ser negativo");
+        }
+        return page;
+    }
+
+    private int resolveSizeOrThrow(Integer size, int defaultValue, int maxAllowed, String fieldName) {
+        if (size == null) {
+            return defaultValue;
+        }
+        if (size < 1) {
+            throw new IllegalArgumentException(fieldName + " debe ser mayor que 0");
+        }
+        if (size > maxAllowed) {
+            throw new IllegalArgumentException(fieldName + " supera el maximo de " + maxAllowed);
+        }
+        return size;
+    }
+
+    private void validateSearchQueryOrThrow(String q) {
+        if (!StringUtils.hasText(q)) {
+            return;
+        }
+        int length = q.length();
+        if (length < MIN_SEARCH_QUERY_LENGTH) {
+            throw new IllegalArgumentException("q debe tener al menos " + MIN_SEARCH_QUERY_LENGTH + " caracteres");
+        }
+        if (length > MAX_SEARCH_QUERY_LENGTH) {
+            throw new IllegalArgumentException("q supera el maximo de " + MAX_SEARCH_QUERY_LENGTH + " caracteres");
+        }
+    }
+
     private List<MensajeEntity> fetchMessagesPageChronological(Long chatId, Long cutoff, Integer page, Integer size) {
         Pageable pageable = buildMessagesPageable(page, size);
         List<MensajeEntity> content = new ArrayList<>(mensajeRepository.findByChatIdVisibleAfter(chatId, cutoff, pageable).getContent());
@@ -2434,9 +2523,8 @@ public class ChatServiceImpl implements ChatService {
     }
 
     private Pageable buildMessagesPageable(Integer page, Integer size) {
-        int safePage = page == null ? DEFAULT_MESSAGES_PAGE : Math.max(DEFAULT_MESSAGES_PAGE, page);
-        int requestedSize = size == null ? DEFAULT_MESSAGES_SIZE : size;
-        int safeSize = Math.max(1, Math.min(MAX_MESSAGES_SIZE, requestedSize));
+        int safePage = resolvePageOrThrow(page, DEFAULT_MESSAGES_PAGE, "page");
+        int safeSize = resolveSizeOrThrow(size, DEFAULT_MESSAGES_SIZE, MAX_MESSAGES_SIZE, "size");
         Sort sort = Sort.by(Sort.Order.desc("fechaEnvio"), Sort.Order.desc("id"));
         return PageRequest.of(safePage, safeSize, sort);
     }

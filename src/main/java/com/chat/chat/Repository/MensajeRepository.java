@@ -134,6 +134,18 @@ public interface MensajeRepository extends JpaRepository<MensajeEntity, Long> {
     Optional<MensajeEntity> findByIdAndChatId(@Param("id") Long id, @Param("chatId") Long chatId);
 
     @Query("select m from MensajeEntity m " +
+            "where m.id = :messageId and m.mediaUrl = :mediaUrl")
+    Optional<MensajeEntity> findByIdAndMediaUrl(@Param("messageId") Long messageId,
+                                                @Param("mediaUrl") String mediaUrl);
+
+    @Query("select m from MensajeEntity m " +
+            "where m.chat.id = :chatId and m.mediaUrl = :mediaUrl " +
+            "order by m.id desc")
+    List<MensajeEntity> findByChatIdAndMediaUrlOrderByIdDesc(@Param("chatId") Long chatId,
+                                                              @Param("mediaUrl") String mediaUrl,
+                                                              Pageable pageable);
+
+    @Query("select m from MensajeEntity m " +
             "left join fetch m.emisor e " +
             "where m.chat.id = :chatId " +
             "and m.activo = true " +

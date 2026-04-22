@@ -53,6 +53,14 @@ public class MappingUtils {
         e.setApellido(dto.getApellido());
         e.setEmail(dto.getEmail());
         e.setPublicKey(dto.getPublicKey());
+        e.setDni(dto.getDni());
+        e.setTelefono(dto.getTelefono());
+        e.setFechaNacimiento(dto.getFechaNacimiento());
+        e.setGenero(dto.getGenero());
+        e.setDireccion(dto.getDireccion());
+        e.setNacionalidad(dto.getNacionalidad());
+        e.setOcupacion(dto.getOcupacion());
+        e.setInstagram(dto.getInstagram());
         if (dto.getFoto() != null && (dto.getFoto().startsWith("/uploads/") || dto.getFoto().startsWith("http"))) {
             e.setFotoUrl(dto.getFoto());
         }
@@ -69,6 +77,14 @@ public class MappingUtils {
         dto.setPublicKey(e.getPublicKey());
         dto.setHasPublicKey(e.getPublicKey() != null && !e.getPublicKey().isBlank());
         dto.setFoto(safeFotoUrl(e.getFotoUrl()));
+        dto.setDni(e.getDni());
+        dto.setTelefono(e.getTelefono());
+        dto.setFechaNacimiento(e.getFechaNacimiento());
+        dto.setGenero(e.getGenero());
+        dto.setDireccion(e.getDireccion());
+        dto.setNacionalidad(e.getNacionalidad());
+        dto.setOcupacion(e.getOcupacion());
+        dto.setInstagram(e.getInstagram());
         dto.setRoles(e.getRoles());
 
         if (e.getBloqueados() != null) {

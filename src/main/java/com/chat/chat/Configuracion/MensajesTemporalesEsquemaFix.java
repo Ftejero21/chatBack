@@ -15,6 +15,8 @@ public class MensajesTemporalesEsquemaFix {
 
     private static final String SQL_COLUMN_EXISTS = "SELECT COUNT(1) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'mensajes' AND COLUMN_NAME = ?";
     private static final String SQL_INDEX_EXISTS = "SELECT COUNT(1) FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'mensajes' AND INDEX_NAME = ?";
+    private static final String SQL_COLUMN_NULLABLE = "SELECT IS_NULLABLE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'mensajes' AND COLUMN_NAME = ?";
+    private static final String SQL_COLUMN_DEFAULT = "SELECT COLUMN_DEFAULT FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'mensajes' AND COLUMN_NAME = ?";
     private static final String SQL_ADD_MENSAJE_TEMPORAL = "ALTER TABLE mensajes ADD COLUMN mensaje_temporal BOOLEAN NOT NULL DEFAULT FALSE";
     private static final String SQL_ENFORCE_MENSAJE_TEMPORAL = "ALTER TABLE mensajes MODIFY COLUMN mensaje_temporal BOOLEAN NOT NULL DEFAULT FALSE";
     private static final String SQL_ADD_MENSAJE_TEMPORAL_SEGUNDOS = "ALTER TABLE mensajes ADD COLUMN mensaje_temporal_segundos BIGINT NULL";
@@ -62,7 +64,7 @@ public class MensajesTemporalesEsquemaFix {
 
         try {
             agregarColumnaSiNoExiste("mensaje_temporal", SQL_ADD_MENSAJE_TEMPORAL);
-            jdbcTemplate.execute(SQL_ENFORCE_MENSAJE_TEMPORAL);
+            asegurarMensajeTemporalNoNuloConDefault();
             agregarColumnaSiNoExiste("mensaje_temporal_segundos", SQL_ADD_MENSAJE_TEMPORAL_SEGUNDOS);
             agregarColumnaSiNoExiste("expira_en", SQL_ADD_EXPIRA_EN);
             agregarColumnaSiNoExiste("motivo_eliminacion", SQL_ADD_MOTIVO_ELIMINACION);
@@ -90,5 +92,16 @@ public class MensajesTemporalesEsquemaFix {
         }
         jdbcTemplate.execute(sqlAdd);
         LOGGER.info("[DB_FIX] indice {} creado para mensajes temporales", indice);
+    }
+
+    private void asegurarMensajeTemporalNoNuloConDefault() {
+        String isNullable = jdbcTemplate.queryForObject(SQL_COLUMN_NULLABLE, String.class, "mensaje_temporal");
+        String defaultValue = jdbcTemplate.queryForObject(SQL_COLUMN_DEFAULT, String.class, "mensaje_temporal");
+        boolean requiereCambio = !"NO".equalsIgnoreCase(isNullable) || defaultValue == null;
+        if (!requiereCambio) {
+            return;
+        }
+        jdbcTemplate.execute(SQL_ENFORCE_MENSAJE_TEMPORAL);
+        LOGGER.info("[DB_FIX] columna mensaje_temporal reforzada con NOT NULL DEFAULT FALSE");
     }
 }

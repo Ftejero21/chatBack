@@ -43,4 +43,12 @@ public interface ChatIndividualRepository extends JpaRepository<ChatIndividualEn
               )
             """)
     List<Long> findVisibleContactIdsByUserId(@Param("userId") Long userId);
+
+    @Query("""
+            select case when count(ci) > 0 then true else false end
+            from ChatIndividualEntity ci
+            where ci.id = :chatId
+              and (ci.usuario1.id = :userId or ci.usuario2.id = :userId)
+            """)
+    boolean existsMemberByChatIdAndUserId(@Param("chatId") Long chatId, @Param("userId") Long userId);
 }

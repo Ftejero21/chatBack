@@ -17,6 +17,7 @@ import com.chat.chat.Entity.ChatGrupalEntity;
 import com.chat.chat.Entity.ChatIndividualEntity;
 import com.chat.chat.Entity.MensajeEntity;
 import com.chat.chat.Entity.MensajeProgramadoEntity;
+import com.chat.chat.Entity.UploadFileMetadataEntity;
 import com.chat.chat.Entity.UsuarioEntity;
 import com.chat.chat.Exceptions.ChatCerradoException;
 import com.chat.chat.Exceptions.E2EGroupValidationException;
@@ -28,6 +29,7 @@ import com.chat.chat.Repository.ChatIndividualRepository;
 import com.chat.chat.Repository.ChatRepository;
 import com.chat.chat.Repository.MensajeProgramadoRepository;
 import com.chat.chat.Repository.MensajeRepository;
+import com.chat.chat.Repository.UploadFileMetadataRepository;
 import com.chat.chat.Repository.UsuarioRepository;
 import com.chat.chat.Service.EmailService.EmailService;
 import com.chat.chat.Utils.Constantes;
@@ -60,6 +62,7 @@ import org.springframework.web.multipart.MultipartFile;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.charset.StandardCharsets;
 import java.text.Normalizer;
 import java.time.Instant;
 import java.time.LocalDateTime;
@@ -110,6 +113,8 @@ public class MensajeProgramadoServiceImpl implements MensajeProgramadoService {
     private static final int MAX_SCHEDULED_MESSAGE_LENGTH = 4000;
     private static final int MAX_SCHEDULED_RECIPIENTS = 500;
     private static final int MAX_SCHEDULED_ATTACHMENTS = 5;
+    private static final long SECONDS_PER_DAY = 86_400L;
+    private static final int MAX_UPLOAD_PUBLIC_URL_LENGTH = 1024;
 
     private final SecurityUtils securityUtils;
     private final UsuarioRepository usuarioRepository;
@@ -118,6 +123,7 @@ public class MensajeProgramadoServiceImpl implements MensajeProgramadoService {
     private final ChatGrupalRepository chatGrupalRepository;
     private final MensajeProgramadoRepository mensajeProgramadoRepository;
     private final MensajeRepository mensajeRepository;
+    private final UploadFileMetadataRepository uploadFileMetadataRepository;
     private final SimpMessagingTemplate messagingTemplate;
     private final JdbcTemplate jdbcTemplate;
     private final CifradorE2EMensajeProgramadoService cifradorE2EMensajeProgramadoService;
@@ -130,6 +136,18 @@ public class MensajeProgramadoServiceImpl implements MensajeProgramadoService {
     @Value("${app.uploads.security.max-file-bytes:26214400}")
     private long maxUploadFileBytes;
 
+    @Value("${app.chat.scheduled.max-active-per-user:300}")
+    private int maxScheduledActivePerUser;
+
+    @Value("${app.chat.scheduled.max-chat-targets:25}")
+    private int maxScheduledChatTargets;
+
+    @Value("${app.chat.scheduled.max-payload-bytes:131072}")
+    private int maxScheduledPayloadBytes;
+
+    @Value("${app.chat.scheduled.max-days-ahead:90}")
+    private long maxScheduledDaysAhead;
+
     @Value(Constantes.PROP_UPLOADS_ROOT)
     private String uploadsRoot;
 
@@ -140,6 +158,7 @@ public class MensajeProgramadoServiceImpl implements MensajeProgramadoService {
                                         ChatGrupalRepository chatGrupalRepository,
                                         MensajeProgramadoRepository mensajeProgramadoRepository,
                                         MensajeRepository mensajeRepository,
+                                        UploadFileMetadataRepository uploadFileMetadataRepository,
                                         SimpMessagingTemplate messagingTemplate,
                                         JdbcTemplate jdbcTemplate,
                                         CifradorE2EMensajeProgramadoService cifradorE2EMensajeProgramadoService,
@@ -152,6 +171,7 @@ public class MensajeProgramadoServiceImpl implements MensajeProgramadoService {
         this.chatGrupalRepository = chatGrupalRepository;
         this.mensajeProgramadoRepository = mensajeProgramadoRepository;
         this.mensajeRepository = mensajeRepository;
+        this.uploadFileMetadataRepository = uploadFileMetadataRepository;
         this.messagingTemplate = messagingTemplate;
         this.jdbcTemplate = jdbcTemplate;
         this.cifradorE2EMensajeProgramadoService = cifradorE2EMensajeProgramadoService;
@@ -175,7 +195,11 @@ public class MensajeProgramadoServiceImpl implements MensajeProgramadoService {
         ValidatedE2EPayload validatedE2EPayload = null;
         String message = request.getMessage() == null ? null : request.getMessage().trim();
         String tipoProgramado = Constantes.TIPO_TEXT;
+        if (StringUtils.hasText(message) && message.length() > MAX_SCHEDULED_MESSAGE_LENGTH) {
+            detalleCampos.add("message excede longitud maxima");
+        }
         if (hasContenidoE2E) {
+            appendPayloadSizeErrorIfExceeded(contenidoRaw, "contenido excede tamano maximo permitido", detalleCampos);
             validatedE2EPayload = validarPayloadE2EProgramadoOrThrow(
                     contenidoRaw,
                     authUserId,
@@ -190,9 +214,8 @@ public class MensajeProgramadoServiceImpl implements MensajeProgramadoService {
         if (request.getScheduledAt() == null) {
             detalleCampos.add("scheduledAt/fechaProgramada");
         }
-        Instant now = Instant.now();
-        if (request.getScheduledAt() != null && !request.getScheduledAt().isAfter(now)) {
-            detalleCampos.add("scheduledAt debe ser futuro UTC");
+        if (request.getScheduledAt() != null && !isScheduledAtInAllowedRange(request.getScheduledAt())) {
+            detalleCampos.add("scheduledAt fuera de rango permitido");
         }
         if (request.getChatIds() == null || request.getChatIds().isEmpty()) {
             detalleCampos.add("chatIds/chatId");
@@ -210,6 +233,11 @@ public class MensajeProgramadoServiceImpl implements MensajeProgramadoService {
         if (chatIdsUnicos.isEmpty()) {
             throw new IllegalArgumentException("chatIds no contiene ids validos");
         }
+        if (chatIdsUnicos.size() > safePositiveInt(maxScheduledChatTargets, 25)) {
+            throw new ValidacionPayloadException("Payload invalido para programar mensaje", List.of("chatIds excede maximo permitido"));
+        }
+        validateScheduledCapacityOrThrow(authUserId, chatIdsUnicos.size());
+        validateReferencedAttachmentsAccessOrThrow(contenidoRaw, authUserId, chatIdsUnicos);
 
         String batchId = UUID.randomUUID().toString();
         List<MensajeProgramadoEntity> aGuardar = new ArrayList<>();
@@ -283,6 +311,9 @@ public class MensajeProgramadoServiceImpl implements MensajeProgramadoService {
         if (destinatarios.isEmpty()) {
             errors.add("userIds/audienceMode");
         }
+        if (destinatarios.size() > MAX_SCHEDULED_RECIPIENTS) {
+            errors.add("destinatarios excede maximo permitido");
+        }
         Map<Long, AdminDirectMessagePayloadDTO> payloadsByUserId = validateAndMapScheduledAdminPayloads(
                 request.getEncryptedPayloads(),
                 destinatarios,
@@ -293,6 +324,7 @@ public class MensajeProgramadoServiceImpl implements MensajeProgramadoService {
         }
 
         Long adminId = securityUtils.getAuthenticatedUserId();
+        validateScheduledCapacityOrThrow(adminId, destinatarios.size());
         UsuarioEntity admin = usuarioRepository.findById(adminId)
                 .orElseThrow(() -> new RecursoNoEncontradoException(Constantes.MSG_USUARIO_AUTENTICADO_NO_ENCONTRADO));
         long expiresAfterReadSeconds = normalizeAdminDirectExpiry(request.getExpiresAfterReadSeconds());
@@ -379,8 +411,12 @@ public class MensajeProgramadoServiceImpl implements MensajeProgramadoService {
         if (destinatarios.isEmpty()) {
             throw new ValidacionPayloadException("Payload invalido para programar bulk email", List.of("recipientEmails/userIds"));
         }
+        if (destinatarios.size() > MAX_SCHEDULED_RECIPIENTS) {
+            throw new ValidacionPayloadException("Bulk email payload invalido", List.of("destinatarios excede maximo permitido"));
+        }
 
         Long adminId = securityUtils.getAuthenticatedUserId();
+        validateScheduledCapacityOrThrow(adminId, destinatarios.size());
         UsuarioEntity admin = usuarioRepository.findById(adminId)
                 .orElseThrow(() -> new RecursoNoEncontradoException(Constantes.MSG_USUARIO_AUTENTICADO_NO_ENCONTRADO));
         String batchId = UUID.randomUUID().toString();
@@ -450,10 +486,23 @@ public class MensajeProgramadoServiceImpl implements MensajeProgramadoService {
         if (scheduledAt == null) {
             throw new ValidacionPayloadException("Payload invalido para programacion", List.of("scheduledAt/fechaProgramada"));
         }
-        if (!scheduledAt.isAfter(Instant.now())) {
-            throw new ValidacionPayloadException("Payload invalido para programacion", List.of("scheduledAt debe ser futuro UTC"));
+        if (!isScheduledAtInAllowedRange(scheduledAt)) {
+            throw new ValidacionPayloadException("Payload invalido para programacion", List.of("scheduledAt fuera de rango permitido"));
         }
         return scheduledAt;
+    }
+
+    private boolean isScheduledAtInAllowedRange(Instant scheduledAt) {
+        if (scheduledAt == null) {
+            return false;
+        }
+        Instant now = Instant.now();
+        if (!scheduledAt.isAfter(now)) {
+            return false;
+        }
+        long maxDays = Math.max(1L, maxScheduledDaysAhead);
+        Instant maxAllowed = now.plusSeconds(maxDays * SECONDS_PER_DAY);
+        return !scheduledAt.isAfter(maxAllowed);
     }
 
     private Instant resolveAndValidateScheduledAt(Instant scheduledAtUtc, String scheduledAtLocal, String flow) {
@@ -513,6 +562,131 @@ public class MensajeProgramadoServiceImpl implements MensajeProgramadoService {
                 .filter(Objects::nonNull)
                 .map(String::trim)
                 .anyMatch(role -> Constantes.ADMIN.equalsIgnoreCase(role) || Constantes.ROLE_ADMIN.equalsIgnoreCase(role));
+    }
+
+    private void validateScheduledCapacityOrThrow(Long userId, int requestedNewRows) {
+        if (userId == null) {
+            throw new AccessDeniedException(Constantes.ERR_NO_AUTORIZADO);
+        }
+        int safeRequested = Math.max(0, requestedNewRows);
+        if (safeRequested == 0) {
+            return;
+        }
+        int maxActive = safePositiveInt(maxScheduledActivePerUser, 300);
+        long currentActive = mensajeProgramadoRepository.countByCreatedByIdAndStatusIn(
+                userId,
+                List.of(EstadoMensajeProgramado.PENDING, EstadoMensajeProgramado.PROCESSING));
+        if (currentActive + safeRequested > maxActive) {
+            throw new ValidacionPayloadException(
+                    "Limite de mensajes programados activos excedido",
+                    List.of("maximo de mensajes programados activos por usuario excedido"));
+        }
+    }
+
+    private void appendPayloadSizeErrorIfExceeded(String payload, String errorCode, List<String> errors) {
+        if (errors == null || !StringUtils.hasText(payload)) {
+            return;
+        }
+        if (payloadSizeBytes(payload) > safePositiveInt(maxScheduledPayloadBytes, 131072)) {
+            errors.add(errorCode);
+        }
+    }
+
+    private int payloadSizeBytes(String payload) {
+        if (payload == null) {
+            return 0;
+        }
+        return payload.getBytes(StandardCharsets.UTF_8).length;
+    }
+
+    private int safePositiveInt(int value, int fallback) {
+        return value > 0 ? value : fallback;
+    }
+
+    private void validateReferencedAttachmentsAccessOrThrow(String rawPayload,
+                                                            Long authUserId,
+                                                            Set<Long> targetChatIds) {
+        if (!StringUtils.hasText(rawPayload) || authUserId == null) {
+            return;
+        }
+        JsonNode root;
+        try {
+            root = OBJECT_MAPPER.readTree(rawPayload);
+        } catch (Exception ex) {
+            return;
+        }
+        String payloadType = requiredTextField(root, "type");
+        if (!isFilePayloadType(payloadType)) {
+            return;
+        }
+
+        String fileUrl = requiredTextField(root, "fileUrl");
+        if (!StringUtils.hasText(fileUrl)
+                || fileUrl.length() > MAX_UPLOAD_PUBLIC_URL_LENGTH
+                || !fileUrl.startsWith(Constantes.UPLOADS_PREFIX)) {
+            throw new AccessDeniedException("Acceso denegado al archivo adjunto");
+        }
+
+        UploadFileMetadataEntity metadata = uploadFileMetadataRepository.findByPublicUrl(fileUrl)
+                .orElseThrow(() -> new AccessDeniedException("Acceso denegado al archivo adjunto"));
+
+        Long payloadFileId = requiredLongField(root, "fileId");
+        if (payloadFileId != null && !Objects.equals(payloadFileId, metadata.getId())) {
+            throw new AccessDeniedException("Acceso denegado al archivo adjunto");
+        }
+
+        Set<Long> normalizedTargetChatIds = targetChatIds == null
+                ? Set.of()
+                : targetChatIds.stream().filter(Objects::nonNull).collect(Collectors.toSet());
+        if (!canAccessReferencedAttachment(authUserId, metadata, normalizedTargetChatIds)) {
+            throw new AccessDeniedException("Acceso denegado al archivo adjunto");
+        }
+    }
+
+    private boolean canAccessReferencedAttachment(Long authUserId,
+                                                  UploadFileMetadataEntity metadata,
+                                                  Set<Long> targetChatIds) {
+        if (authUserId == null || metadata == null) {
+            return false;
+        }
+        if (Objects.equals(metadata.getOwnerUserId(), authUserId)) {
+            return true;
+        }
+        if (targetChatIds == null || targetChatIds.size() != 1) {
+            return false;
+        }
+        Long metadataChatId = resolveMetadataChatId(metadata);
+        if (metadataChatId == null || !targetChatIds.contains(metadataChatId)) {
+            return false;
+        }
+        return hasChatAccess(authUserId, metadataChatId);
+    }
+
+    private Long resolveMetadataChatId(UploadFileMetadataEntity metadata) {
+        if (metadata == null) {
+            return null;
+        }
+        Long chatId = metadata.getChatId();
+        if (metadata.getMessageId() == null) {
+            return chatId;
+        }
+        MensajeEntity message = mensajeRepository.findById(metadata.getMessageId()).orElse(null);
+        if (message == null || message.getChat() == null || message.getChat().getId() == null) {
+            return null;
+        }
+        Long messageChatId = message.getChat().getId();
+        if (chatId != null && !Objects.equals(chatId, messageChatId)) {
+            return null;
+        }
+        return messageChatId;
+    }
+
+    private boolean hasChatAccess(Long userId, Long chatId) {
+        if (userId == null || chatId == null) {
+            return false;
+        }
+        return chatIndividualRepository.existsMemberByChatIdAndUserId(chatId, userId)
+                || chatGrupalRepository.existsActiveMemberByChatIdAndUserId(chatId, userId);
     }
 
     private List<UsuarioEntity> resolveAdminAudienceUsers(String audienceMode, List<Long> userIds) {
@@ -584,6 +758,10 @@ public class MensajeProgramadoServiceImpl implements MensajeProgramadoService {
                 errors.add("encryptedPayloads.contenido es obligatorio para userId=" + payload.getUserId());
                 continue;
             }
+            if (payloadSizeBytes(payload.getContenido()) > safePositiveInt(maxScheduledPayloadBytes, 131072)) {
+                errors.add("encryptedPayloads.contenido excede tamano maximo permitido para userId=" + payload.getUserId());
+                continue;
+            }
             if (payloadsByUserId.putIfAbsent(payload.getUserId(), payload) != null) {
                 errors.add("encryptedPayloads duplicado para userId=" + payload.getUserId());
                 continue;
@@ -609,6 +787,10 @@ public class MensajeProgramadoServiceImpl implements MensajeProgramadoService {
                         Set.of(payload.getChatId()),
                         scheduledAt);
             }
+            validateReferencedAttachmentsAccessOrThrow(
+                    payload.getContenido(),
+                    authUserId,
+                    payload.getChatId() == null ? Set.of() : Set.of(payload.getChatId()));
         }
 
         if (!payloadsByUserId.isEmpty()) {
@@ -679,8 +861,9 @@ public class MensajeProgramadoServiceImpl implements MensajeProgramadoService {
         if (StringUtils.hasText(plainMessage) && plainMessage.trim().length() > MAX_SCHEDULED_MESSAGE_LENGTH) {
             errors.add("message excede longitud maxima");
         }
-        if (scheduledAt == null || !scheduledAt.isAfter(Instant.now())) {
-            errors.add("scheduledAt debe ser futuro UTC");
+        appendPayloadSizeErrorIfExceeded(request.getContenido(), "contenido excede tamano maximo permitido", errors);
+        if (scheduledAt == null || !isScheduledAtInAllowedRange(scheduledAt)) {
+            errors.add("scheduledAt fuera de rango permitido");
         }
         boolean hasEncryptedPayloads = hasEncryptedAdminPayloads(request.getEncryptedPayloads());
         boolean hasLegacyPlaintext = StringUtils.hasText(resolveLegacyAdminDirectContent(request));
@@ -688,6 +871,17 @@ public class MensajeProgramadoServiceImpl implements MensajeProgramadoService {
             errors.add("encryptedPayloads");
         } else if (hasEncryptedPayloads && request.getEncryptedPayloads().size() > MAX_SCHEDULED_RECIPIENTS) {
             errors.add("encryptedPayloads excede maximo permitido");
+        }
+        if (hasEncryptedPayloads) {
+            long oversizedPayloads = request.getEncryptedPayloads().stream()
+                    .filter(Objects::nonNull)
+                    .map(AdminDirectMessagePayloadDTO::getContenido)
+                    .filter(Objects::nonNull)
+                    .filter(content -> payloadSizeBytes(content) > safePositiveInt(maxScheduledPayloadBytes, 131072))
+                    .count();
+            if (oversizedPayloads > 0) {
+                errors.add("encryptedPayloads.contenido excede tamano maximo permitido");
+            }
         }
         if (!errors.isEmpty()) {
             throw new ValidacionPayloadException("Payload invalido para programar mensaje administrativo", errors);
@@ -713,10 +907,11 @@ public class MensajeProgramadoServiceImpl implements MensajeProgramadoService {
         } else if (request.getBody().trim().length() > MAX_SCHEDULED_BODY_LENGTH) {
             errors.add("body excede longitud maxima");
         }
+        appendPayloadSizeErrorIfExceeded(request.getBody(), "body excede tamano maximo permitido", errors);
         if (request.getScheduledAt() == null && !StringUtils.hasText(request.getScheduledAtLocal())) {
             errors.add("scheduledAt/fechaProgramada");
-        } else if (request.getScheduledAt() != null && !request.getScheduledAt().isAfter(Instant.now())) {
-            errors.add("scheduledAt debe ser futuro UTC");
+        } else if (request.getScheduledAt() != null && !isScheduledAtInAllowedRange(request.getScheduledAt())) {
+            errors.add("scheduledAt fuera de rango permitido");
         }
         int actualAttachmentCount = attachments == null ? 0 : (int) attachments.stream()
                 .filter(Objects::nonNull)
@@ -726,8 +921,19 @@ public class MensajeProgramadoServiceImpl implements MensajeProgramadoService {
         if (declaredAttachmentCount != actualAttachmentCount) {
             errors.add("attachmentCount no coincide con attachments recibidos");
         }
+        if (request.getAttachmentsMeta() != null && request.getAttachmentsMeta().size() > MAX_SCHEDULED_ATTACHMENTS) {
+            errors.add("attachmentsMeta excede maximo permitido");
+        }
         if (actualAttachmentCount > MAX_SCHEDULED_ATTACHMENTS) {
             errors.add("attachments excede maximo permitido");
+        }
+        long attachmentsPayloadBytes = attachments == null ? 0L : attachments.stream()
+                .filter(Objects::nonNull)
+                .filter(file -> !file.isEmpty())
+                .mapToLong(MultipartFile::getSize)
+                .sum();
+        if (attachmentsPayloadBytes > safePositiveInt(maxScheduledPayloadBytes, 131072)) {
+            errors.add("attachments excede tamano total maximo permitido");
         }
         if ("selected".equals(audienceMode)) {
             boolean hasEmails = request.getRecipientEmails() != null && request.getRecipientEmails().stream().anyMatch(StringUtils::hasText);
@@ -1063,6 +1269,10 @@ public class MensajeProgramadoServiceImpl implements MensajeProgramadoService {
                 errors.add("encryptedPayloads.contenido es obligatorio para userId=" + payload.getUserId());
                 continue;
             }
+            if (payloadSizeBytes(payload.getContenido()) > safePositiveInt(maxScheduledPayloadBytes, 131072)) {
+                errors.add("encryptedPayloads.contenido excede tamano maximo permitido para userId=" + payload.getUserId());
+                continue;
+            }
             if (payloadsByChatId.putIfAbsent(resolvedChatId, payload) != null) {
                 errors.add("encryptedPayloads duplicado para " + (payload.getChatId() != null ? "chatId=" + resolvedChatId : "userId=" + payload.getUserId()));
                 continue;
@@ -1084,7 +1294,9 @@ public class MensajeProgramadoServiceImpl implements MensajeProgramadoService {
                     scheduledAt);
             if (validated == null) {
                 errors.add("encryptedPayloads.contenido invalido para userId=" + payload.getUserId());
+                continue;
             }
+            validateReferencedAttachmentsAccessOrThrow(payload.getContenido(), authUserId, Set.of(expectedChatId));
         }
         for (Long chatId : rowsByChatId.keySet()) {
             if (!payloadsByChatId.containsKey(chatId)) {
@@ -1950,6 +2162,9 @@ public class MensajeProgramadoServiceImpl implements MensajeProgramadoService {
         if (rawPayload == null || rawPayload.trim().isEmpty()) {
             return null;
         }
+        if (payloadSizeBytes(rawPayload) > safePositiveInt(maxScheduledPayloadBytes, 131072)) {
+            return null;
+        }
         try {
             JsonNode root = OBJECT_MAPPER.readTree(rawPayload);
             String type = requiredTextField(root, "type");
@@ -1977,6 +2192,12 @@ public class MensajeProgramadoServiceImpl implements MensajeProgramadoService {
                 }
                 Long fileSizeBytes = requiredLongField(root, "fileSizeBytes");
                 if (fileSizeBytes == null || fileSizeBytes <= 0L || fileSizeBytes > maxUploadFileBytes) {
+                    return null;
+                }
+                String fileUrl = requiredTextField(root, "fileUrl");
+                if (!StringUtils.hasText(fileUrl)
+                        || fileUrl.length() > MAX_UPLOAD_PUBLIC_URL_LENGTH
+                        || !fileUrl.startsWith(Constantes.UPLOADS_PREFIX)) {
                     return null;
                 }
             }

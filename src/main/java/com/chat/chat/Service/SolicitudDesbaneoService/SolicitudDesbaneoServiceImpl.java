@@ -20,6 +20,7 @@ import com.chat.chat.Repository.UsuarioRepository;
 import com.chat.chat.Service.ChatService.ChatService;
 import com.chat.chat.Service.EmailService.EmailService;
 import com.chat.chat.Service.UsuarioService.UsuarioService;
+import com.chat.chat.Security.HttpRateLimitService;
 import com.chat.chat.Utils.Constantes;
 import com.chat.chat.Utils.ReporteTipo;
 import com.chat.chat.Utils.SecurityUtils;
@@ -36,6 +37,8 @@ import org.springframework.data.domain.Sort;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
 
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -73,6 +76,7 @@ public class SolicitudDesbaneoServiceImpl implements SolicitudDesbaneoService {
     private final SecurityUtils securityUtils;
     private final SimpMessagingTemplate messagingTemplate;
     private final SolicitudDesbaneoMapper solicitudDesbaneoMapper;
+    private final HttpRateLimitService httpRateLimitService;
 
     public SolicitudDesbaneoServiceImpl(SolicitudDesbaneoRepository solicitudDesbaneoRepository,
                                         UsuarioRepository usuarioRepository,
@@ -82,7 +86,8 @@ public class SolicitudDesbaneoServiceImpl implements SolicitudDesbaneoService {
                                         EmailService emailService,
                                         SecurityUtils securityUtils,
                                         SimpMessagingTemplate messagingTemplate,
-                                        SolicitudDesbaneoMapper solicitudDesbaneoMapper) {
+                                        SolicitudDesbaneoMapper solicitudDesbaneoMapper,
+                                        HttpRateLimitService httpRateLimitService) {
         this.solicitudDesbaneoRepository = solicitudDesbaneoRepository;
         this.usuarioRepository = usuarioRepository;
         this.chatGrupalRepository = chatGrupalRepository;
@@ -92,11 +97,13 @@ public class SolicitudDesbaneoServiceImpl implements SolicitudDesbaneoService {
         this.securityUtils = securityUtils;
         this.messagingTemplate = messagingTemplate;
         this.solicitudDesbaneoMapper = solicitudDesbaneoMapper;
+        this.httpRateLimitService = httpRateLimitService;
     }
 
     @Override
     @Transactional
     public SolicitudDesbaneoCreateResponseDTO crearSolicitud(SolicitudDesbaneoCreateDTO request) {
+        enforcePublicCreateRateLimit(request);
         if (request == null) {
             throw new IllegalArgumentException("Payload de solicitud de desbaneo vacio");
         }
@@ -135,6 +142,20 @@ public class SolicitudDesbaneoServiceImpl implements SolicitudDesbaneoService {
 
         publishWsEvent(EVENT_CREATED, saved);
         return new SolicitudDesbaneoCreateResponseDTO(Constantes.MSG_SOLICITUD_DESBANEO_CREADA, saved.getId());
+    }
+
+    private void enforcePublicCreateRateLimit(SolicitudDesbaneoCreateDTO request) {
+        HttpServletRequest httpRequest = currentHttpRequest();
+        String email = request == null ? null : request.getEmail();
+        httpRateLimitService.checkUnbanAppeal(httpRequest, email);
+    }
+
+    private HttpServletRequest currentHttpRequest() {
+        var attrs = RequestContextHolder.getRequestAttributes();
+        if (attrs instanceof ServletRequestAttributes servletRequestAttributes) {
+            return servletRequestAttributes.getRequest();
+        }
+        return null;
     }
 
     @Override

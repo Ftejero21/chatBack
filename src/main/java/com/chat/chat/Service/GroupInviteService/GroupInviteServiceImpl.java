@@ -13,6 +13,7 @@ import com.chat.chat.Repository.ChatGrupalRepository;
 import com.chat.chat.Repository.GroupInviteRepo;
 import com.chat.chat.Repository.NotificationRepo;
 import com.chat.chat.Repository.UsuarioRepository;
+import com.chat.chat.Security.HttpRateLimitService;
 import com.chat.chat.Utils.Constantes;
 import com.chat.chat.Utils.ExceptionConstants;
 import com.chat.chat.Utils.InviteStatus;
@@ -47,6 +48,8 @@ public class GroupInviteServiceImpl implements GroupInviteService {
     private SimpMessagingTemplate messagingTemplate;
     @Autowired
     private SecurityUtils securityUtils;
+    @Autowired
+    private HttpRateLimitService httpRateLimitService;
 
     @Override
     @Transactional
@@ -89,6 +92,8 @@ public class GroupInviteServiceImpl implements GroupInviteService {
         if (!inviterIsAdmin) {
             throw new AccessDeniedException(Constantes.MSG_SOLO_ADMIN);
         }
+
+        httpRateLimitService.checkGroupInviteCreate(requesterId, groupId, inviteeId);
 
         boolean inviteeAlreadyMember = chat.getUsuarios().stream()
                 .anyMatch(u -> u != null && Objects.equals(u.getId(), inviteeId));

@@ -93,9 +93,18 @@ public class UsuarioServiceImpl implements UsuarioService {
     private static final int MIN_KEY_LENGTH_BITS = 128;
     private static final int MAX_KEY_LENGTH_BITS = 8192;
     private static final int MAX_MODERATION_REASON_LENGTH = 500;
+    private static final int MIN_ADMIN_MODERATION_REASON_LENGTH = 10;
     private static final int MAX_MODERATION_ORIGIN_LENGTH = 80;
     private static final int MAX_MODERATION_DESCRIPTION_LENGTH = 5000;
     private static final String DEFAULT_MODERATION_ORIGIN = "panel_admin";
+    private static final String DNI_NIE_CONTROL_LETTERS = "TRWAGMYFPDXBNJZSQVHLCKE";
+    private static final int MAX_TELEFONO_LENGTH = 32;
+    private static final int MAX_FECHA_NACIMIENTO_LENGTH = 32;
+    private static final int MAX_GENERO_LENGTH = 32;
+    private static final int MAX_DIRECCION_LENGTH = 255;
+    private static final int MAX_NACIONALIDAD_LENGTH = 80;
+    private static final int MAX_OCUPACION_LENGTH = 120;
+    private static final int MAX_INSTAGRAM_LENGTH = 120;
 
     @Autowired
     private UsuarioRepository usuarioRepository;
@@ -178,7 +187,7 @@ public class UsuarioServiceImpl implements UsuarioService {
         UsuarioEntity entity = MappingUtils.usuarioDtoAEntity(dto);
         entity.setFechaCreacion(LocalDateTime.now());
         entity.setActivo(true);
-        entity.setEmailVerificado(true);
+        entity.setEmailVerificado(false);
         entity.setRoles(Collections.singleton(Constantes.USUARIO));
         if (hasPublicKey(entity.getPublicKey())) {
             entity.setPublicKeyUpdatedAt(LocalDateTime.now());
@@ -917,6 +926,9 @@ public class UsuarioServiceImpl implements UsuarioService {
     @Override
     @Transactional
     public UsuarioDTO actualizarPerfil(ActualizarPerfilDTO dto) {
+        if (dto == null) {
+            throw new IllegalArgumentException(Constantes.MSG_FALTAN_DATOS_REQUERIDOS);
+        }
         Long authenticatedUserId = securityUtils.getAuthenticatedUserId();
         UsuarioEntity usuario = usuarioRepository.findById(authenticatedUserId)
                 .orElseThrow(() -> new RuntimeException(Constantes.MSG_USUARIO_NO_ENCONTRADO));
@@ -938,6 +950,34 @@ public class UsuarioServiceImpl implements UsuarioService {
                 }
             }
         }
+        if (dto.getDni() != null) {
+            String normalizedDniNie = normalizeDniNie(dto.getDni());
+            if (normalizedDniNie != null && !isSpanishDniNieValid(normalizedDniNie)) {
+                throw new IllegalArgumentException("DNI/NIE no válido");
+            }
+            usuario.setDni(normalizedDniNie);
+        }
+        if (dto.getTelefono() != null) {
+            usuario.setTelefono(normalizeProfileText(dto.getTelefono(), MAX_TELEFONO_LENGTH, "telefono"));
+        }
+        if (dto.getFechaNacimiento() != null) {
+            usuario.setFechaNacimiento(normalizeProfileText(dto.getFechaNacimiento(), MAX_FECHA_NACIMIENTO_LENGTH, "fechaNacimiento"));
+        }
+        if (dto.getGenero() != null) {
+            usuario.setGenero(normalizeProfileText(dto.getGenero(), MAX_GENERO_LENGTH, "genero"));
+        }
+        if (dto.getDireccion() != null) {
+            usuario.setDireccion(normalizeProfileText(dto.getDireccion(), MAX_DIRECCION_LENGTH, "direccion"));
+        }
+        if (dto.getNacionalidad() != null) {
+            usuario.setNacionalidad(normalizeProfileText(dto.getNacionalidad(), MAX_NACIONALIDAD_LENGTH, "nacionalidad"));
+        }
+        if (dto.getOcupacion() != null) {
+            usuario.setOcupacion(normalizeProfileText(dto.getOcupacion(), MAX_OCUPACION_LENGTH, "ocupacion"));
+        }
+        if (dto.getInstagram() != null) {
+            usuario.setInstagram(normalizeProfileText(dto.getInstagram(), MAX_INSTAGRAM_LENGTH, "instagram"));
+        }
 
         UsuarioEntity saved = usuarioRepository.save(usuario);
         UsuarioDTO out = MappingUtils.usuarioEntityADto(saved);
@@ -946,6 +986,80 @@ public class UsuarioServiceImpl implements UsuarioService {
             out.setFoto(Utils.toDataUrlFromUrl(out.getFoto(), uploadsRoot));
         }
         return out;
+    }
+
+    private String normalizeProfileText(String value, int maxLength, String fieldName) {
+        if (value == null) {
+            return null;
+        }
+        String normalized = value.trim();
+        if (normalized.isEmpty()) {
+            return null;
+        }
+        if (normalized.length() > maxLength) {
+            throw new IllegalArgumentException(fieldName + " supera la longitud máxima permitida");
+        }
+        return normalized;
+    }
+
+    private String normalizeDniNie(String rawValue) {
+        if (rawValue == null) {
+            return null;
+        }
+        String trimmed = rawValue.trim();
+        if (trimmed.isEmpty()) {
+            return null;
+        }
+        String normalized = trimmed
+                .toUpperCase(Locale.ROOT)
+                .replaceAll("[^0-9A-Z]", "");
+        if (normalized.length() > 9) {
+            throw new IllegalArgumentException("DNI/NIE no válido");
+        }
+        return normalized;
+    }
+
+    private boolean isSpanishDniNieValid(String value) {
+        if (value == null || value.length() != 9) {
+            return false;
+        }
+        char controlLetter = Character.toUpperCase(value.charAt(8));
+        if (controlLetter < 'A' || controlLetter > 'Z') {
+            return false;
+        }
+
+        String numericCore;
+        char firstChar = Character.toUpperCase(value.charAt(0));
+        if (Character.isDigit(firstChar)) {
+            if (!areAllDigits(value.substring(0, 8))) {
+                return false;
+            }
+            numericCore = value.substring(0, 8);
+        } else if (firstChar == 'X' || firstChar == 'Y' || firstChar == 'Z') {
+            String nieDigits = value.substring(1, 8);
+            if (!areAllDigits(nieDigits)) {
+                return false;
+            }
+            char mappedPrefix = firstChar == 'X' ? '0' : firstChar == 'Y' ? '1' : '2';
+            numericCore = mappedPrefix + nieDigits;
+        } else {
+            return false;
+        }
+
+        int index = Integer.parseInt(numericCore) % DNI_NIE_CONTROL_LETTERS.length();
+        return DNI_NIE_CONTROL_LETTERS.charAt(index) == controlLetter;
+    }
+
+    private boolean areAllDigits(String value) {
+        if (value == null || value.isEmpty()) {
+            return false;
+        }
+        for (int i = 0; i < value.length(); i++) {
+            if (!Character.isDigit(value.charAt(i))) {
+                return false;
+            }
+        }
+        return true;
     }
 
     @Override
@@ -1001,12 +1115,14 @@ public class UsuarioServiceImpl implements UsuarioService {
     @Transactional
     public void banearUsuario(Long id, String motivo, String origen, String descripcion) {
         UsuarioEntity bloqueado = usuarioRepository.findById(id).orElseThrow();
-        Long adminId = securityUtils.getAuthenticatedUserId();
-        UsuarioEntity admin = usuarioRepository.findById(adminId).orElseThrow();
+        UsuarioEntity admin = resolveAdminActorOrThrow();
+        Long adminId = admin.getId();
+        validateAdminTargetRulesOrThrow(admin, bloqueado, "BAN");
 
-        String motivoFinal = (motivo == null || motivo.trim().isEmpty())
-                ? Constantes.BAN_MOTIVO_DEFAULT
-                : motivo.trim();
+        String motivoFinal = resolveAdminActionReasonOrThrow(motivo, Constantes.BAN_MOTIVO_DEFAULT, "BAN");
+        String origenFinal = normalizeModerationOrigin(origen);
+        String descripcionFinal = normalizeModerationDescription(descripcion);
+        logAdminStateChangeAttempt("BAN", adminId, bloqueado.getId(), bloqueado.isActivo(), isAdminUser(bloqueado.getRoles()), motivoFinal, origenFinal);
 
         bloqueado.setActivo(false);
         usuarioRepository.save(bloqueado);
@@ -1033,8 +1149,9 @@ public class UsuarioServiceImpl implements UsuarioService {
                 admin,
                 ModerationActionType.SUSPENSION,
                 motivoFinal,
-                descripcion,
-                origen);
+                descripcionFinal,
+                origenFinal);
+        logAdminStateChangeSuccess("BAN", adminId, bloqueado.getId(), false, motivoFinal, origenFinal);
     }
 
     @Override
@@ -1047,11 +1164,12 @@ public class UsuarioServiceImpl implements UsuarioService {
     @Transactional
     public void desbanearAdministrativamente(Long id, String motivo) {
         UsuarioEntity vetado = usuarioRepository.findById(id).orElseThrow();
-        Long adminId = securityUtils.getAuthenticatedUserId();
-        UsuarioEntity admin = usuarioRepository.findById(adminId).orElseThrow();
-        String motivoFinal = (motivo == null || motivo.trim().isEmpty())
-                ? Constantes.UNBAN_MOTIVO_DEFAULT
-                : motivo.trim();
+        UsuarioEntity admin = resolveAdminActorOrThrow();
+        Long adminId = admin.getId();
+        validateAdminTargetRulesOrThrow(admin, vetado, "UNBAN");
+        String motivoFinal = resolveAdminActionReasonOrThrow(motivo, Constantes.UNBAN_MOTIVO_DEFAULT, "UNBAN");
+        String origenFinal = normalizeModerationOrigin(DEFAULT_MODERATION_ORIGIN);
+        logAdminStateChangeAttempt("UNBAN", adminId, vetado.getId(), vetado.isActivo(), isAdminUser(vetado.getRoles()), motivoFinal, origenFinal);
 
         vetado.setActivo(true);
         usuarioRepository.save(vetado);
@@ -1072,7 +1190,92 @@ public class UsuarioServiceImpl implements UsuarioService {
                 ModerationActionType.UNBAN,
                 motivoFinal,
                 null,
-                DEFAULT_MODERATION_ORIGIN);
+                origenFinal);
+        logAdminStateChangeSuccess("UNBAN", adminId, vetado.getId(), true, motivoFinal, origenFinal);
+    }
+
+    private UsuarioEntity resolveAdminActorOrThrow() {
+        Long adminId = securityUtils.getAuthenticatedUserId();
+        UsuarioEntity actor = usuarioRepository.findById(adminId)
+                .orElseThrow(() -> new AccessDeniedException(Constantes.MSG_SOLO_ADMIN));
+        if (!isAdminUser(actor.getRoles())) {
+            throw new AccessDeniedException(Constantes.MSG_SOLO_ADMIN);
+        }
+        return actor;
+    }
+
+    private void validateAdminTargetRulesOrThrow(UsuarioEntity actor, UsuarioEntity target, String action) {
+        if (actor == null || actor.getId() == null) {
+            throw new AccessDeniedException(Constantes.MSG_SOLO_ADMIN);
+        }
+        if (target == null || target.getId() == null) {
+            throw new IllegalArgumentException(Constantes.MSG_USUARIO_NO_ENCONTRADO);
+        }
+        if (Objects.equals(actor.getId(), target.getId())) {
+            logAdminStateChangeDenied(action, actor.getId(), target.getId(), isAdminUser(target.getRoles()), "SELF_ACTION_BLOCKED");
+            throw new AccessDeniedException("No puedes aplicarte " + action + " a ti mismo");
+        }
+        if (isAdminUser(target.getRoles())) {
+            logAdminStateChangeDenied(action, actor.getId(), target.getId(), true, "TARGET_ADMIN_PROTECTED");
+            throw new AccessDeniedException("No se permite " + action + " sobre cuentas administrativas");
+        }
+    }
+
+    private String resolveAdminActionReasonOrThrow(String rawReason, String defaultReason, String action) {
+        boolean callerSentReason = rawReason != null && !rawReason.trim().isEmpty();
+        String baseReason = callerSentReason ? rawReason : defaultReason;
+        String normalized = normalizeModerationReason(baseReason);
+        if (callerSentReason && normalized.length() < MIN_ADMIN_MODERATION_REASON_LENGTH) {
+            throw new IllegalArgumentException("motivo demasiado corto para " + action);
+        }
+        return normalized;
+    }
+
+    private void logAdminStateChangeAttempt(String action,
+                                            Long actorId,
+                                            Long targetId,
+                                            boolean targetWasActive,
+                                            boolean targetIsAdmin,
+                                            String reason,
+                                            String origin) {
+        LOGGER.info("[ADMIN_USER_STATE_ATTEMPT] action={} actorId={} targetId={} targetWasActive={} targetIsAdmin={} reasonLen={} reasonHash={} origin={}",
+                action,
+                actorId,
+                targetId,
+                targetWasActive,
+                targetIsAdmin,
+                reason == null ? 0 : reason.length(),
+                E2EDiagnosticUtils.fingerprint12(reason),
+                origin);
+    }
+
+    private void logAdminStateChangeSuccess(String action,
+                                            Long actorId,
+                                            Long targetId,
+                                            boolean targetActiveNow,
+                                            String reason,
+                                            String origin) {
+        LOGGER.info("[ADMIN_USER_STATE_SUCCESS] action={} actorId={} targetId={} targetActiveNow={} reasonLen={} reasonHash={} origin={}",
+                action,
+                actorId,
+                targetId,
+                targetActiveNow,
+                reason == null ? 0 : reason.length(),
+                E2EDiagnosticUtils.fingerprint12(reason),
+                origin);
+    }
+
+    private void logAdminStateChangeDenied(String action,
+                                           Long actorId,
+                                           Long targetId,
+                                           boolean targetIsAdmin,
+                                           String cause) {
+        LOGGER.warn("[ADMIN_USER_STATE_DENIED] action={} actorId={} targetId={} targetIsAdmin={} cause={}",
+                action,
+                actorId,
+                targetId,
+                targetIsAdmin,
+                cause);
     }
 
     private void registrarModeracion(UsuarioEntity targetUser,

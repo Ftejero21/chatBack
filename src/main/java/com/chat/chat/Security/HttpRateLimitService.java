@@ -25,10 +25,26 @@ public class HttpRateLimitService {
     private static final int REGISTRATION_OTP_VERIFY_LIMIT = 12;
     private static final Duration REGISTRATION_OTP_VERIFY_WINDOW = Duration.ofMinutes(30);
 
-    private static final int UNBAN_APPEAL_LIMIT = 3;
-    private static final Duration UNBAN_APPEAL_WINDOW = Duration.ofHours(24);
+    private static final int UNBAN_APPEAL_BY_IP_LIMIT = 10;
+    private static final Duration UNBAN_APPEAL_BY_IP_WINDOW = Duration.ofHours(1);
+    private static final int UNBAN_APPEAL_BY_EMAIL_LIMIT = 3;
+    private static final Duration UNBAN_APPEAL_BY_EMAIL_WINDOW = Duration.ofHours(24);
+    private static final int UNBAN_APPEAL_BY_IP_EMAIL_LIMIT = 3;
+    private static final Duration UNBAN_APPEAL_BY_IP_EMAIL_WINDOW = Duration.ofHours(6);
     private static final int CHAT_CLOSED_REPORT_LIMIT = 6;
     private static final Duration CHAT_CLOSED_REPORT_WINDOW = Duration.ofHours(24);
+    private static final int GROUP_INVITE_BY_INVITER_LIMIT = 20;
+    private static final Duration GROUP_INVITE_BY_INVITER_WINDOW = Duration.ofMinutes(10);
+    private static final int GROUP_INVITE_BY_GROUP_LIMIT = 50;
+    private static final Duration GROUP_INVITE_BY_GROUP_WINDOW = Duration.ofMinutes(10);
+    private static final int GROUP_INVITE_BY_INVITEE_LIMIT = 15;
+    private static final Duration GROUP_INVITE_BY_INVITEE_WINDOW = Duration.ofMinutes(10);
+    private static final int USER_COMPLAINT_BY_REPORTER_LIMIT = 8;
+    private static final Duration USER_COMPLAINT_BY_REPORTER_WINDOW = Duration.ofHours(1);
+    private static final int USER_COMPLAINT_BY_REPORTER_BURST_LIMIT = 3;
+    private static final Duration USER_COMPLAINT_BY_REPORTER_BURST_WINDOW = Duration.ofMinutes(10);
+    private static final int USER_COMPLAINT_BY_REPORTER_TARGET_LIMIT = 1;
+    private static final Duration USER_COMPLAINT_BY_REPORTER_TARGET_WINDOW = Duration.ofHours(12);
 
     private static final int ADMIN_HTTP_LIMIT = 180;
     private static final Duration ADMIN_HTTP_WINDOW = Duration.ofMinutes(1);
@@ -89,9 +105,12 @@ public class HttpRateLimitService {
     public void checkUnbanAppeal(HttpServletRequest request, String email) {
         String ip = clientIpResolver.resolve(request);
         String identity = normalizeIdentity(email);
-        String key = "http:unban-appeal:" + ip + ":" + identity;
-        enforce(key, UNBAN_APPEAL_LIMIT, UNBAN_APPEAL_WINDOW,
-                "Demasiadas solicitudes de desbaneo para este origen. Intenta mas tarde.");
+        enforce("http:unban-appeal:ip:" + ip, UNBAN_APPEAL_BY_IP_LIMIT, UNBAN_APPEAL_BY_IP_WINDOW,
+                "No se pudo procesar la solicitud en este momento. Intenta mas tarde.");
+        enforce("http:unban-appeal:email:" + identity, UNBAN_APPEAL_BY_EMAIL_LIMIT, UNBAN_APPEAL_BY_EMAIL_WINDOW,
+                "No se pudo procesar la solicitud en este momento. Intenta mas tarde.");
+        enforce("http:unban-appeal:ip-email:" + ip + ":" + identity, UNBAN_APPEAL_BY_IP_EMAIL_LIMIT, UNBAN_APPEAL_BY_IP_EMAIL_WINDOW,
+                "No se pudo procesar la solicitud en este momento. Intenta mas tarde.");
     }
 
     public void checkChatClosedReport(HttpServletRequest request, Long chatId) {
@@ -100,6 +119,45 @@ public class HttpRateLimitService {
         String key = "http:chat-closed-report:" + normalizeIdentity(String.valueOf(chatId)) + ":" + ip + ":" + userKey;
         enforce(key, CHAT_CLOSED_REPORT_LIMIT, CHAT_CLOSED_REPORT_WINDOW,
                 "Demasiados reportes de chat cerrado para este origen. Intenta mas tarde.");
+    }
+
+    public void checkGroupInviteCreate(Long inviterId, Long groupId, Long inviteeId) {
+        String inviterKey = normalizeIdentity(String.valueOf(inviterId));
+        String groupKey = normalizeIdentity(String.valueOf(groupId));
+        String inviteeKey = normalizeIdentity(String.valueOf(inviteeId));
+        String message = "Demasiadas invitaciones de grupo. Intenta mas tarde.";
+
+        enforce("svc:group-invite:inviter:" + inviterKey,
+                GROUP_INVITE_BY_INVITER_LIMIT,
+                GROUP_INVITE_BY_INVITER_WINDOW,
+                message);
+        enforce("svc:group-invite:group:" + groupKey,
+                GROUP_INVITE_BY_GROUP_LIMIT,
+                GROUP_INVITE_BY_GROUP_WINDOW,
+                message);
+        enforce("svc:group-invite:invitee:" + inviteeKey,
+                GROUP_INVITE_BY_INVITEE_LIMIT,
+                GROUP_INVITE_BY_INVITEE_WINDOW,
+                message);
+    }
+
+    public void checkUserComplaintCreate(Long reporterId, Long targetUserId) {
+        String reporterKey = normalizeIdentity(String.valueOf(reporterId));
+        String targetKey = normalizeIdentity(String.valueOf(targetUserId));
+        String message = "Demasiadas denuncias en este momento. Intenta mas tarde.";
+
+        enforce("svc:user-complaint:reporter:" + reporterKey,
+                USER_COMPLAINT_BY_REPORTER_LIMIT,
+                USER_COMPLAINT_BY_REPORTER_WINDOW,
+                message);
+        enforce("svc:user-complaint:reporter-burst:" + reporterKey,
+                USER_COMPLAINT_BY_REPORTER_BURST_LIMIT,
+                USER_COMPLAINT_BY_REPORTER_BURST_WINDOW,
+                message);
+        enforce("svc:user-complaint:reporter-target:" + reporterKey + ":" + targetKey,
+                USER_COMPLAINT_BY_REPORTER_TARGET_LIMIT,
+                USER_COMPLAINT_BY_REPORTER_TARGET_WINDOW,
+                "Debes esperar antes de volver a denunciar al mismo usuario.");
     }
 
     public void checkAdminEndpoint(HttpServletRequest request, String endpointKey) {

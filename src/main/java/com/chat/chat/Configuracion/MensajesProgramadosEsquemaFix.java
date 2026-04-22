@@ -71,6 +71,7 @@ public class MensajesProgramadosEsquemaFix {
     private static final String SQL_ADD_CANCELED_AT = "ALTER TABLE chat_scheduled_message ADD COLUMN canceled_at TIMESTAMP NULL";
     private static final String SQL_ADD_FK_CANCELED_BY = "ALTER TABLE chat_scheduled_message ADD CONSTRAINT fk_sched_canceled_by FOREIGN KEY (canceled_by) REFERENCES usuarios(id)";
     private static final String SQL_CONSTRAINT_EXISTS = "SELECT COUNT(1) FROM information_schema.TABLE_CONSTRAINTS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'chat_scheduled_message' AND CONSTRAINT_NAME = ?";
+    private static final String SQL_CHAT_ID_IS_NULLABLE = "SELECT IS_NULLABLE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'chat_scheduled_message' AND COLUMN_NAME = 'chat_id'";
     private static final String SQL_CHAT_ID_NULLABLE = "ALTER TABLE chat_scheduled_message MODIFY COLUMN chat_id BIGINT NULL";
 
     private final JdbcTemplate jdbcTemplate;
@@ -105,7 +106,7 @@ public class MensajesProgramadosEsquemaFix {
             agregarColumnaSiNoExiste("canceled_by", SQL_ADD_CANCELED_BY);
             agregarColumnaSiNoExiste("canceled_at", SQL_ADD_CANCELED_AT);
             agregarConstraintSiNoExiste("fk_sched_canceled_by", SQL_ADD_FK_CANCELED_BY);
-            jdbcTemplate.execute(SQL_CHAT_ID_NULLABLE);
+            asegurarChatIdNullableSiNoLoEs();
             LOGGER.info("[DB_FIX] esquema de mensajes programados verificado");
         } catch (Exception ex) {
             LOGGER.warn("[DB_FIX] no se pudo asegurar esquema de mensajes programados: {}", ex.getClass().getSimpleName());
@@ -128,5 +129,14 @@ public class MensajesProgramadosEsquemaFix {
         }
         jdbcTemplate.execute(sqlAdd);
         LOGGER.info("[DB_FIX] constraint {} creada en chat_scheduled_message", constraint);
+    }
+
+    private void asegurarChatIdNullableSiNoLoEs() {
+        String isNullable = jdbcTemplate.queryForObject(SQL_CHAT_ID_IS_NULLABLE, String.class);
+        if ("YES".equalsIgnoreCase(isNullable)) {
+            return;
+        }
+        jdbcTemplate.execute(SQL_CHAT_ID_NULLABLE);
+        LOGGER.info("[DB_FIX] columna chat_id ajustada a NULL en chat_scheduled_message");
     }
 }

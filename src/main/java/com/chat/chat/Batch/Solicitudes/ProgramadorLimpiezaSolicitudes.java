@@ -9,6 +9,7 @@ import org.springframework.batch.core.JobParametersBuilder;
 import org.springframework.batch.core.launch.JobLauncher;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.annotation.Scheduled;
 
@@ -20,6 +21,7 @@ import java.time.ZonedDateTime;
 import java.time.temporal.TemporalAdjusters;
 
 @Configuration
+@ConditionalOnProperty(name = "app.weekly.flows.cleanup.enabled", havingValue = "true")
 public class ProgramadorLimpiezaSolicitudes {
 
     private static final Logger log = LoggerFactory.getLogger(ProgramadorLimpiezaSolicitudes.class);

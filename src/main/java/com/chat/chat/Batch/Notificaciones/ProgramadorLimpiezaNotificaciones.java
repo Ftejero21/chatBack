@@ -9,6 +9,7 @@ import org.springframework.batch.core.JobParametersBuilder;
 import org.springframework.batch.core.launch.JobLauncher;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.annotation.Scheduled;
 
@@ -17,6 +18,7 @@ import java.time.ZoneId;
 import java.time.ZonedDateTime;
 
 @Configuration
+@ConditionalOnProperty(name = "app.notifications.cleanup.enabled", havingValue = "true")
 public class ProgramadorLimpiezaNotificaciones {
 
     private static final Logger log = LoggerFactory.getLogger(ProgramadorLimpiezaNotificaciones.class);

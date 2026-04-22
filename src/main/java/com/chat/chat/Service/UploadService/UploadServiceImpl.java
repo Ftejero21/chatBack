@@ -2,7 +2,13 @@ package com.chat.chat.Service.UploadService;
 
 import com.chat.chat.DTO.AudioUploadResponseDTO;
 import com.chat.chat.DTO.FileUploadResponseDTO;
+import com.chat.chat.Entity.MensajeEntity;
+import com.chat.chat.Entity.UploadFileMetadataEntity;
 import com.chat.chat.Exceptions.UploadSecurityException;
+import com.chat.chat.Repository.ChatGrupalRepository;
+import com.chat.chat.Repository.ChatIndividualRepository;
+import com.chat.chat.Repository.MensajeRepository;
+import com.chat.chat.Repository.UploadFileMetadataRepository;
 import com.chat.chat.Security.ClientIpResolver;
 import com.chat.chat.Utils.Constantes;
 import com.chat.chat.Utils.ExceptionConstants;
@@ -16,6 +22,9 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.context.request.RequestContextHolder;
@@ -38,6 +47,7 @@ import java.util.Set;
 import java.util.Locale;
 import java.util.LinkedHashSet;
 import java.util.Arrays;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 @Service
@@ -46,6 +56,8 @@ public class UploadServiceImpl implements UploadService {
     private static final Logger LOGGER = LoggerFactory.getLogger(UploadServiceImpl.class);
     private static final long DEFAULT_MAX_UPLOAD_BYTES = 25L * 1024L * 1024L;
     private static final Set<String> DEFAULT_AUDIO_EXTENSIONS = Set.of(".webm", ".ogg", ".mp3", ".wav", ".m4a", ".aac", ".opus");
+    private static final String UPLOAD_TIPO_AUDIO = "AUDIO";
+    private static final String UPLOAD_TIPO_FILE = "FILE";
 
     private final String uploadsRoot;
     private final String uploadsBaseUrl;
@@ -58,6 +70,10 @@ public class UploadServiceImpl implements UploadService {
     private final String quarantineDir;
     private final ClientIpResolver clientIpResolver;
     private final SecurityUtils securityUtils;
+    private final MensajeRepository mensajeRepository;
+    private final ChatIndividualRepository chatIndividualRepository;
+    private final ChatGrupalRepository chatGrupalRepository;
+    private final UploadFileMetadataRepository uploadFileMetadataRepository;
 
     public UploadServiceImpl(@Value(Constantes.PROP_UPLOADS_ROOT) String uploadsRoot,
                              @Value(Constantes.PROP_UPLOADS_BASE_URL) String uploadsBaseUrl,
@@ -69,7 +85,11 @@ public class UploadServiceImpl implements UploadService {
                              @Value("${app.uploads.security.antivirus.command:}") String antivirusCommand,
                              @Value("${app.uploads.security.antivirus.quarantine-dir:quarantine}") String quarantineDir,
                              ClientIpResolver clientIpResolver,
-                             SecurityUtils securityUtils) {
+                             SecurityUtils securityUtils,
+                             MensajeRepository mensajeRepository,
+                             ChatIndividualRepository chatIndividualRepository,
+                             ChatGrupalRepository chatGrupalRepository,
+                             UploadFileMetadataRepository uploadFileMetadataRepository) {
         this.uploadsRoot = uploadsRoot;
         this.uploadsBaseUrl = uploadsBaseUrl;
         this.maxUploadBytes = maxUploadBytes == null || maxUploadBytes <= 0 ? DEFAULT_MAX_UPLOAD_BYTES : maxUploadBytes;
@@ -81,11 +101,16 @@ public class UploadServiceImpl implements UploadService {
         this.quarantineDir = (quarantineDir == null || quarantineDir.isBlank()) ? "quarantine" : quarantineDir.trim();
         this.clientIpResolver = clientIpResolver;
         this.securityUtils = securityUtils;
+        this.mensajeRepository = mensajeRepository;
+        this.chatIndividualRepository = chatIndividualRepository;
+        this.chatGrupalRepository = chatGrupalRepository;
+        this.uploadFileMetadataRepository = uploadFileMetadataRepository;
     }
 
     @Override
     public AudioUploadResponseDTO uploadAudio(MultipartFile file, Integer durMs, Long chatId, Long messageId) {
         UploadAuditContext audit = buildAuditContext("AUDIO_UPLOAD", chatId, messageId, file);
+        UploadAuthorizationContext authorization = validateUploadAuthorization(chatId, messageId, audit);
         byte[] bytes = readFileBytes(file, audit);
         validateSize(bytes.length, audit);
         String originalName = safeClientName(file == null ? null : file.getOriginalFilename());
@@ -97,6 +122,7 @@ public class UploadServiceImpl implements UploadService {
 
         try {
             StoredFile stored = storeRawFile(bytes, Constantes.DIR_VOICE, extension, detectedMime);
+            persistUploadMetadata(authorization, UPLOAD_TIPO_AUDIO, stored.url());
             logUploadAudit("UPLOAD_OK", audit, detectedMime, bytes.length, sha256, stored.url(), null);
 
             AudioUploadResponseDTO dto = new AudioUploadResponseDTO();
@@ -116,6 +142,7 @@ public class UploadServiceImpl implements UploadService {
     @Override
     public FileUploadResponseDTO uploadEncryptedFile(MultipartFile file, Long chatId, Long messageId) {
         UploadAuditContext audit = buildAuditContext("FILE_UPLOAD", chatId, messageId, file);
+        UploadAuthorizationContext authorization = validateUploadAuthorization(chatId, messageId, audit);
         byte[] bytes = readFileBytes(file, audit);
         validateSize(bytes.length, audit);
         String originalName = safeClientName(file == null ? null : file.getOriginalFilename());
@@ -127,6 +154,7 @@ public class UploadServiceImpl implements UploadService {
 
         try {
             StoredFile stored = storeRawFile(bytes, Constantes.DIR_MEDIA, extension, detectedMime);
+            persistUploadMetadata(authorization, UPLOAD_TIPO_FILE, stored.url());
             logUploadAudit("UPLOAD_OK", audit, detectedMime, bytes.length, sha256, stored.url(), null);
             FileUploadResponseDTO dto = new FileUploadResponseDTO();
             dto.setUrl(stored.url());
@@ -146,6 +174,7 @@ public class UploadServiceImpl implements UploadService {
     public ResponseEntity<Resource> downloadEncryptedFile(String url, Long chatId, Long messageId) {
         UploadAuditContext audit = buildAuditContext("FILE_DOWNLOAD", chatId, messageId, null);
         Path filePath = resolvePublicUrlToPath(url, audit);
+        validateDownloadAuthorization(url, chatId, messageId, audit);
         try {
             byte[] bytes = Files.readAllBytes(filePath);
             String sha256 = sha256Hex(bytes);
@@ -164,6 +193,150 @@ public class UploadServiceImpl implements UploadService {
             logUploadAudit("DOWNLOAD_ERROR", audit, null, 0L, null, url, ex.getClass().getSimpleName());
             throw new RuntimeException("Fallo al descargar archivo");
         }
+    }
+
+    private UploadAuthorizationContext validateUploadAuthorization(Long chatId, Long messageId, UploadAuditContext audit) {
+        Long authenticatedUserId;
+        try {
+            authenticatedUserId = securityUtils.getAuthenticatedUserId();
+        } catch (Exception ex) {
+            throwUploadAccessDenied(audit);
+            return null;
+        }
+        if (authenticatedUserId == null) {
+            throwUploadAccessDenied(audit);
+        }
+
+        Long resolvedChatId = chatId;
+        Long resolvedMessageId = messageId;
+
+        if (chatId != null && !hasChatAccess(authenticatedUserId, chatId)) {
+            throwUploadAccessDenied(audit);
+        }
+
+        if (messageId != null) {
+            MensajeEntity relatedMessage = mensajeRepository.findById(messageId)
+                    .orElseThrow(() -> new AccessDeniedException("Acceso denegado al archivo"));
+            Long messageChatId = relatedMessage.getChat() == null ? null : relatedMessage.getChat().getId();
+            if (messageChatId == null) {
+                throwUploadAccessDenied(audit);
+            }
+            if (!hasChatAccess(authenticatedUserId, messageChatId)) {
+                throwUploadAccessDenied(audit);
+            }
+            if (chatId != null && !Objects.equals(chatId, messageChatId)) {
+                throwUploadAccessDenied(audit);
+            }
+            resolvedChatId = messageChatId;
+            resolvedMessageId = relatedMessage.getId();
+        }
+
+        return new UploadAuthorizationContext(authenticatedUserId, resolvedChatId, resolvedMessageId);
+    }
+
+    private void persistUploadMetadata(UploadAuthorizationContext authorization, String tipo, String publicUrl) {
+        try {
+            UploadFileMetadataEntity metadata = new UploadFileMetadataEntity();
+            metadata.setOwnerUserId(authorization.ownerUserId());
+            metadata.setChatId(authorization.chatId());
+            metadata.setMessageId(authorization.messageId());
+            metadata.setTipo(tipo);
+            metadata.setPublicUrl(publicUrl);
+            metadata.setStoragePath(toStoragePath(publicUrl));
+            uploadFileMetadataRepository.save(metadata);
+        } catch (Exception ex) {
+            deleteStoredFileQuietly(publicUrl);
+            throw new RuntimeException("Fallo al persistir metadata de upload", ex);
+        }
+    }
+
+    private void deleteStoredFileQuietly(String publicUrl) {
+        if (publicUrl == null || publicUrl.isBlank() || !publicUrl.startsWith(Constantes.UPLOADS_PREFIX)) {
+            return;
+        }
+        try {
+            String relative = publicUrl.substring(Constantes.UPLOADS_PREFIX.length());
+            Path root = Paths.get(uploadsRoot).toAbsolutePath().normalize();
+            Path path = root.resolve(relative).normalize();
+            if (!path.startsWith(root)) {
+                return;
+            }
+            Files.deleteIfExists(path);
+        } catch (Exception ex) {
+            LOGGER.warn("[UPLOAD_AUDIT] event=UPLOAD_METADATA_ROLLBACK_DELETE_FAILED url={} error={}",
+                    publicUrl,
+                    ex.getClass().getSimpleName());
+        }
+    }
+
+    private String toStoragePath(String publicUrl) {
+        if (publicUrl == null || publicUrl.isBlank()) {
+            return "";
+        }
+        if (publicUrl.startsWith(Constantes.UPLOADS_PREFIX)) {
+            return publicUrl.substring(Constantes.UPLOADS_PREFIX.length());
+        }
+        return publicUrl;
+    }
+
+    private void validateDownloadAuthorization(String url, Long chatId, Long messageId, UploadAuditContext audit) {
+        Long authenticatedUserId;
+        try {
+            authenticatedUserId = securityUtils.getAuthenticatedUserId();
+        } catch (Exception ex) {
+            throwDownloadAccessDenied(audit);
+            return;
+        }
+        if (authenticatedUserId == null || (chatId == null && messageId == null)) {
+            throwDownloadAccessDenied(audit);
+        }
+
+        MensajeEntity relatedMessage = resolveRelatedMessage(url, chatId, messageId);
+        Long messageChatId = relatedMessage.getChat() == null ? null : relatedMessage.getChat().getId();
+
+        if (messageChatId == null) {
+            throwDownloadAccessDenied(audit);
+        }
+        if (chatId != null && !Objects.equals(chatId, messageChatId)) {
+            throwDownloadAccessDenied(audit);
+        }
+        if (!hasChatAccess(authenticatedUserId, messageChatId)) {
+            throwDownloadAccessDenied(audit);
+        }
+    }
+
+    private MensajeEntity resolveRelatedMessage(String url, Long chatId, Long messageId) {
+        if (messageId != null) {
+            return mensajeRepository.findByIdAndMediaUrl(messageId, url)
+                    .orElseThrow(() -> new AccessDeniedException("Acceso denegado al archivo"));
+        }
+        Pageable one = PageRequest.of(0, 1);
+        return mensajeRepository.findByChatIdAndMediaUrlOrderByIdDesc(chatId, url, one).stream()
+                .findFirst()
+                .orElseThrow(() -> new AccessDeniedException("Acceso denegado al archivo"));
+    }
+
+    private boolean hasChatAccess(Long userId, Long chatId) {
+        return chatIndividualRepository.existsMemberByChatIdAndUserId(chatId, userId)
+                || chatGrupalRepository.existsActiveMemberByChatIdAndUserId(chatId, userId);
+    }
+
+    private void throwUploadAccessDenied(UploadAuditContext audit) {
+        LOGGER.warn("[SECURITY_BLOCK] motivo=upload_unauthorized userId={} ip={} chatId={} messageId={}",
+                audit.userId(),
+                audit.ip(),
+                audit.chatId(),
+                audit.messageId());
+        throw new AccessDeniedException("Acceso denegado al archivo");
+    }
+
+    private void throwDownloadAccessDenied(UploadAuditContext audit) {
+        LOGGER.warn("[SECURITY_BLOCK] motivo=download_unauthorized userId={} ip={} chatId={} messageId={}",
+                audit.userId(),
+                audit.ip(),
+                audit.chatId(),
+                audit.messageId());
+        throw new AccessDeniedException("Acceso denegado al archivo");
     }
 
     private byte[] readFileBytes(MultipartFile file, UploadAuditContext audit) {
@@ -559,6 +732,9 @@ public class UploadServiceImpl implements UploadService {
             return Constantes.MIME_APPLICATION_OCTET_STREAM;
         }
         return mime.trim().toLowerCase(Locale.ROOT);
+    }
+
+    private record UploadAuthorizationContext(Long ownerUserId, Long chatId, Long messageId) {
     }
 
     private record UploadAuditContext(Long userId, String ip, Long chatId, Long messageId, String clientFileName) {

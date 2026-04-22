@@ -18,6 +18,7 @@ import com.chat.chat.Repository.UserBlockRelationRepository;
 import com.chat.chat.Repository.UserComplaintRepository;
 import com.chat.chat.Repository.UserModerationHistoryRepository;
 import com.chat.chat.Repository.UsuarioRepository;
+import com.chat.chat.Security.HttpRateLimitService;
 import com.chat.chat.Utils.BlockSource;
 import com.chat.chat.Utils.Constantes;
 import com.chat.chat.Utils.SecurityUtils;
@@ -56,6 +57,7 @@ public class UserComplaintServiceImpl implements UserComplaintService {
     private final UsuarioRepository usuarioRepository;
     private final ChatIndividualRepository chatIndividualRepository;
     private final SecurityUtils securityUtils;
+    private final HttpRateLimitService httpRateLimitService;
     private final UserComplaintMapper userComplaintMapper;
     private final SimpMessagingTemplate messagingTemplate;
 
@@ -65,6 +67,7 @@ public class UserComplaintServiceImpl implements UserComplaintService {
                                     UsuarioRepository usuarioRepository,
                                     ChatIndividualRepository chatIndividualRepository,
                                     SecurityUtils securityUtils,
+                                    HttpRateLimitService httpRateLimitService,
                                     UserComplaintMapper userComplaintMapper,
                                     SimpMessagingTemplate messagingTemplate) {
         this.userComplaintRepository = userComplaintRepository;
@@ -73,6 +76,7 @@ public class UserComplaintServiceImpl implements UserComplaintService {
         this.usuarioRepository = usuarioRepository;
         this.chatIndividualRepository = chatIndividualRepository;
         this.securityUtils = securityUtils;
+        this.httpRateLimitService = httpRateLimitService;
         this.userComplaintMapper = userComplaintMapper;
         this.messagingTemplate = messagingTemplate;
     }
@@ -98,6 +102,8 @@ public class UserComplaintServiceImpl implements UserComplaintService {
 
         UsuarioEntity denunciado = usuarioRepository.findById(denunciadoId)
                 .orElseThrow(() -> new RecursoNoEncontradoException(Constantes.MSG_USUARIO_NO_ENCONTRADO));
+
+        httpRateLimitService.checkUserComplaintCreate(denuncianteId, denunciadoId);
 
         if (userComplaintRepository.existsByDenuncianteIdAndDenunciadoId(denuncianteId, denunciadoId)) {
             throw new IllegalArgumentException("Ya denunciaste a este usuario");

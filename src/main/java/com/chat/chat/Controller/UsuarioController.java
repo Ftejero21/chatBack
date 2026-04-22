@@ -316,8 +316,8 @@ public class UsuarioController {
     @PostMapping(Constantes.RECUPERAR_PASSWORD_SOLICITAR)
     @Operation(summary = "Solicitar recuperacion de password", description = "Genera y envia un codigo temporal al correo del usuario.", security = {})
     @ApiResponses(value = {
-            @ApiResponse(responseCode = "200", description = "Codigo enviado", content = @Content(schema = @Schema(implementation = Map.class))),
-            @ApiResponse(responseCode = "400", description = "Email invalido o no registrado", content = @Content(schema = @Schema(implementation = Map.class))),
+            @ApiResponse(responseCode = "200", description = "Respuesta neutra de recuperacion", content = @Content(schema = @Schema(implementation = Map.class))),
+            @ApiResponse(responseCode = "400", description = "Email invalido", content = @Content(schema = @Schema(implementation = Map.class))),
             @ApiResponse(responseCode = "500", description = "Error enviando correo", content = @Content(schema = @Schema(implementation = Map.class)))
     })
     public ResponseEntity<Map<String, String>> solicitarRecuperacion(@RequestBody Map<String, String> payload, HttpServletRequest request) {
@@ -327,13 +327,14 @@ public class UsuarioController {
             return ResponseEntity.badRequest().body(Map.of(Constantes.KEY_MENSAJE, Constantes.MSG_EMAIL_REQUERIDO));
         }
 
-        if (!usuarioService.existePorEmail(email)) {
-            return ResponseEntity.badRequest().body(Map.of(Constantes.KEY_MENSAJE, Constantes.MSG_EMAIL_NO_REGISTRADO));
-        }
-
         try {
-            passwordResetService.generateAndSendResetCode(email);
-            return ResponseEntity.ok(Map.of(Constantes.KEY_MENSAJE, Constantes.MSG_CODIGO_ENVIADO));
+            boolean exists = usuarioService.existePorEmail(email);
+            if (exists) {
+                passwordResetService.generateAndSendResetCode(email);
+            } else {
+                LOGGER.info("[PASSWORD_RESET] request_ignored_unknown_email email={}", email.trim().toLowerCase(Locale.ROOT));
+            }
+            return ResponseEntity.ok(Map.of(Constantes.KEY_MENSAJE, "Si la cuenta existe, enviaremos instrucciones al correo."));
         } catch (Exception e) {
             return ResponseEntity.internalServerError().body(Map.of(Constantes.KEY_MENSAJE, Constantes.MSG_ERROR_ENVIANDO_CORREO));
         }

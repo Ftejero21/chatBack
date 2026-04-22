@@ -5,7 +5,7 @@ import com.chat.chat.DTO.SolicitudDesbaneoCreateResponseDTO;
 import com.chat.chat.DTO.SolicitudDesbaneoDTO;
 import com.chat.chat.DTO.SolicitudDesbaneoEstadoUpdateDTO;
 import com.chat.chat.DTO.SolicitudDesbaneoStatsDTO;
-import com.chat.chat.Security.HttpRateLimitService;
+import com.chat.chat.Exceptions.TooManyRequestsException;
 import com.chat.chat.Service.SolicitudDesbaneoService.SolicitudDesbaneoService;
 import com.chat.chat.Utils.Constantes;
 import io.swagger.v3.oas.annotations.Operation;
@@ -30,23 +30,29 @@ import jakarta.servlet.http.HttpServletRequest;
 @CrossOrigin(Constantes.CORS_ANY_ORIGIN)
 @Tag(name = "Solicitudes de Desbaneo", description = "Flujo publico y administrativo de solicitudes de desbaneo.")
 public class SolicitudDesbaneoController {
+    private static final String NEUTRAL_PUBLIC_MESSAGE = "Si corresponde, tu solicitud sera procesada y recibiras novedades por correo.";
 
     private final SolicitudDesbaneoService solicitudDesbaneoService;
-    private final HttpRateLimitService httpRateLimitService;
 
-    public SolicitudDesbaneoController(SolicitudDesbaneoService solicitudDesbaneoService,
-                                       HttpRateLimitService httpRateLimitService) {
+    public SolicitudDesbaneoController(SolicitudDesbaneoService solicitudDesbaneoService) {
         this.solicitudDesbaneoService = solicitudDesbaneoService;
-        this.httpRateLimitService = httpRateLimitService;
     }
 
     @PostMapping(Constantes.SOLICITUD_DESBANEO_CREATE)
     @Operation(summary = "Crear solicitud de desbaneo", description = "Endpoint publico para usuarios baneados que no pueden iniciar sesion.")
     public ResponseEntity<SolicitudDesbaneoCreateResponseDTO> crearSolicitud(@RequestBody SolicitudDesbaneoCreateDTO request,
                                                                               HttpServletRequest httpRequest) {
-        httpRateLimitService.checkUnbanAppeal(httpRequest, request == null ? null : request.getEmail());
-        SolicitudDesbaneoCreateResponseDTO response = solicitudDesbaneoService.crearSolicitud(request);
-        return ResponseEntity.status(HttpStatus.CREATED).body(response);
+        try {
+            solicitudDesbaneoService.crearSolicitud(request);
+            return ResponseEntity.status(HttpStatus.ACCEPTED).body(new SolicitudDesbaneoCreateResponseDTO(NEUTRAL_PUBLIC_MESSAGE, null));
+        } catch (TooManyRequestsException ex) {
+            return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body(new SolicitudDesbaneoCreateResponseDTO(
+                    "No se pudo procesar la solicitud en este momento. Intenta mas tarde.",
+                    null
+            ));
+        } catch (Exception ex) {
+            return ResponseEntity.status(HttpStatus.ACCEPTED).body(new SolicitudDesbaneoCreateResponseDTO(NEUTRAL_PUBLIC_MESSAGE, null));
+        }
     }
 
     @GetMapping(Constantes.ADMIN_SOLICITUD_DESBANEO_LIST)

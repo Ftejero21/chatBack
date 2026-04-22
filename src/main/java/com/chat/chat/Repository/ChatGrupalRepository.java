@@ -64,4 +64,15 @@ public interface ChatGrupalRepository extends JpaRepository<ChatGrupalEntity, Lo
                     from ChatGrupalEntity c
                     """)
     Page<AdminGroupListDTO> findAdminGroupPage(Pageable pageable);
+
+    @Query("""
+            select case when count(c) > 0 then true else false end
+            from ChatGrupalEntity c
+            join c.usuarios u
+            where c.id = :chatId
+              and c.activo = true
+              and u.id = :userId
+              and u.activo = true
+            """)
+    boolean existsActiveMemberByChatIdAndUserId(@Param("chatId") Long chatId, @Param("userId") Long userId);
 }

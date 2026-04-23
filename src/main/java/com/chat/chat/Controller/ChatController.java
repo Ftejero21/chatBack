@@ -78,6 +78,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.Valid;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
@@ -114,7 +115,7 @@ public class ChatController {
             @ApiResponse(responseCode = "200", description = "Chat individual listo", content = @Content(schema = @Schema(implementation = ChatIndividualDTO.class))),
             @ApiResponse(responseCode = "400", description = "No se puede crear chat", content = @Content(schema = @Schema(implementation = ApiError.class)))
     })
-    public ChatIndividualDTO crearChatIndividual(@RequestBody ChatIndividualCreateDTO dto) {
+    public ChatIndividualDTO crearChatIndividual(@Valid @RequestBody ChatIndividualCreateDTO dto) {
         return chatService.crearChatIndividual(dto.getUsuario1Id(), dto.getUsuario2Id());
     }
 
@@ -125,7 +126,7 @@ public class ChatController {
             @ApiResponse(responseCode = "403", description = "Solo administradores", content = @Content(schema = @Schema(implementation = ApiError.class))),
             @ApiResponse(responseCode = "400", description = "Payload invalido", content = @Content(schema = @Schema(implementation = ApiError.class)))
     })
-    public AdminDirectMessageResponseDTO enviarMensajeDirectoAdmin(@RequestBody AdminDirectMessageRequestDTO request) {
+    public AdminDirectMessageResponseDTO enviarMensajeDirectoAdmin(@Valid @RequestBody AdminDirectMessageRequestDTO request) {
         return chatService.enviarMensajeDirectoAdmin(request);
     }
 
@@ -138,7 +139,7 @@ public class ChatController {
             @ApiResponse(responseCode = "400", description = "Payload invalido", content = @Content(schema = @Schema(implementation = ApiError.class)))
     })
     public BulkEmailResponseDTO enviarBulkEmailAdmin(
-            @RequestPart("payload") BulkEmailRequestDTO payload,
+            @Valid @RequestPart("payload") BulkEmailRequestDTO payload,
             @RequestPart(value = "attachments", required = false) List<MultipartFile> attachments) {
         return chatService.enviarBulkEmailAdmin(payload, attachments);
     }
@@ -152,7 +153,7 @@ public class ChatController {
             @ApiResponse(responseCode = "400", description = "Payload invalido", content = @Content(schema = @Schema(implementation = ApiError.class)))
     })
     public ResponseEntity<ScheduledBatchResponseDTO> programarMensajesDirectosAdmin(
-            @RequestBody AdminDirectMessageScheduledRequestDTO payload,
+            @Valid @RequestBody AdminDirectMessageScheduledRequestDTO payload,
             HttpServletRequest servletRequest) {
         httpRateLimitService.checkAdminEndpoint(servletRequest, "chat-scheduled-create-direct");
         LOGGER.info("[ADMIN_DIRECT_SCHEDULED_REQUEST] audienceMode={} userIds={} scheduledAtUTC={} scheduledAtLocal={} hasContenido={} hasMessage={} encryptedPayloads={} expiresAfterReadSeconds={}",
@@ -178,7 +179,7 @@ public class ChatController {
     })
     public ResponseEntity<MensajeProgramadoDTO> editarMensajesDirectosAdminProgramados(
             @PathVariable("id") Long id,
-            @RequestBody AdminDirectMessageScheduledRequestDTO payload,
+            @Valid @RequestBody AdminDirectMessageScheduledRequestDTO payload,
             HttpServletRequest servletRequest) {
         httpRateLimitService.checkAdminEndpoint(servletRequest, "chat-scheduled-edit-direct");
         return ResponseEntity.ok(mensajeProgramadoService.editarMensajeDirectoAdminProgramado(id, payload));
@@ -193,7 +194,7 @@ public class ChatController {
             @ApiResponse(responseCode = "400", description = "Payload invalido", content = @Content(schema = @Schema(implementation = ApiError.class)))
     })
     public ResponseEntity<ScheduledBatchResponseDTO> programarBulkEmailAdmin(
-            @RequestPart("payload") BulkEmailRequestDTO payload,
+            @Valid @RequestPart("payload") BulkEmailRequestDTO payload,
             @RequestPart(value = "attachments", required = false) List<MultipartFile> attachments,
             HttpServletRequest servletRequest) {
         httpRateLimitService.checkAdminEndpoint(servletRequest, "chat-scheduled-create-email");
@@ -237,7 +238,7 @@ public class ChatController {
             @ApiResponse(responseCode = "404", description = "Grupo no encontrado", content = @Content(schema = @Schema(implementation = ApiError.class)))
     })
     public GroupDetailDTO actualizarMetadataGrupo(@PathVariable("groupId") Long groupId,
-                                                  @RequestBody GroupMetadataUpdateDTO dto) {
+                                                  @Valid @RequestBody GroupMetadataUpdateDTO dto) {
         return chatService.actualizarMetadataGrupo(groupId, dto);
     }
 
@@ -282,7 +283,7 @@ public class ChatController {
             @ApiResponse(responseCode = "200", description = "Grupo creado", content = @Content(schema = @Schema(implementation = ChatGrupalDTO.class))),
             @ApiResponse(responseCode = "400", description = "Datos invalidos", content = @Content(schema = @Schema(implementation = ApiError.class)))
     })
-    public ChatGrupalDTO crearChatGrupal(@RequestBody ChatGrupalDTO dto) {
+    public ChatGrupalDTO crearChatGrupal(@Valid @RequestBody ChatGrupalDTO dto) {
         return chatService.crearChatGrupal(dto);
     }
 
@@ -297,7 +298,7 @@ public class ChatController {
             @ApiResponse(responseCode = "423", description = "El chat no esta cerrado", content = @Content(schema = @Schema(implementation = ApiError.class)))
     })
     public ResponseEntity<SolicitudDesbaneoDTO> reportarChatCerrado(@PathVariable("chatId") Long chatId,
-                                                                     @RequestBody(required = false) ChatCerradoReporteCreateDTO request,
+                                                                     @Valid @RequestBody(required = false) ChatCerradoReporteCreateDTO request,
                                                                      HttpServletRequest servletRequest) {
         httpRateLimitService.checkChatClosedReport(servletRequest, chatId);
         String motivo = request == null ? null : request.getMotivo();
@@ -318,7 +319,7 @@ public class ChatController {
     })
     public AddUsuariosGrupoWSResponse anadirUsuariosAGrupo(
             @PathVariable("groupId") Long groupId,
-            @RequestBody AddUsuariosGrupoDTO dto) {
+            @Valid @RequestBody AddUsuariosGrupoDTO dto) {
         AddUsuariosGrupoDTO safeDto = dto == null ? new AddUsuariosGrupoDTO() : dto;
         safeDto.setGroupId(groupId);
         safeDto.setInviterId(securityUtils.getAuthenticatedUserId());
@@ -357,7 +358,7 @@ public class ChatController {
             @ApiResponse(responseCode = "404", description = "Grupo no encontrado", content = @Content(schema = @Schema(implementation = ApiError.class)))
     })
     public ResponseEntity<ChatCloseStateDTO> cerrarChatGrupalAdmin(@PathVariable("chatId") Long chatId,
-                                                                    @RequestBody(required = false) ChatCloseRequestDTO request,
+                                                                    @Valid @RequestBody(required = false) ChatCloseRequestDTO request,
                                                                     HttpServletRequest servletRequest) {
         String motivo = request == null ? null : request.getMotivo();
         return ResponseEntity.ok(chatService.cerrarChatGrupalComoAdmin(
@@ -388,7 +389,7 @@ public class ChatController {
             @ApiResponse(responseCode = "200", description = "Salida procesada", content = @Content(schema = @Schema(implementation = MessagueSalirGrupoDTO.class))),
             @ApiResponse(responseCode = "404", description = "Grupo no encontrado", content = @Content(schema = @Schema(implementation = ApiError.class)))
     })
-    public MessagueSalirGrupoDTO salirDeChatGrupal(@RequestBody LeaveGroupRequestDTO dto) {
+    public MessagueSalirGrupoDTO salirDeChatGrupal(@Valid @RequestBody LeaveGroupRequestDTO dto) {
         Long authenticatedUserId = securityUtils.getAuthenticatedUserId();
         return chatService.salirDeChatGrupal(dto.getGroupId(), authenticatedUserId);
     }
@@ -414,7 +415,7 @@ public class ChatController {
             @ApiResponse(responseCode = "403", description = "No pertenece al chat", content = @Content(schema = @Schema(implementation = ApiError.class))),
             @ApiResponse(responseCode = "404", description = "Chat no encontrado", content = @Content(schema = @Schema(implementation = ApiError.class)))
     })
-    public UserPinnedChatResponseDTO setPinnedChat(@RequestBody UserPinnedChatRequestDTO request) {
+    public UserPinnedChatResponseDTO setPinnedChat(@Valid @RequestBody UserPinnedChatRequestDTO request) {
         return chatService.setPinnedChat(request);
     }
 
@@ -449,7 +450,7 @@ public class ChatController {
             @ApiResponse(responseCode = "404", description = "Chat no encontrado", content = @Content(schema = @Schema(implementation = ApiError.class)))
     })
     public ResponseEntity<ChatMuteStateDTO> muteChat(@PathVariable("chatId") Long chatId,
-                                                      @RequestBody(required = false) ChatMuteRequestDTO request) {
+                                                      @Valid @RequestBody(required = false) ChatMuteRequestDTO request) {
         return ResponseEntity.ok(chatService.muteChat(chatId, request));
     }
 
@@ -552,7 +553,7 @@ public class ChatController {
             @ApiResponse(responseCode = "404", description = "Mensaje/chat no válido para fijar", content = @Content(schema = @Schema(implementation = ApiError.class)))
     })
     public ChatPinnedMessageDTO pinMessage(@PathVariable("chatId") Long chatId,
-                                           @RequestBody ChatPinMessageRequestDTO request) {
+                                           @Valid @RequestBody ChatPinMessageRequestDTO request) {
         return chatService.pinMessage(chatId, request);
     }
 
@@ -641,7 +642,7 @@ public class ChatController {
     })
     public ResponseEntity<MensajeDTO> votarEncuesta(
             @PathVariable("mensajeId") Long mensajeId,
-            @RequestBody VotoEncuestaDTO payload) {
+            @Valid @RequestBody VotoEncuestaDTO payload) {
         payload.setMensajeId(mensajeId);
         return ResponseEntity.ok(mensajeriaService.votarEncuesta(payload));
     }
@@ -654,7 +655,7 @@ public class ChatController {
             @ApiResponse(responseCode = "403", description = "Sin permisos sobre chat destino", content = @Content(schema = @Schema(implementation = ApiError.class)))
     })
     public ResponseEntity<ProgramarMensajeResponseDTO> programarMensaje(
-            @RequestBody ProgramarMensajeRequestDTO payload) {
+            @Valid @RequestBody ProgramarMensajeRequestDTO payload) {
         return ResponseEntity.ok(mensajeProgramadoService.crearMensajesProgramados(payload));
     }
 

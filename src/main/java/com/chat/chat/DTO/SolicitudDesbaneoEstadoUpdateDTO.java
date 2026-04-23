@@ -1,7 +1,14 @@
 package com.chat.chat.DTO;
 
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
+
 public class SolicitudDesbaneoEstadoUpdateDTO {
+    @NotBlank(message = "estado es obligatorio")
+    @Size(max = 32, message = "estado invalido")
     private String estado;
+
+    @Size(max = 1000, message = "resolucionMotivo supera el maximo de 1000 caracteres")
     private String resolucionMotivo;
 
     public String getEstado() {

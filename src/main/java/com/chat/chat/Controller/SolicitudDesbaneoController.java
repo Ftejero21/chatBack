@@ -24,6 +24,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.Valid;
 
 @RestController
 @RequestMapping(Constantes.USUARIO_API)
@@ -40,7 +41,7 @@ public class SolicitudDesbaneoController {
 
     @PostMapping(Constantes.SOLICITUD_DESBANEO_CREATE)
     @Operation(summary = "Crear solicitud de desbaneo", description = "Endpoint publico para usuarios baneados que no pueden iniciar sesion.")
-    public ResponseEntity<SolicitudDesbaneoCreateResponseDTO> crearSolicitud(@RequestBody SolicitudDesbaneoCreateDTO request,
+    public ResponseEntity<SolicitudDesbaneoCreateResponseDTO> crearSolicitud(@Valid @RequestBody SolicitudDesbaneoCreateDTO request,
                                                                               HttpServletRequest httpRequest) {
         try {
             solicitudDesbaneoService.crearSolicitud(request);
@@ -88,7 +89,7 @@ public class SolicitudDesbaneoController {
     @Operation(summary = "Actualizar estado de solicitud de desbaneo (admin)")
     public ResponseEntity<SolicitudDesbaneoDTO> actualizarEstado(
             @PathVariable("id") Long id,
-            @RequestBody SolicitudDesbaneoEstadoUpdateDTO request,
+            @Valid @RequestBody SolicitudDesbaneoEstadoUpdateDTO request,
             HttpServletRequest httpRequest) {
         return ResponseEntity.ok(solicitudDesbaneoService.actualizarEstado(id, request, httpRequest));
     }

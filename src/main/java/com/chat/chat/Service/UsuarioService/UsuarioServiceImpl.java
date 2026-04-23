@@ -60,10 +60,14 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
+import java.util.Base64;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.HashMap;
@@ -105,6 +109,13 @@ public class UsuarioServiceImpl implements UsuarioService {
     private static final int MAX_NACIONALIDAD_LENGTH = 80;
     private static final int MAX_OCUPACION_LENGTH = 120;
     private static final int MAX_INSTAGRAM_LENGTH = 120;
+    private static final long MAX_PROFILE_IMAGE_BYTES = 5L * 1024L * 1024L;
+    private static final String DATA_IMAGE_BASE64_MARKER = ";base64,";
+    private static final String PROFILE_PHOTO_INVALID_SOURCE_MSG = "foto debe ser data:image/* valida o /uploads/... del sistema";
+    private static final String PROFILE_PHOTO_INVALID_FORMAT_MSG = "foto de perfil invalida: formato no permitido";
+    private static final String PROFILE_PHOTO_INVALID_SIZE_MSG = "foto de perfil invalida: tamano excede el limite";
+    private static final Set<String> PROFILE_IMAGE_MIME_WHITELIST = Set.of("image/jpeg", "image/jpg", "image/png", "image/webp");
+    private static final Set<String> PROFILE_IMAGE_EXT_WHITELIST = Set.of("jpg", "jpeg", "png", "webp");
 
     @Autowired
     private UsuarioRepository usuarioRepository;
@@ -940,14 +951,9 @@ public class UsuarioServiceImpl implements UsuarioService {
             usuario.setApellido(dto.getApellido().trim());
         }
         if (dto.getFoto() != null) {
-            String f = dto.getFoto().trim();
-            if (!f.isEmpty()) {
-                if (f.startsWith(Constantes.DATA_IMAGE_PREFIX)) {
-                    String url = Utils.saveDataUrlToUploads(f, Constantes.DIR_AVATARS, uploadsRoot, uploadsBaseUrl);
-                    usuario.setFotoUrl(url);
-                } else if (f.startsWith(Constantes.UPLOADS_PREFIX) || f.startsWith(Constantes.HTTP_PREFIX)) {
-                    usuario.setFotoUrl(f);
-                }
+            String fotoUrl = normalizeAndValidateProfilePhoto(dto.getFoto());
+            if (fotoUrl != null) {
+                usuario.setFotoUrl(fotoUrl);
             }
         }
         if (dto.getDni() != null) {
@@ -986,6 +992,163 @@ public class UsuarioServiceImpl implements UsuarioService {
             out.setFoto(Utils.toDataUrlFromUrl(out.getFoto(), uploadsRoot));
         }
         return out;
+    }
+
+    private String normalizeAndValidateProfilePhoto(String fotoRaw) {
+        String foto = fotoRaw == null ? null : fotoRaw.trim();
+        if (foto == null || foto.isEmpty()) {
+            return null;
+        }
+
+        if (foto.startsWith(Constantes.DATA_IMAGE_PREFIX)) {
+            validateProfileImageDataUrl(foto);
+            return Utils.saveDataUrlToUploads(foto, Constantes.DIR_AVATARS, uploadsRoot, uploadsBaseUrl);
+        }
+
+        if (foto.startsWith(Constantes.UPLOADS_PREFIX)) {
+            validateStoredProfileImageUrl(foto);
+            return foto;
+        }
+
+        throw new IllegalArgumentException(PROFILE_PHOTO_INVALID_SOURCE_MSG);
+    }
+
+    private void validateProfileImageDataUrl(String dataUrl) {
+        int markerIndex = dataUrl.indexOf(DATA_IMAGE_BASE64_MARKER);
+        if (markerIndex <= 5) {
+            throw new IllegalArgumentException(PROFILE_PHOTO_INVALID_FORMAT_MSG);
+        }
+
+        String mime = dataUrl.substring("data:".length(), markerIndex).toLowerCase(Locale.ROOT).trim();
+        if (!PROFILE_IMAGE_MIME_WHITELIST.contains(mime)) {
+            throw new IllegalArgumentException(PROFILE_PHOTO_INVALID_FORMAT_MSG);
+        }
+
+        String base64Payload = dataUrl.substring(markerIndex + DATA_IMAGE_BASE64_MARKER.length()).trim();
+        if (base64Payload.isEmpty()) {
+            throw new IllegalArgumentException(PROFILE_PHOTO_INVALID_FORMAT_MSG);
+        }
+
+        byte[] bytes;
+        try {
+            bytes = Base64.getDecoder().decode(base64Payload);
+        } catch (IllegalArgumentException ex) {
+            throw new IllegalArgumentException(PROFILE_PHOTO_INVALID_FORMAT_MSG);
+        }
+
+        validateProfileImageBytes(bytes, mime);
+    }
+
+    private void validateStoredProfileImageUrl(String publicUrl) {
+        String cleanUrl = stripQueryAndFragment(publicUrl.trim());
+        String relative = cleanUrl.substring(Constantes.UPLOADS_PREFIX.length()).replace("\\", "/");
+        if (relative.isBlank() || relative.contains("..")) {
+            throw new IllegalArgumentException(PROFILE_PHOTO_INVALID_FORMAT_MSG);
+        }
+
+        String extension = extractLowercaseExtension(relative);
+        if (!PROFILE_IMAGE_EXT_WHITELIST.contains(extension)) {
+            throw new IllegalArgumentException(PROFILE_PHOTO_INVALID_FORMAT_MSG);
+        }
+
+        Path uploadsRootPath = Paths.get(uploadsRoot).toAbsolutePath().normalize();
+        Path imagePath = uploadsRootPath.resolve(relative).normalize();
+        if (!imagePath.startsWith(uploadsRootPath)) {
+            throw new IllegalArgumentException(PROFILE_PHOTO_INVALID_FORMAT_MSG);
+        }
+
+        try {
+            if (!Files.exists(imagePath) || !Files.isRegularFile(imagePath)) {
+                throw new IllegalArgumentException(PROFILE_PHOTO_INVALID_FORMAT_MSG);
+            }
+            long fileSize = Files.size(imagePath);
+            if (fileSize <= 0 || fileSize > MAX_PROFILE_IMAGE_BYTES) {
+                throw new IllegalArgumentException(PROFILE_PHOTO_INVALID_SIZE_MSG);
+            }
+            byte[] bytes = Files.readAllBytes(imagePath);
+            validateProfileImageBytes(bytes, extensionToMime(extension));
+        } catch (IllegalArgumentException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            throw new IllegalArgumentException(PROFILE_PHOTO_INVALID_FORMAT_MSG);
+        }
+    }
+
+    private void validateProfileImageBytes(byte[] bytes, String mime) {
+        if (bytes == null || bytes.length == 0) {
+            throw new IllegalArgumentException(PROFILE_PHOTO_INVALID_FORMAT_MSG);
+        }
+        if (bytes.length > MAX_PROFILE_IMAGE_BYTES) {
+            throw new IllegalArgumentException(PROFILE_PHOTO_INVALID_SIZE_MSG);
+        }
+        if (!hasExpectedMagicHeader(bytes, mime)) {
+            throw new IllegalArgumentException(PROFILE_PHOTO_INVALID_FORMAT_MSG);
+        }
+    }
+
+    private boolean hasExpectedMagicHeader(byte[] bytes, String mime) {
+        String lowerMime = mime == null ? "" : mime.toLowerCase(Locale.ROOT);
+        if ("image/png".equals(lowerMime)) {
+            return bytes.length >= 8
+                    && (bytes[0] & 0xFF) == 0x89
+                    && (bytes[1] & 0xFF) == 0x50
+                    && (bytes[2] & 0xFF) == 0x4E
+                    && (bytes[3] & 0xFF) == 0x47
+                    && (bytes[4] & 0xFF) == 0x0D
+                    && (bytes[5] & 0xFF) == 0x0A
+                    && (bytes[6] & 0xFF) == 0x1A
+                    && (bytes[7] & 0xFF) == 0x0A;
+        }
+        if ("image/webp".equals(lowerMime)) {
+            return bytes.length >= 12
+                    && bytes[0] == 'R'
+                    && bytes[1] == 'I'
+                    && bytes[2] == 'F'
+                    && bytes[3] == 'F'
+                    && bytes[8] == 'W'
+                    && bytes[9] == 'E'
+                    && bytes[10] == 'B'
+                    && bytes[11] == 'P';
+        }
+        return bytes.length >= 3
+                && (bytes[0] & 0xFF) == 0xFF
+                && (bytes[1] & 0xFF) == 0xD8
+                && (bytes[2] & 0xFF) == 0xFF;
+    }
+
+    private String stripQueryAndFragment(String url) {
+        int queryIndex = url.indexOf('?');
+        int fragmentIndex = url.indexOf('#');
+        int cutIndex = -1;
+        if (queryIndex >= 0 && fragmentIndex >= 0) {
+            cutIndex = Math.min(queryIndex, fragmentIndex);
+        } else if (queryIndex >= 0) {
+            cutIndex = queryIndex;
+        } else if (fragmentIndex >= 0) {
+            cutIndex = fragmentIndex;
+        }
+        if (cutIndex < 0) {
+            return url;
+        }
+        return url.substring(0, cutIndex);
+    }
+
+    private String extractLowercaseExtension(String relativePath) {
+        int dotIndex = relativePath.lastIndexOf('.');
+        if (dotIndex < 0 || dotIndex == relativePath.length() - 1) {
+            throw new IllegalArgumentException(PROFILE_PHOTO_INVALID_FORMAT_MSG);
+        }
+        return relativePath.substring(dotIndex + 1).toLowerCase(Locale.ROOT);
+    }
+
+    private String extensionToMime(String extension) {
+        if ("png".equals(extension)) {
+            return "image/png";
+        }
+        if ("webp".equals(extension)) {
+            return "image/webp";
+        }
+        return "image/jpeg";
     }
 
     private String normalizeProfileText(String value, int maxLength, String fieldName) {

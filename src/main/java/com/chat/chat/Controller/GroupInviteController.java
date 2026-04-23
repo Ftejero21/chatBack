@@ -23,6 +23,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import jakarta.validation.Valid;
 
 @RestController
 @RequestMapping(Constantes.API_GROUP_INVITES)
@@ -43,7 +44,7 @@ public class GroupInviteController {
             @ApiResponse(responseCode = "400", description = "Datos invalidos", content = @Content(schema = @Schema(implementation = ApiError.class))),
             @ApiResponse(responseCode = "409", description = "Invitacion duplicada o estado invalido", content = @Content(schema = @Schema(implementation = ApiError.class)))
     })
-    public ResponseEntity<GroupInviteWS> create(@RequestBody GroupInviteCreateDTO body) {
+    public ResponseEntity<GroupInviteWS> create(@Valid @RequestBody GroupInviteCreateDTO body) {
         GroupInviteWS created = groupInviteService.create(
                 body == null ? null : body.getGroupId(),
                 body == null ? null : body.getInviteeId(),
@@ -60,7 +61,7 @@ public class GroupInviteController {
     })
     public void accept(
             @Parameter(description = "ID de invitacion") @PathVariable("inviteId") Long inviteId,
-            @RequestBody InviteDecisionDTO body) {
+            @Valid @RequestBody InviteDecisionDTO body) {
         groupInviteService.accept(inviteId, body == null ? null : body.getUserId());
     }
 
@@ -73,7 +74,7 @@ public class GroupInviteController {
     })
     public void decline(
             @Parameter(description = "ID de invitacion") @PathVariable("inviteId") Long inviteId,
-            @RequestBody InviteDecisionDTO body) {
+            @Valid @RequestBody InviteDecisionDTO body) {
         groupInviteService.decline(inviteId, body == null ? null : body.getUserId());
     }
 }

@@ -21,6 +21,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import jakarta.validation.Valid;
 
 @RestController
 @RequestMapping(Constantes.USUARIO_API)
@@ -37,7 +38,7 @@ public class UserComplaintController {
     @PostMapping(Constantes.USER_COMPLAINT_CREATE)
     @PreAuthorize("isAuthenticated()")
     @Operation(summary = "Crear denuncia de usuario")
-    public ResponseEntity<UserComplaintDTO> createComplaint(@RequestBody UserComplaintCreateDTO request) {
+    public ResponseEntity<UserComplaintDTO> createComplaint(@Valid @RequestBody UserComplaintCreateDTO request) {
         return ResponseEntity.status(HttpStatus.CREATED).body(userComplaintService.createComplaint(request));
     }
 

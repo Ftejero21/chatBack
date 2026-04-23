@@ -4,14 +4,12 @@ import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 
-public class SolicitudDesbaneoCreateDTO {
+public class PasswordRecoveryRequestDTO {
+
     @NotBlank(message = "email es obligatorio")
     @Email(message = "email invalido")
     @Size(max = 190, message = "email invalido")
     private String email;
-
-    @Size(max = 1000, message = "motivo supera el maximo de 1000 caracteres")
-    private String motivo;
 
     public String getEmail() {
         return email;
@@ -19,13 +17,5 @@ public class SolicitudDesbaneoCreateDTO {
 
     public void setEmail(String email) {
         this.email = email;
-    }
-
-    public String getMotivo() {
-        return motivo;
-    }
-
-    public void setMotivo(String motivo) {
-        this.motivo = motivo;
     }
 }

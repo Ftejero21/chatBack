@@ -15,6 +15,9 @@ import com.chat.chat.DTO.PasswordChangeConfirmDTO;
 import com.chat.chat.DTO.PasswordChangeCodeRequestDTO;
 import com.chat.chat.DTO.UserBlockRequestDTO;
 import com.chat.chat.DTO.UsuarioDTO;
+import com.chat.chat.DTO.UpdatePublicKeyRequestDTO;
+import com.chat.chat.DTO.PasswordRecoveryRequestDTO;
+import com.chat.chat.DTO.PasswordRecoveryVerifyRequestDTO;
 import com.chat.chat.Exceptions.ApiError;
 import com.chat.chat.Exceptions.PasswordIncorrectaException;
 import com.chat.chat.Exceptions.EmailYaExisteException;
@@ -50,6 +53,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import jakarta.validation.Valid;
 import jakarta.servlet.http.HttpServletRequest;
 
 @RestController
@@ -82,7 +86,7 @@ public class UsuarioController {
             @ApiResponse(responseCode = "401", description = "Credenciales incorrectas", content = @Content(schema = @Schema(implementation = ApiError.class))),
             @ApiResponse(responseCode = "403", description = "Usuario inactivo", content = @Content(schema = @Schema(implementation = ApiError.class)))
     })
-    public ResponseEntity<?> login(@RequestBody LoginRequestDTO dto, HttpServletRequest request) {
+    public ResponseEntity<?> login(@Valid @RequestBody LoginRequestDTO dto, HttpServletRequest request) {
         httpRateLimitService.checkLogin(request, dto == null ? null : dto.getEmail());
         if (dto == null || dto.getEmail() == null || dto.getEmail().isBlank()
                 || dto.getPassword() == null || dto.getPassword().isBlank()) {
@@ -125,7 +129,7 @@ public class UsuarioController {
             @ApiResponse(responseCode = "400", description = "Código inválido o payload incorrecto", content = @Content(schema = @Schema(implementation = Map.class))),
             @ApiResponse(responseCode = "401", description = "Código inválido o expirado", content = @Content(schema = @Schema(implementation = Map.class)))
     })
-    public ResponseEntity<?> verificarCodigoLogin(@RequestBody LoginVerifyCodeRequestDTO dto, HttpServletRequest request) {
+    public ResponseEntity<?> verificarCodigoLogin(@Valid @RequestBody LoginVerifyCodeRequestDTO dto, HttpServletRequest request) {
         if (dto == null || dto.getEmail() == null || dto.getEmail().isBlank()
                 || dto.getPassword() == null || dto.getPassword().isBlank()
                 || dto.getCode() == null || dto.getCode().isBlank()) {
@@ -174,7 +178,7 @@ public class UsuarioController {
             @ApiResponse(responseCode = "400", description = "Datos invalidos", content = @Content(schema = @Schema(implementation = ApiError.class))),
             @ApiResponse(responseCode = "409", description = "Email ya registrado", content = @Content(schema = @Schema(implementation = Map.class)))
     })
-    public AuthRespuestaDTO crearUsuario(@RequestBody UsuarioDTO dto) {
+    public AuthRespuestaDTO crearUsuario(@Valid @RequestBody UsuarioDTO dto) {
         return usuarioService.crearUsuarioConToken(dto);
     }
 
@@ -187,19 +191,19 @@ public class UsuarioController {
             @ApiResponse(responseCode = "404", description = "Usuario no registrado para login", content = @Content(schema = @Schema(implementation = ApiError.class))),
             @ApiResponse(responseCode = "409", description = "Email ya registrado", content = @Content(schema = @Schema(implementation = Map.class)))
     })
-    public AuthRespuestaDTO autenticarGoogle(@RequestBody GoogleAuthRequestDTO dto) {
+    public AuthRespuestaDTO autenticarGoogle(@Valid @RequestBody GoogleAuthRequestDTO dto) {
         return usuarioService.autenticarConGoogle(dto);
     }
 
     @PostMapping(Constantes.GOOGLE_AUTH_ALIAS)
     @Operation(summary = "Alias autenticacion Google", description = "Alias compatible de /google.", security = {})
-    public AuthRespuestaDTO autenticarGoogleAlias(@RequestBody GoogleAuthRequestDTO dto) {
+    public AuthRespuestaDTO autenticarGoogleAlias(@Valid @RequestBody GoogleAuthRequestDTO dto) {
         return usuarioService.autenticarConGoogle(dto);
     }
 
     @PostMapping(Constantes.GOOGLE_AUTH_POR_MODO)
     @Operation(summary = "Alias autenticacion Google por modo", description = "Alias compatible /{mode}/google.", security = {})
-    public AuthRespuestaDTO autenticarGooglePorModo(@PathVariable("mode") String mode, @RequestBody GoogleAuthRequestDTO dto) {
+    public AuthRespuestaDTO autenticarGooglePorModo(@PathVariable("mode") String mode, @Valid @RequestBody GoogleAuthRequestDTO dto) {
         return usuarioService.autenticarConGoogle(mode, dto);
     }
 
@@ -234,9 +238,8 @@ public class UsuarioController {
             @ApiResponse(responseCode = "400", description = "Payload invalido", content = @Content(schema = @Schema(implementation = ApiError.class))),
             @ApiResponse(responseCode = "404", description = "Usuario no encontrado", content = @Content(schema = @Schema(implementation = ApiError.class)))
     })
-    public void updatePublicKey(@PathVariable("id") Long id, @RequestBody Map<String, String> payload) {
-        String publicKey = payload.get(Constantes.KEY_PUBLIC_KEY);
-        usuarioService.updatePublicKey(id, publicKey);
+    public void updatePublicKey(@PathVariable("id") Long id, @Valid @RequestBody UpdatePublicKeyRequestDTO payload) {
+        usuarioService.updatePublicKey(id, payload.getPublicKey());
     }
 
     @GetMapping(Constantes.USUARIO_E2E_STATE)
@@ -256,7 +259,7 @@ public class UsuarioController {
             @ApiResponse(responseCode = "400", description = "Solicitud invalida", content = @Content(schema = @Schema(implementation = ApiError.class))),
             @ApiResponse(responseCode = "409", description = "Conflicto de version E2E", content = @Content(schema = @Schema(implementation = ApiError.class)))
     })
-    public E2EStateDTO rekeyE2E(@PathVariable("id") Long id, @RequestBody E2ERekeyRequestDTO request) {
+    public E2EStateDTO rekeyE2E(@PathVariable("id") Long id, @Valid @RequestBody E2ERekeyRequestDTO request) {
         return usuarioService.rekeyE2E(id, request);
     }
 
@@ -269,7 +272,7 @@ public class UsuarioController {
     })
     public ResponseEntity<Void> upsertE2EPrivateKeyBackup(
             @PathVariable("userId") Long userId,
-            @RequestBody E2EPrivateKeyBackupDTO request,
+            @Valid @RequestBody E2EPrivateKeyBackupDTO request,
             HttpServletRequest httpRequest) {
         httpRateLimitService.checkE2EPrivateKeyBackupPut(httpRequest, userId);
         usuarioService.upsertE2EPrivateKeyBackup(userId, request);
@@ -297,7 +300,7 @@ public class UsuarioController {
             @ApiResponse(responseCode = "404", description = "Usuario no encontrado", content = @Content(schema = @Schema(implementation = ApiError.class)))
     })
     public ResponseEntity<Map<String, String>> bloquearUsuario(@PathVariable("bloqueadoId") Long bloqueadoId,
-                                                               @RequestBody(required = false) UserBlockRequestDTO body) {
+                                                               @Valid @RequestBody(required = false) UserBlockRequestDTO body) {
         usuarioService.bloquearUsuario(bloqueadoId, body == null ? null : body.getSource());
         return ResponseEntity.ok(Map.of(Constantes.KEY_MENSAJE, Constantes.MSG_USUARIO_BLOQUEADO));
     }
@@ -320,8 +323,8 @@ public class UsuarioController {
             @ApiResponse(responseCode = "400", description = "Email invalido", content = @Content(schema = @Schema(implementation = Map.class))),
             @ApiResponse(responseCode = "500", description = "Error enviando correo", content = @Content(schema = @Schema(implementation = Map.class)))
     })
-    public ResponseEntity<Map<String, String>> solicitarRecuperacion(@RequestBody Map<String, String> payload, HttpServletRequest request) {
-        String email = payload.get(Constantes.KEY_EMAIL);
+    public ResponseEntity<Map<String, String>> solicitarRecuperacion(@Valid @RequestBody PasswordRecoveryRequestDTO payload, HttpServletRequest request) {
+        String email = payload.getEmail();
         httpRateLimitService.checkPasswordRecoveryRequest(request, email);
         if (email == null || email.isBlank()) {
             return ResponseEntity.badRequest().body(Map.of(Constantes.KEY_MENSAJE, Constantes.MSG_EMAIL_REQUERIDO));
@@ -346,10 +349,10 @@ public class UsuarioController {
             @ApiResponse(responseCode = "200", description = "Password actualizada", content = @Content(schema = @Schema(implementation = Map.class))),
             @ApiResponse(responseCode = "400", description = "Codigo invalido o payload incompleto", content = @Content(schema = @Schema(implementation = Map.class)))
     })
-    public ResponseEntity<Map<String, String>> verificarYCambiarPassword(@RequestBody Map<String, String> payload, HttpServletRequest request) {
-        String email = payload.get(Constantes.KEY_EMAIL);
-        String code = payload.get(Constantes.KEY_CODE);
-        String newPassword = payload.get(Constantes.KEY_NEW_PASSWORD);
+    public ResponseEntity<Map<String, String>> verificarYCambiarPassword(@Valid @RequestBody PasswordRecoveryVerifyRequestDTO payload, HttpServletRequest request) {
+        String email = payload.getEmail();
+        String code = payload.getCode();
+        String newPassword = payload.getNewPassword();
         httpRateLimitService.checkPasswordRecoveryVerify(request, email);
 
         if (email == null || code == null || newPassword == null) {
@@ -400,7 +403,7 @@ public class UsuarioController {
             @ApiResponse(responseCode = "200", description = "Perfil actualizado", content = @Content(schema = @Schema(implementation = UsuarioDTO.class))),
             @ApiResponse(responseCode = "400", description = "Datos invalidos", content = @Content(schema = @Schema(implementation = ApiError.class)))
     })
-    public UsuarioDTO actualizarPerfil(@RequestBody ActualizarPerfilDTO dto) {
+    public UsuarioDTO actualizarPerfil(@Valid @RequestBody ActualizarPerfilDTO dto) {
         return usuarioService.actualizarPerfil(dto);
     }
 
@@ -411,7 +414,7 @@ public class UsuarioController {
             @ApiResponse(responseCode = "400", description = "Solicitud invalida", content = @Content(schema = @Schema(implementation = ApiError.class))),
             @ApiResponse(responseCode = "401", description = "Contrasena actual incorrecta", content = @Content(schema = @Schema(implementation = ApiError.class)))
     })
-    public ResponseEntity<Map<String, String>> solicitarCodigoCambioPassword(@RequestBody PasswordChangeCodeRequestDTO dto) {
+    public ResponseEntity<Map<String, String>> solicitarCodigoCambioPassword(@Valid @RequestBody PasswordChangeCodeRequestDTO dto) {
         if (dto == null) {
             return ResponseEntity.badRequest()
                     .body(Map.of(Constantes.KEY_MENSAJE, Constantes.MSG_FALTAN_DATOS_REQUERIDOS));
@@ -438,7 +441,7 @@ public class UsuarioController {
             @ApiResponse(responseCode = "200", description = "Password actualizada", content = @Content(schema = @Schema(implementation = Map.class))),
             @ApiResponse(responseCode = "400", description = "Codigo invalido o password no valida", content = @Content(schema = @Schema(implementation = ApiError.class)))
     })
-    public ResponseEntity<Map<String, String>> cambiarPasswordConCodigo(@RequestBody PasswordChangeConfirmDTO dto) {
+    public ResponseEntity<Map<String, String>> cambiarPasswordConCodigo(@Valid @RequestBody PasswordChangeConfirmDTO dto) {
         usuarioService.cambiarPasswordConCodigo(dto.getCode(), dto.getNewPassword());
         return ResponseEntity.ok(Map.of(Constantes.KEY_MENSAJE, Constantes.MSG_CONTRASENA_ACTUALIZADA));
     }
@@ -454,7 +457,7 @@ public class UsuarioController {
             @Parameter(description = "ID del usuario a suspender") @PathVariable("id") Long id,
             @Parameter(description = "Motivo visible de la suspension") @RequestParam(value = Constantes.KEY_MOTIVO, required = false) String motivoQuery,
             @RequestParam(value = "origen", required = false) String origenQuery,
-            @RequestBody(required = false) AdminBanRequestDTO body) {
+            @Valid @RequestBody(required = false) AdminBanRequestDTO body) {
         String motivo = (motivoQuery == null || motivoQuery.isBlank()) ? (body == null ? null : body.getMotivo()) : motivoQuery;
         String origen = (origenQuery == null || origenQuery.isBlank()) ? (body == null ? null : body.getOrigen()) : origenQuery;
         String descripcion = body == null ? null : body.getDescripcion();

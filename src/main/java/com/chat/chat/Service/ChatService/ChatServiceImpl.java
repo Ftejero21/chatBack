@@ -70,7 +70,6 @@ public class ChatServiceImpl implements ChatService {
     private static final long PIN_DURATION_30D_SECONDS = 2592000L;
     private static final long MUTE_DURATION_8H_SECONDS = 28800L;
     private static final long MUTE_DURATION_1W_SECONDS = 604800L;
-    private static final long DEFAULT_ADMIN_DIRECT_EXPIRES_AFTER_READ_SECONDS = 60L;
     private static final int MAX_CLOSE_REASON_LENGTH = 500;
     private static final int MAX_MODERATION_REASON_LENGTH = 500;
     private static final int MAX_MODERATION_ORIGIN_LENGTH = 80;
@@ -97,6 +96,9 @@ public class ChatServiceImpl implements ChatService {
 
     @Value(Constantes.PROP_UPLOADS_BASE_URL)
     private String uploadsBaseUrl;
+
+    @Value("${app.chat.admin-direct.temporal-default-expires-after-read-seconds:60}")
+    private long adminDirectTemporalDefaultExpiresAfterReadSeconds;
 
     @Autowired
     private MensajeRepository mensajeRepository;
@@ -185,15 +187,35 @@ public class ChatServiceImpl implements ChatService {
     @Transactional
     public AdminDirectMessageResponseDTO enviarMensajeDirectoAdmin(AdminDirectMessageRequestDTO request) {
         validateAdminOnly();
-        if (request == null) {
-            throw new IllegalArgumentException("request es obligatorio");
-        }
-
         Long adminId = securityUtils.getAuthenticatedUserId();
         UsuarioEntity admin = usuarioRepo.findById(adminId)
                 .orElseThrow(() -> new RecursoNoEncontradoException(Constantes.MSG_USUARIO_AUTENTICADO_NO_ENCONTRADO));
+        validateAdminActor(admin);
+        return enviarMensajeDirectoAdminInterno(admin, request);
+    }
 
-        long expiresAfterReadSeconds = normalizeAdminDirectExpiry(request.getExpiresAfterReadSeconds());
+    @Override
+    @Transactional
+    public AdminDirectMessageResponseDTO enviarMensajeDirectoAdminComoSistema(Long adminUserId, AdminDirectMessageRequestDTO request) {
+        if (adminUserId == null || adminUserId <= 0) {
+            throw new IllegalArgumentException("adminUserId es obligatorio");
+        }
+        UsuarioEntity admin = usuarioRepo.findById(adminUserId)
+                .orElseThrow(() -> new RecursoNoEncontradoException(Constantes.MSG_USUARIO_NO_EXISTE_ID + adminUserId));
+        validateAdminActor(admin);
+        return enviarMensajeDirectoAdminInterno(admin, request);
+    }
+
+    private AdminDirectMessageResponseDTO enviarMensajeDirectoAdminInterno(UsuarioEntity admin,
+                                                                            AdminDirectMessageRequestDTO request) {
+        if (request == null) {
+            throw new IllegalArgumentException("request es obligatorio");
+        }
+        if (admin == null || admin.getId() == null) {
+            throw new IllegalArgumentException("admin invalido");
+        }
+        Long adminId = admin.getId();
+        Long expiresAfterReadSeconds = normalizeAdminDirectExpiry(request.getExpiresAfterReadSeconds());
         Map<Long, AdminDirectMessagePayloadDTO> payloadsByUserId = resolveAdminDirectPayloads(request);
         LinkedHashSet<Long> userIds = new LinkedHashSet<>(payloadsByUserId.keySet());
         String moderationOrigin = normalizeModerationOrigin(request.getOrigen());
@@ -218,6 +240,17 @@ public class ChatServiceImpl implements ChatService {
 
             ChatIndividualEntity chat = resolveOrCreateAdminDirectChat(admin, receptor, payload == null ? null : payload.getChatId());
             MensajeEntity saved = persistAdminDirectMessage(admin, receptor, chat, contenido, expiresAfterReadSeconds);
+            LOGGER.info("[ADMIN_DIRECT_CREATE] messageId={} chatId={} receptorId={} adminId={} adminMessage={} mensajeTemporal={} mensajeTemporalSegundos={} expiresAfterReadSeconds={} expiraEn={} expireAt={}",
+                    saved.getId(),
+                    chat.getId(),
+                    receptor.getId(),
+                    admin.getId(),
+                    saved.isAdminMessage(),
+                    saved.isMensajeTemporal(),
+                    saved.getMensajeTemporalSegundos(),
+                    saved.getExpiresAfterReadSeconds(),
+                    saved.getExpiraEn(),
+                    saved.getExpireAt());
             MensajeDTO dto = MappingUtils.mensajeEntityADto(saved);
             dto.setReceptorId(receptor.getId());
 
@@ -1339,6 +1372,16 @@ public class ChatServiceImpl implements ChatService {
         boolean groupChat = chat instanceof ChatGrupalEntity;
         Long cutoff = chatUserStateService.resolveCutoff(chatId, requesterId);
         List<MensajeEntity> mensajes = fetchMessagesPageChronological(chatId, cutoff, page, size);
+        LOGGER.info("[CHAT_HISTORY_QUERY] traceId={} chatId={} requesterId={} page={} size={} cutoff={} fetchedIds={} fetchedActivos={} fetchedTemporales={}",
+                traceId,
+                chatId,
+                requesterId,
+                page,
+                size,
+                cutoff,
+                mensajes.stream().map(MensajeEntity::getId).toList(),
+                mensajes.stream().filter(MensajeEntity::isActivo).count(),
+                mensajes.stream().filter(MensajeEntity::isMensajeTemporal).count());
         marcarAdminTemporalesComoLeidosAlAbrirChat(mensajes, requesterId);
         Map<Long, List<MensajeReaccionEntity>> reaccionesPorMensaje = loadReaccionesPorMensaje(mensajes);
 
@@ -1388,6 +1431,12 @@ public class ChatServiceImpl implements ChatService {
                 })
                 .collect(Collectors.toList());
         encuestaService.enriquecerMensajesConEncuesta(mensajes, salida, requesterId, true);
+        LOGGER.info("[CHAT_HISTORY_QUERY] traceId={} chatId={} requesterId={} returnedIds={} returnedCount={}",
+                traceId,
+                chatId,
+                requesterId,
+                salida.stream().map(MensajeDTO::getId).toList(),
+                salida.size());
         return salida;
     }
 
@@ -1974,11 +2023,12 @@ public class ChatServiceImpl implements ChatService {
         return resumenes;
     }
 
-    private long normalizeAdminDirectExpiry(Long requestedSeconds) {
-        if (requestedSeconds == null || requestedSeconds <= 0) {
-            return DEFAULT_ADMIN_DIRECT_EXPIRES_AFTER_READ_SECONDS;
+    private Long normalizeAdminDirectExpiry(Long requestedSeconds) {
+        if (requestedSeconds != null && requestedSeconds > 0) {
+            return requestedSeconds;
         }
-        return requestedSeconds;
+        long fallback = Math.max(1L, adminDirectTemporalDefaultExpiresAfterReadSeconds);
+        return fallback;
     }
 
     private ChatIndividualEntity resolveOrCreateAdminDirectChat(UsuarioEntity admin,
@@ -2015,8 +2065,11 @@ public class ChatServiceImpl implements ChatService {
                                                     UsuarioEntity receptor,
                                                     ChatIndividualEntity chat,
                                                     String contenido,
-                                                    long expiresAfterReadSeconds) {
+                                                    Long expiresAfterReadSeconds) {
         LocalDateTime ahora = LocalDateTime.now();
+        Long effectiveExpirySeconds = expiresAfterReadSeconds != null && expiresAfterReadSeconds > 0
+                ? expiresAfterReadSeconds
+                : Math.max(1L, adminDirectTemporalDefaultExpiresAfterReadSeconds);
         MensajeEntity mensaje = new MensajeEntity();
         mensaje.setChat(chat);
         mensaje.setEmisor(admin);
@@ -2030,10 +2083,10 @@ public class ChatServiceImpl implements ChatService {
         mensaje.setReenviado(false);
         mensaje.setEditado(false);
         mensaje.setMensajeTemporal(true);
-        mensaje.setMensajeTemporalSegundos(expiresAfterReadSeconds);
+        mensaje.setMensajeTemporalSegundos(effectiveExpirySeconds);
         mensaje.setExpiraEn(null);
         mensaje.setAdminMessage(true);
-        mensaje.setExpiresAfterReadSeconds(expiresAfterReadSeconds);
+        mensaje.setExpiresAfterReadSeconds(effectiveExpirySeconds);
         mensaje.setFirstReadAt(null);
         mensaje.setExpireAt(null);
         mensaje.setExpiredByPolicy(false);
@@ -2460,9 +2513,7 @@ public class ChatServiceImpl implements ChatService {
 
         pendientes.forEach(mensaje -> {
             Long chatId = mensaje.getChat() == null ? null : mensaje.getChat().getId();
-            boolean adminTemporal = mensaje.isAdminMessage()
-                    && (mensaje.isMensajeTemporal()
-                    || (mensaje.getExpiresAfterReadSeconds() != null && mensaje.getExpiresAfterReadSeconds() > 0));
+            boolean adminTemporal = hasAdminReadExpiryConfigured(mensaje);
             LOGGER.info("[ADMIN-TEMP-READ] start mensajeId={} chatId={} receptorId={} authUserId={} adminMessage={} mensajeTemporal={} leidoAntes={}",
                     mensaje.getId(),
                     chatId,
@@ -2505,21 +2556,43 @@ public class ChatServiceImpl implements ChatService {
     }
 
     private void iniciarExpiracionAdminSiCorrespondeDesdeChatOpen(MensajeEntity mensaje, LocalDateTime ahora) {
-        if (mensaje == null || !mensaje.isAdminMessage() || mensaje.getFirstReadAt() != null) {
+        if (mensaje == null || mensaje.getFirstReadAt() != null || !hasAdminReadExpiryConfigured(mensaje)) {
             return;
         }
-        long segundos = mensaje.getExpiresAfterReadSeconds() != null && mensaje.getExpiresAfterReadSeconds() > 0
-                ? mensaje.getExpiresAfterReadSeconds()
-                : (mensaje.getMensajeTemporalSegundos() != null && mensaje.getMensajeTemporalSegundos() > 0
-                ? mensaje.getMensajeTemporalSegundos()
-                : DEFAULT_ADMIN_DIRECT_EXPIRES_AFTER_READ_SECONDS);
+        long segundos = resolveEffectiveAdminReadExpirySeconds(mensaje);
         LocalDateTime base = ahora != null ? ahora : LocalDateTime.now();
         LocalDateTime expireAt = base.plusSeconds(segundos);
+        mensaje.setExpiresAfterReadSeconds(segundos);
         mensaje.setFirstReadAt(base);
         mensaje.setExpireAt(expireAt);
         mensaje.setExpiraEn(expireAt);
         mensaje.setMensajeTemporal(true);
         mensaje.setMensajeTemporalSegundos(segundos);
+    }
+
+    private boolean hasAdminReadExpiryConfigured(MensajeEntity mensaje) {
+        if (mensaje == null || !mensaje.isAdminMessage() || !mensaje.isMensajeTemporal()) {
+            return false;
+        }
+        if (mensaje.getExpiresAfterReadSeconds() != null && mensaje.getExpiresAfterReadSeconds() > 0) {
+            return true;
+        }
+        if (mensaje.getMensajeTemporalSegundos() != null && mensaje.getMensajeTemporalSegundos() > 0) {
+            return true;
+        }
+        return adminDirectTemporalDefaultExpiresAfterReadSeconds > 0;
+    }
+
+    private long resolveEffectiveAdminReadExpirySeconds(MensajeEntity mensaje) {
+        if (mensaje != null) {
+            if (mensaje.getExpiresAfterReadSeconds() != null && mensaje.getExpiresAfterReadSeconds() > 0) {
+                return mensaje.getExpiresAfterReadSeconds();
+            }
+            if (mensaje.getMensajeTemporalSegundos() != null && mensaje.getMensajeTemporalSegundos() > 0) {
+                return mensaje.getMensajeTemporalSegundos();
+            }
+        }
+        return Math.max(1L, adminDirectTemporalDefaultExpiresAfterReadSeconds);
     }
 
     private Pageable buildMessagesPageable(Integer page, Integer size) {
@@ -3319,16 +3392,35 @@ public class ChatServiceImpl implements ChatService {
         }
     }
 
+    private void validateAdminActor(UsuarioEntity admin) {
+        if (admin == null || admin.getId() == null) {
+            throw new IllegalArgumentException("usuario admin invalido");
+        }
+        if (!admin.isActivo()) {
+            throw new AccessDeniedException(Constantes.MSG_SOLO_ADMIN);
+        }
+        if (!hasAdminRole(admin)) {
+            throw new AccessDeniedException(Constantes.MSG_SOLO_ADMIN);
+        }
+    }
+
+    private boolean hasAdminRole(UsuarioEntity user) {
+        if (user == null || user.getRoles() == null) {
+            return false;
+        }
+        return user.getRoles().stream()
+                .filter(Objects::nonNull)
+                .map(String::trim)
+                .anyMatch(rol -> Constantes.ADMIN.equalsIgnoreCase(rol) || Constantes.ROLE_ADMIN.equalsIgnoreCase(rol));
+    }
+
     private void validateAdminOnly() {
         if (securityUtils.hasRole(Constantes.ADMIN) || securityUtils.hasRole(Constantes.ROLE_ADMIN)) {
             return;
         }
         Long requesterId = securityUtils.getAuthenticatedUserId();
         boolean isAdmin = usuarioRepo.findById(requesterId)
-                .map(u -> u.getRoles() != null && u.getRoles().stream()
-                        .filter(Objects::nonNull)
-                        .map(String::trim)
-                        .anyMatch(rol -> Constantes.ADMIN.equalsIgnoreCase(rol) || Constantes.ROLE_ADMIN.equalsIgnoreCase(rol)))
+                .map(this::hasAdminRole)
                 .orElse(false);
         if (!isAdmin) {
             throw new AccessDeniedException(Constantes.MSG_SOLO_ADMIN);

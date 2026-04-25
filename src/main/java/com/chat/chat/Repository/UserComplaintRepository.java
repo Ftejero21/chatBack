@@ -14,6 +14,12 @@ import java.util.Set;
 
 @Repository
 public interface UserComplaintRepository extends JpaRepository<UserComplaintEntity, Long> {
+    interface DenunciadoComplaintCountView {
+        Long getDenunciadoId();
+
+        Long getTotal();
+    }
+
     interface ComplaintMotivoCountView {
         String getMotivo();
 
@@ -47,6 +53,15 @@ public interface UserComplaintRepository extends JpaRepository<UserComplaintEnti
             order by count(uc.id) desc, uc.motivo asc
             """)
     List<ComplaintMotivoCountView> countReceivedGroupedByMotivo(Long userId);
+
+    @Query("""
+            select uc.denunciadoId as denunciadoId, count(uc.id) as total
+            from UserComplaintEntity uc
+            group by uc.denunciadoId
+            having count(uc.id) > :threshold
+            order by count(uc.id) desc, uc.denunciadoId asc
+            """)
+    List<DenunciadoComplaintCountView> findDenunciadosConMasDeDenuncias(long threshold);
 
     List<UserComplaintEntity> findTop5ByDenunciadoIdOrderByCreatedAtDescIdDesc(Long denunciadoId);
 }

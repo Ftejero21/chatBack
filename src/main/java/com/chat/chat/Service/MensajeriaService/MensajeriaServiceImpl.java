@@ -95,6 +95,9 @@ public class MensajeriaServiceImpl implements MensajeriaService {
     @Value("${app.uploads.security.max-file-bytes:26214400}")
     private long maxUploadFileBytes;
 
+    @Value("${app.chat.admin-direct.temporal-default-expires-after-read-seconds:60}")
+    private long adminDirectTemporalDefaultExpiresAfterReadSeconds;
+
     @Autowired
     private SimpMessagingTemplate messagingTemplate;
 
@@ -822,21 +825,43 @@ public class MensajeriaServiceImpl implements MensajeriaService {
     }
 
     private void iniciarExpiracionAdminSiCorresponde(MensajeEntity mensaje, LocalDateTime ahora) {
-        if (mensaje == null || !mensaje.isAdminMessage() || mensaje.getFirstReadAt() != null) {
+        if (mensaje == null || mensaje.getFirstReadAt() != null || !hasAdminReadExpiryConfigured(mensaje)) {
             return;
         }
-        long segundos = mensaje.getExpiresAfterReadSeconds() != null && mensaje.getExpiresAfterReadSeconds() > 0
-                ? mensaje.getExpiresAfterReadSeconds()
-                : (mensaje.getMensajeTemporalSegundos() != null && mensaje.getMensajeTemporalSegundos() > 0
-                ? mensaje.getMensajeTemporalSegundos()
-                : 86400L);
+        long segundos = resolveEffectiveAdminReadExpirySeconds(mensaje);
         LocalDateTime base = ahora != null ? ahora : LocalDateTime.now();
         LocalDateTime expireAt = base.plusSeconds(segundos);
+        mensaje.setExpiresAfterReadSeconds(segundos);
         mensaje.setFirstReadAt(base);
         mensaje.setExpireAt(expireAt);
         mensaje.setExpiraEn(expireAt);
         mensaje.setMensajeTemporal(true);
         mensaje.setMensajeTemporalSegundos(segundos);
+    }
+
+    private boolean hasAdminReadExpiryConfigured(MensajeEntity mensaje) {
+        if (mensaje == null || !mensaje.isAdminMessage() || !mensaje.isMensajeTemporal()) {
+            return false;
+        }
+        if (mensaje.getExpiresAfterReadSeconds() != null && mensaje.getExpiresAfterReadSeconds() > 0) {
+            return true;
+        }
+        if (mensaje.getMensajeTemporalSegundos() != null && mensaje.getMensajeTemporalSegundos() > 0) {
+            return true;
+        }
+        return adminDirectTemporalDefaultExpiresAfterReadSeconds > 0;
+    }
+
+    private long resolveEffectiveAdminReadExpirySeconds(MensajeEntity mensaje) {
+        if (mensaje != null) {
+            if (mensaje.getExpiresAfterReadSeconds() != null && mensaje.getExpiresAfterReadSeconds() > 0) {
+                return mensaje.getExpiresAfterReadSeconds();
+            }
+            if (mensaje.getMensajeTemporalSegundos() != null && mensaje.getMensajeTemporalSegundos() > 0) {
+                return mensaje.getMensajeTemporalSegundos();
+            }
+        }
+        return Math.max(1L, adminDirectTemporalDefaultExpiresAfterReadSeconds);
     }
 
     private boolean canMarkAsReadByUser(MensajeEntity mensaje, Long authenticatedUserId) {

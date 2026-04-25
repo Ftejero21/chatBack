@@ -95,6 +95,7 @@ public class ProgramadorExpiracionMensajesTemporales {
         long totalErrores = 0;
         AtomicLong wsPublished = new AtomicLong();
         AtomicLong wsFailed = new AtomicLong();
+        Set<String> removedEventsEmitted = new LinkedHashSet<>();
         long candidatosIniciales = mensajeRepository.countMensajesTemporalesExpirados(ahora);
         LOGGER.info("[TEMP-ADMIN-EXPIRE] scheduler-start candidates={} now={}", candidatosIniciales, ahora);
 
@@ -128,7 +129,7 @@ public class ProgramadorExpiracionMensajesTemporales {
                     continue;
                 }
                 try {
-                    processMensajeExpirable(mensaje, ahora, wsPublished, wsFailed);
+                    processMensajeExpirable(mensaje, ahora, wsPublished, wsFailed, removedEventsEmitted);
                     loteOk++;
                     totalExpirados++;
                     LOGGER.info("[BATCH_TEMPORALES] mensaje-processed mensajeId={} chatId={} receptorId={}",
@@ -176,7 +177,8 @@ public class ProgramadorExpiracionMensajesTemporales {
     private void processMensajeExpirable(MensajeEntity mensaje,
                                          LocalDateTime ahora,
                                          AtomicLong wsPublished,
-                                         AtomicLong wsFailed) {
+                                         AtomicLong wsFailed,
+                                         Set<String> removedEventsEmitted) {
         String correlationId = buildCorrelationId(
                 mensaje == null ? null : mensaje.getId(),
                 mensaje == null || mensaje.getChat() == null ? null : mensaje.getChat().getId(),
@@ -215,7 +217,7 @@ public class ProgramadorExpiracionMensajesTemporales {
                 persisted.getReceptor() == null ? null : persisted.getReceptor().getId(),
                 correlationId);
 
-        emitirActualizacionEnTiempoReal(persisted, wsPublished, wsFailed);
+        emitirActualizacionEnTiempoReal(persisted, wsPublished, wsFailed, removedEventsEmitted);
     }
 
     private void aplicarPlaceholderExpirado(MensajeEntity mensaje) {
@@ -243,7 +245,10 @@ public class ProgramadorExpiracionMensajesTemporales {
         mensaje.setMediaSizeBytes(null);
     }
 
-    private void emitirActualizacionEnTiempoReal(MensajeEntity mensaje, AtomicLong wsPublished, AtomicLong wsFailed) {
+    private void emitirActualizacionEnTiempoReal(MensajeEntity mensaje,
+                                                 AtomicLong wsPublished,
+                                                 AtomicLong wsFailed,
+                                                 Set<String> removedEventsEmitted) {
         if (mensaje == null || mensaje.getId() == null) {
             LOGGER.warn("[TEMP-ADMIN-WS] skip type=UNKNOWN chatId={} userId={} reason=mensaje-null",
                     mensaje == null || mensaje.getChat() == null ? null : mensaje.getChat().getId(),
@@ -324,7 +329,7 @@ public class ProgramadorExpiracionMensajesTemporales {
                             chat.getId(),
                             receptorId,
                             correlationId);
-                    emitirEstadoListaChatAdmin(chat.getId(), receptorId, correlationId, wsPublished, wsFailed);
+                    emitirEstadoListaChatAdmin(chat.getId(), receptorId, correlationId, wsPublished, wsFailed, removedEventsEmitted);
                 }
                 LOGGER.info("[TEMP-ADMIN-EXPIRE] step=publish-ws-ok mensajeId={} chatId={} receptorId={} correlationId={}",
                         mensaje.getId(),
@@ -425,7 +430,8 @@ public class ProgramadorExpiracionMensajesTemporales {
                                             Long userId,
                                             String correlationId,
                                             AtomicLong wsPublished,
-                                            AtomicLong wsFailed) {
+                                            AtomicLong wsFailed,
+                                            Set<String> removedEventsEmitted) {
         if (chatId == null || userId == null) {
             LOGGER.warn("[TEMP-ADMIN-WS] skip type=ADMIN_DIRECT_CHAT_LIST_UPDATED chatId={} userId={} correlationId={} reason={}",
                     chatId,
@@ -483,6 +489,14 @@ public class ProgramadorExpiracionMensajesTemporales {
                     removeAdminDirectChat,
                     removeAdminDirectChat ? "visible_admin_messages_for_user_zero" : "visible_admin_messages_for_user_present");
             if (lastVisible == null || removeAdminDirectChat) {
+                String removedKey = chatId + ":" + userId;
+                if (removedEventsEmitted != null && removedEventsEmitted.contains(removedKey)) {
+                    LOGGER.info("[ADMIN_DIRECT_CHAT_REMOVED_WS] step=publish-skip-duplicate chatId={} userId={} correlationId={} reason=already-emitted",
+                            chatId,
+                            userId,
+                            correlationId);
+                    return;
+                }
                 LOGGER.info("[TEMP-ADMIN-EXPIRE] sidebar chatId={} userId={} correlationId={} removed=true reason=no_visible_messages_left",
                         chatId,
                         userId,
@@ -508,6 +522,9 @@ public class ProgramadorExpiracionMensajesTemporales {
                             userId,
                             wsPublished,
                             wsFailed);
+                    if (removedEventsEmitted != null) {
+                        removedEventsEmitted.add(removedKey);
+                    }
                     LOGGER.info("[ADMIN_DIRECT_CHAT_REMOVED_WS] step=publish-ok chatId={} userId={} correlationId={} topic={} removed={} ts={}",
                             chatId,
                             userId,
@@ -580,7 +597,7 @@ public class ProgramadorExpiracionMensajesTemporales {
             return;
         }
         String estadoAntes = mensaje.getExpiraEn() != null && mensaje.getExpiraEn().isAfter(now) ? "ACTIVO" : "PENDIENTE_EXPIRACION";
-        LOGGER.info("[TEMP-ADMIN-EXPIRE] detected mensajeId={} chatId={} receptorId={} emisorId={} adminMessage={} mensajeTemporal={} estadoAntes={} estadoDespues=EXPIRADO motivo={} expireAt={} now={} firstReadAt={}",
+        LOGGER.info("[TEMP-ADMIN-EXPIRE] detected mensajeId={} chatId={} receptorId={} emisorId={} adminMessage={} mensajeTemporal={} estadoAntes={} estadoDespues=EXPIRADO motivo={} expireAt={} now={} firstReadAt={} actor={} proceso={}",
                 mensaje.getId(),
                 mensaje.getChat() == null ? null : mensaje.getChat().getId(),
                 mensaje.getReceptor() == null ? null : mensaje.getReceptor().getId(),
@@ -591,7 +608,9 @@ public class ProgramadorExpiracionMensajesTemporales {
                 MOTIVO_TEMPORAL_EXPIRADO,
                 mensaje.getExpireAt(),
                 now,
-                mensaje.getFirstReadAt());
+                mensaje.getFirstReadAt(),
+                "scheduler",
+                "mensajes_temporales_cleanup");
     }
 
     private String buildCorrelationId(Long mensajeId, Long chatId, Long userId) {

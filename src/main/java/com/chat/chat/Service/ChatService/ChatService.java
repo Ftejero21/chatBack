@@ -12,6 +12,7 @@ public interface ChatService {
 
     ChatIndividualDTO crearChatIndividual(Long usuario1Id, Long usuario2Id);
     AdminDirectMessageResponseDTO enviarMensajeDirectoAdmin(AdminDirectMessageRequestDTO request);
+    AdminDirectMessageResponseDTO enviarMensajeDirectoAdminComoSistema(Long adminUserId, AdminDirectMessageRequestDTO request);
     BulkEmailResponseDTO enviarBulkEmailAdmin(BulkEmailRequestDTO request, List<MultipartFile> attachments);
     ChatGrupalDTO crearChatGrupal(ChatGrupalDTO dto);
 

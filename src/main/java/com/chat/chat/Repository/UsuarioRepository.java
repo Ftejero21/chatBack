@@ -51,4 +51,14 @@ public interface UsuarioRepository extends JpaRepository<UsuarioEntity, Long> {
     @Query("SELECT u FROM UsuarioEntity u WHERE :role NOT MEMBER OF u.roles ORDER BY u.fechaCreacion DESC")
     Page<UsuarioEntity> findRecientesSinRol(Pageable pageable, @Param("role") String role);
 
+    @Query("""
+            SELECT DISTINCT u
+            FROM UsuarioEntity u
+            JOIN u.roles r
+            WHERE u.activo = true
+              AND (LOWER(r) = 'admin' OR LOWER(r) = 'role_admin')
+            ORDER BY u.id ASC
+            """)
+    List<UsuarioEntity> findActiveAdmins(Pageable pageable);
+
 }

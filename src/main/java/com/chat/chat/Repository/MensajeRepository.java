@@ -214,6 +214,22 @@ public interface MensajeRepository extends JpaRepository<MensajeEntity, Long> {
             Pageable pageable);
 
     @Query("select m from MensajeEntity m " +
+            "where m.mensajeTemporal = true " +
+            "and m.adminMessage = true " +
+            "and m.chat.id = :chatId " +
+            "and m.receptor.id = :userId " +
+            "and m.expiraEn is not null " +
+            "and m.expiraEn <= :ahora " +
+            "and (m.motivoEliminacion is null or m.motivoEliminacion <> :motivo) " +
+            "order by m.expiraEn asc, m.id asc")
+    List<MensajeEntity> findAdminDirectMensajesTemporalesPendientesExpirarByChatIdAndUserId(
+            @Param("ahora") LocalDateTime ahora,
+            @Param("motivo") String motivo,
+            @Param("chatId") Long chatId,
+            @Param("userId") Long userId,
+            Pageable pageable);
+
+    @Query("select m from MensajeEntity m " +
             "where m.chat.id = :chatId " +
             "and m.adminMessage = true " +
             "and m.activo = true " +

@@ -1,5 +1,6 @@
 package com.chat.chat.Service.ChatService;
 
+import com.chat.chat.Batch.MensajesTemporales.ProgramadorExpiracionMensajesTemporales;
 import com.chat.chat.DTO.*;
 import com.chat.chat.Entity.*;
 import com.chat.chat.Mapper.ChatPinnedMessageMapper;
@@ -155,6 +156,9 @@ public class ChatServiceImpl implements ChatService {
 
     @Autowired
     private EmailService emailService;
+
+    @Autowired
+    private ProgramadorExpiracionMensajesTemporales programadorExpiracionMensajesTemporales;
 
     @Override
     public ChatIndividualDTO crearChatIndividual(Long usuario1Id, Long usuario2Id) {
@@ -1368,6 +1372,7 @@ public class ChatServiceImpl implements ChatService {
         validateMessagesPaginationOrThrow(page, size);
         Long requesterId = securityUtils.getAuthenticatedUserId();
         ChatEntity chat = validateUserPinnedChatAccess(chatId, requesterId);
+        programadorExpiracionMensajesTemporales.expirarMensajesAdminDirectPendientesParaChatYUsuario(chatId, requesterId);
         String traceId = Optional.ofNullable(E2EDiagnosticUtils.currentTraceId()).orElse(E2EDiagnosticUtils.newTraceId());
         boolean groupChat = chat instanceof ChatGrupalEntity;
         Long cutoff = chatUserStateService.resolveCutoff(chatId, requesterId);

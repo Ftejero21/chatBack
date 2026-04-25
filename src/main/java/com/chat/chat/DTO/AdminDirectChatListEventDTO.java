@@ -5,9 +5,8 @@ import java.time.LocalDateTime;
 public class AdminDirectChatListEventDTO {
     private String systemEvent;
     private Long chatId;
-    private Long userId;
-    private boolean removed;
     private Long lastVisibleMessageId;
+    private Long ultimoMensajeId;
     private String ultimoMensaje;
     private String ultimoMensajeTipo;
     private Long ultimoMensajeEmisorId;
@@ -29,28 +28,20 @@ public class AdminDirectChatListEventDTO {
         this.chatId = chatId;
     }
 
-    public Long getUserId() {
-        return userId;
-    }
-
-    public void setUserId(Long userId) {
-        this.userId = userId;
-    }
-
-    public boolean isRemoved() {
-        return removed;
-    }
-
-    public void setRemoved(boolean removed) {
-        this.removed = removed;
-    }
-
     public Long getLastVisibleMessageId() {
         return lastVisibleMessageId;
     }
 
     public void setLastVisibleMessageId(Long lastVisibleMessageId) {
         this.lastVisibleMessageId = lastVisibleMessageId;
+    }
+
+    public Long getUltimoMensajeId() {
+        return ultimoMensajeId;
+    }
+
+    public void setUltimoMensajeId(Long ultimoMensajeId) {
+        this.ultimoMensajeId = ultimoMensajeId;
     }
 
     public String getUltimoMensaje() {

@@ -2,6 +2,7 @@ package com.chat.chat.Batch.MensajesTemporales;
 
 import com.chat.chat.DTO.AdminDirectChatExpiredEventDTO;
 import com.chat.chat.DTO.AdminDirectChatListEventDTO;
+import com.chat.chat.DTO.AdminDirectChatRemovedEventDTO;
 import com.chat.chat.DTO.MensajeDTO;
 import com.chat.chat.Entity.ChatEntity;
 import com.chat.chat.Entity.ChatGrupalEntity;
@@ -30,8 +31,11 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicLong;
@@ -96,6 +100,7 @@ public class ProgramadorExpiracionMensajesTemporales {
         AtomicLong wsPublished = new AtomicLong();
         AtomicLong wsFailed = new AtomicLong();
         Set<String> removedEventsEmitted = new LinkedHashSet<>();
+        Map<AdminDirectChatKey, AdminDirectPendingEvents> adminDirectPendingEvents = new LinkedHashMap<>();
         long candidatosIniciales = mensajeRepository.countMensajesTemporalesExpirados(ahora);
         LOGGER.info("[TEMP-ADMIN-EXPIRE] scheduler-start candidates={} now={}", candidatosIniciales, ahora);
 
@@ -129,7 +134,7 @@ public class ProgramadorExpiracionMensajesTemporales {
                     continue;
                 }
                 try {
-                    processMensajeExpirable(mensaje, ahora, wsPublished, wsFailed, removedEventsEmitted);
+                    processMensajeExpirable(mensaje, ahora, wsPublished, wsFailed, adminDirectPendingEvents);
                     loteOk++;
                     totalExpirados++;
                     LOGGER.info("[BATCH_TEMPORALES] mensaje-processed mensajeId={} chatId={} receptorId={}",
@@ -158,6 +163,8 @@ public class ProgramadorExpiracionMensajesTemporales {
             }
         }
 
+        emitirEventosAdminDirectPendientes(adminDirectPendingEvents, wsPublished, wsFailed, removedEventsEmitted);
+
         int erroresLimpiezaTecnica = ejecutarLimpiezaTecnicaOpcional(ahora);
         totalErrores += erroresLimpiezaTecnica;
 
@@ -174,11 +181,42 @@ public class ProgramadorExpiracionMensajesTemporales {
                 LocalDateTime.now());
     }
 
+    @Transactional
+    public void expirarMensajesAdminDirectPendientesParaChatYUsuario(Long chatId, Long userId) {
+        if (!habilitado || chatId == null || userId == null) {
+            return;
+        }
+        LocalDateTime ahora = LocalDateTime.now();
+        List<MensajeEntity> pendientes = mensajeRepository.findAdminDirectMensajesTemporalesPendientesExpirarByChatIdAndUserId(
+                ahora,
+                MOTIVO_TEMPORAL_EXPIRADO,
+                chatId,
+                userId,
+                PageRequest.of(0, Math.max(1, tamanoLote)));
+        if (pendientes.isEmpty()) {
+            return;
+        }
+
+        AtomicLong wsPublished = new AtomicLong();
+        AtomicLong wsFailed = new AtomicLong();
+        Set<String> removedEventsEmitted = new LinkedHashSet<>();
+        Map<AdminDirectChatKey, AdminDirectPendingEvents> adminDirectPendingEvents = new LinkedHashMap<>();
+
+        for (MensajeEntity mensaje : pendientes) {
+            if (mensaje == null || mensaje.getId() == null) {
+                continue;
+            }
+            processMensajeExpirable(mensaje, ahora, wsPublished, wsFailed, adminDirectPendingEvents);
+        }
+
+        emitirEventosAdminDirectPendientes(adminDirectPendingEvents, wsPublished, wsFailed, removedEventsEmitted);
+    }
+
     private void processMensajeExpirable(MensajeEntity mensaje,
                                          LocalDateTime ahora,
                                          AtomicLong wsPublished,
                                          AtomicLong wsFailed,
-                                         Set<String> removedEventsEmitted) {
+                                         Map<AdminDirectChatKey, AdminDirectPendingEvents> adminDirectPendingEvents) {
         String correlationId = buildCorrelationId(
                 mensaje == null ? null : mensaje.getId(),
                 mensaje == null || mensaje.getChat() == null ? null : mensaje.getChat().getId(),
@@ -217,7 +255,7 @@ public class ProgramadorExpiracionMensajesTemporales {
                 persisted.getReceptor() == null ? null : persisted.getReceptor().getId(),
                 correlationId);
 
-        emitirActualizacionEnTiempoReal(persisted, wsPublished, wsFailed, removedEventsEmitted);
+        emitirActualizacionEnTiempoReal(persisted, wsPublished, wsFailed, adminDirectPendingEvents);
     }
 
     private void aplicarPlaceholderExpirado(MensajeEntity mensaje) {
@@ -248,7 +286,7 @@ public class ProgramadorExpiracionMensajesTemporales {
     private void emitirActualizacionEnTiempoReal(MensajeEntity mensaje,
                                                  AtomicLong wsPublished,
                                                  AtomicLong wsFailed,
-                                                 Set<String> removedEventsEmitted) {
+                                                 Map<AdminDirectChatKey, AdminDirectPendingEvents> adminDirectPendingEvents) {
         if (mensaje == null || mensaje.getId() == null) {
             LOGGER.warn("[TEMP-ADMIN-WS] skip type=UNKNOWN chatId={} userId={} reason=mensaje-null",
                     mensaje == null || mensaje.getChat() == null ? null : mensaje.getChat().getId(),
@@ -282,60 +320,7 @@ public class ProgramadorExpiracionMensajesTemporales {
                     groupChat,
                     individualLikeChat);
             if (mensaje.isAdminMessage() && individualLikeChat) {
-                Long receptorId = mensaje.getReceptor() == null ? null : mensaje.getReceptor().getId();
-                if (receptorId == null) {
-                    LOGGER.warn("[TEMP-ADMIN-WS] skip type=TEMPORAL_MESSAGE_EXPIRED chatId={} userId={} correlationId={} reason=no-user-id",
-                            chat == null ? null : chat.getId(),
-                            null,
-                            correlationId);
-                    return;
-                }
-                if (receptorId != null) {
-                    MensajeDTO dto = MappingUtils.mensajeEntityADto(mensaje);
-                    if (dto == null) {
-                        LOGGER.warn("[TEMP-ADMIN-WS] skip correlationId={} step=build-timeline-event reason=mensaje-dto-null", correlationId);
-                        return;
-                    }
-                    dto.setSystemEvent("TEMPORAL_MESSAGE_EXPIRED");
-                    publishWs(
-                            "TEMPORAL_MESSAGE_EXPIRED",
-                            Constantes.TOPIC_CHAT + receptorId,
-                            dto,
-                            correlationId,
-                            mensaje.getId(),
-                            chat.getId(),
-                            receptorId,
-                            wsPublished,
-                            wsFailed);
-
-                    AdminDirectChatExpiredEventDTO event = new AdminDirectChatExpiredEventDTO();
-                    event.setSystemEvent(Constantes.SYSTEM_EVENT_ADMIN_DIRECT_CHAT_EXPIRED);
-                    event.setChatId(chat.getId());
-                    event.setUserId(receptorId);
-                    event.setExpiredMessageIds(List.of(mensaje.getId()));
-                    publishWs(
-                            Constantes.SYSTEM_EVENT_ADMIN_DIRECT_CHAT_EXPIRED,
-                            Constantes.TOPIC_CHAT + receptorId,
-                            event,
-                            correlationId,
-                            mensaje.getId(),
-                            chat.getId(),
-                            receptorId,
-                            wsPublished,
-                            wsFailed);
-
-                    LOGGER.info("[TEMP-ADMIN-EXPIRE] admin-direct-post-expire mensajeId={} chatId={} receptorId={} correlationId={} action=emitirEstadoListaChatAdmin",
-                            mensaje.getId(),
-                            chat.getId(),
-                            receptorId,
-                            correlationId);
-                    emitirEstadoListaChatAdmin(chat.getId(), receptorId, correlationId, wsPublished, wsFailed, removedEventsEmitted);
-                }
-                LOGGER.info("[TEMP-ADMIN-EXPIRE] step=publish-ws-ok mensajeId={} chatId={} receptorId={} correlationId={}",
-                        mensaje.getId(),
-                        chat.getId(),
-                        receptorId,
-                        correlationId);
+                registrarEventoAdminDirectoPendiente(mensaje, correlationId, adminDirectPendingEvents);
                 return;
             }
 
@@ -426,6 +411,95 @@ public class ProgramadorExpiracionMensajesTemporales {
         }
     }
 
+    private void registrarEventoAdminDirectoPendiente(MensajeEntity mensaje,
+                                                      String correlationId,
+                                                      Map<AdminDirectChatKey, AdminDirectPendingEvents> adminDirectPendingEvents) {
+        if (mensaje == null || mensaje.getChat() == null || mensaje.getChat().getId() == null) {
+            LOGGER.warn("[TEMP-ADMIN-WS] skip type=ADMIN_DIRECT_CHAT_EXPIRED chatId={} userId={} correlationId={} reason=chat-null",
+                    mensaje == null || mensaje.getChat() == null ? null : mensaje.getChat().getId(),
+                    mensaje == null || mensaje.getReceptor() == null ? null : mensaje.getReceptor().getId(),
+                    correlationId);
+            return;
+        }
+        Long receptorId = mensaje.getReceptor() == null ? null : mensaje.getReceptor().getId();
+        if (receptorId == null) {
+            LOGGER.warn("[TEMP-ADMIN-WS] skip type=ADMIN_DIRECT_CHAT_EXPIRED chatId={} userId={} correlationId={} reason=no-user-id",
+                    mensaje.getChat().getId(),
+                    null,
+                    correlationId);
+            return;
+        }
+        if (adminDirectPendingEvents == null) {
+            LOGGER.warn("[TEMP-ADMIN-WS] skip type=ADMIN_DIRECT_CHAT_EXPIRED chatId={} userId={} correlationId={} reason=pending-events-null",
+                    mensaje.getChat().getId(),
+                    receptorId,
+                    correlationId);
+            return;
+        }
+        AdminDirectChatKey key = new AdminDirectChatKey(mensaje.getChat().getId(), receptorId);
+        AdminDirectPendingEvents pending = adminDirectPendingEvents.computeIfAbsent(
+                key,
+                ignored -> new AdminDirectPendingEvents(mensaje.getChat().getId(), receptorId));
+        pending.addMessage(mensaje.getId(), mensaje.getExpiraEn());
+        LOGGER.info("[TEMP-ADMIN-EXPIRE] admin-direct-pending mensajeId={} chatId={} receptorId={} correlationId={} pendingCount={}",
+                mensaje.getId(),
+                mensaje.getChat().getId(),
+                receptorId,
+                correlationId,
+                pending.expiredMessageIds().size());
+    }
+
+    private void emitirEventosAdminDirectPendientes(Map<AdminDirectChatKey, AdminDirectPendingEvents> adminDirectPendingEvents,
+                                                    AtomicLong wsPublished,
+                                                    AtomicLong wsFailed,
+                                                    Set<String> removedEventsEmitted) {
+        if (adminDirectPendingEvents == null || adminDirectPendingEvents.isEmpty()) {
+            return;
+        }
+        for (AdminDirectPendingEvents pending : adminDirectPendingEvents.values()) {
+            if (pending == null || pending.expiredMessageIds().isEmpty()) {
+                continue;
+            }
+            Long chatId = pending.chatId();
+            Long userId = pending.userId();
+            Long firstId = pending.firstExpiredMessageId();
+            String correlationId = buildCorrelationId(firstId, chatId, userId);
+
+            AdminDirectChatExpiredEventDTO event = new AdminDirectChatExpiredEventDTO();
+            event.setSystemEvent(Constantes.SYSTEM_EVENT_ADMIN_DIRECT_CHAT_EXPIRED);
+            event.setChatId(chatId);
+            event.setExpiredMessageIds(new ArrayList<>(pending.expiredMessageIds()));
+            if (event.getExpiredMessageIds().size() == 1) {
+                event.setId(event.getExpiredMessageIds().get(0));
+            }
+            event.setActivo(false);
+            event.setAdminMessage(true);
+            event.setMensajeTemporal(true);
+            event.setEstadoTemporal("EXPIRADO");
+            event.setMotivoEliminacion(MOTIVO_TEMPORAL_EXPIRADO);
+            event.setExpiredByPolicy(true);
+            event.setExpiraEn(pending.lastExpiraEn());
+
+            publishWs(
+                    Constantes.SYSTEM_EVENT_ADMIN_DIRECT_CHAT_EXPIRED,
+                    Constantes.TOPIC_CHAT + userId,
+                    event,
+                    correlationId,
+                    firstId,
+                    chatId,
+                    userId,
+                    wsPublished,
+                    wsFailed);
+
+            LOGGER.info("[TEMP-ADMIN-EXPIRE] admin-direct-post-expire chatId={} receptorId={} correlationId={} expiredMessageIds={} action=emitirEstadoListaChatAdmin",
+                    chatId,
+                    userId,
+                    correlationId,
+                    event.getExpiredMessageIds());
+            emitirEstadoListaChatAdmin(chatId, userId, correlationId, wsPublished, wsFailed, removedEventsEmitted);
+        }
+    }
+
     private void emitirEstadoListaChatAdmin(Long chatId,
                                             Long userId,
                                             String correlationId,
@@ -479,7 +553,6 @@ public class ProgramadorExpiracionMensajesTemporales {
 
             AdminDirectChatListEventDTO event = new AdminDirectChatListEventDTO();
             event.setChatId(chatId);
-            event.setUserId(userId);
 
             boolean removeAdminDirectChat = visibleAdminMessagesForUser == 0L;
             LOGGER.info("[TEMP-ADMIN-EXPIRE] sidebar-remove-decision chatId={} userId={} correlationId={} removeAdminDirectChat={} reason={}",
@@ -501,8 +574,9 @@ public class ProgramadorExpiracionMensajesTemporales {
                         chatId,
                         userId,
                         correlationId);
-                event.setSystemEvent(Constantes.SYSTEM_EVENT_ADMIN_DIRECT_CHAT_REMOVED);
-                event.setRemoved(true);
+                AdminDirectChatRemovedEventDTO removedEvent = new AdminDirectChatRemovedEventDTO();
+                removedEvent.setSystemEvent(Constantes.SYSTEM_EVENT_ADMIN_DIRECT_CHAT_REMOVED);
+                removedEvent.setChatId(chatId);
                 String topic = Constantes.TOPIC_CHAT + userId;
                 try {
                     LOGGER.info("[ADMIN_DIRECT_CHAT_REMOVED_WS] step=publish-start chatId={} userId={} correlationId={} topic={} removed={} ts={}",
@@ -515,7 +589,7 @@ public class ProgramadorExpiracionMensajesTemporales {
                     publishWs(
                             Constantes.SYSTEM_EVENT_ADMIN_DIRECT_CHAT_REMOVED,
                             topic,
-                            event,
+                            removedEvent,
                             correlationId,
                             null,
                             chatId,
@@ -561,8 +635,8 @@ public class ProgramadorExpiracionMensajesTemporales {
                     resolvePreviewType(lastVisible),
                     preview);
             event.setSystemEvent(Constantes.SYSTEM_EVENT_ADMIN_DIRECT_CHAT_LIST_UPDATED);
-            event.setRemoved(false);
             event.setLastVisibleMessageId(lastVisible.getId());
+            event.setUltimoMensajeId(lastVisible.getId());
             event.setUltimoMensaje(preview);
             event.setUltimoMensajeTipo(resolvePreviewType(lastVisible));
             event.setUltimoMensajeEmisorId(lastVisible.getEmisor() == null ? null : lastVisible.getEmisor().getId());
@@ -687,17 +761,27 @@ public class ProgramadorExpiracionMensajesTemporales {
         }
         if (payload instanceof AdminDirectChatExpiredEventDTO dto) {
             return "AdminDirectChatExpiredEventDTO{chatId=" + dto.getChatId()
-                    + ",userId=" + dto.getUserId()
+                    + ",id=" + dto.getId()
+                    + ",activo=" + dto.isActivo()
+                    + ",adminMessage=" + dto.isAdminMessage()
+                    + ",mensajeTemporal=" + dto.isMensajeTemporal()
+                    + ",estadoTemporal=" + dto.getEstadoTemporal()
+                    + ",motivoEliminacion=" + dto.getMotivoEliminacion()
+                    + ",expiredByPolicy=" + dto.isExpiredByPolicy()
                     + ",expiredMessageIds=" + dto.getExpiredMessageIds()
                     + ",systemEvent=" + dto.getSystemEvent()
                     + "}";
         }
         if (payload instanceof AdminDirectChatListEventDTO dto) {
             return "AdminDirectChatListEventDTO{chatId=" + dto.getChatId()
-                    + ",userId=" + dto.getUserId()
-                    + ",removed=" + dto.isRemoved()
                     + ",lastVisibleMessageId=" + dto.getLastVisibleMessageId()
+                    + ",ultimoMensajeId=" + dto.getUltimoMensajeId()
                     + ",ultimoMensajeTipo=" + dto.getUltimoMensajeTipo()
+                    + ",systemEvent=" + dto.getSystemEvent()
+                    + "}";
+        }
+        if (payload instanceof AdminDirectChatRemovedEventDTO dto) {
+            return "AdminDirectChatRemovedEventDTO{chatId=" + dto.getChatId()
                     + ",systemEvent=" + dto.getSystemEvent()
                     + "}";
         }
@@ -899,6 +983,56 @@ public class ProgramadorExpiracionMensajesTemporales {
             }
         }
         return errores;
+    }
+
+    private record AdminDirectChatKey(Long chatId, Long userId) {
+    }
+
+    private static final class AdminDirectPendingEvents {
+        private final Long chatId;
+        private final Long userId;
+        private final LinkedHashSet<Long> expiredMessageIds = new LinkedHashSet<>();
+        private Long firstExpiredMessageId;
+        private LocalDateTime lastExpiraEn;
+
+        private AdminDirectPendingEvents(Long chatId, Long userId) {
+            this.chatId = chatId;
+            this.userId = userId;
+        }
+
+        private void addMessage(Long messageId, LocalDateTime expiraEn) {
+            if (messageId != null) {
+                if (firstExpiredMessageId == null) {
+                    firstExpiredMessageId = messageId;
+                }
+                expiredMessageIds.add(messageId);
+            }
+            if (expiraEn != null) {
+                if (lastExpiraEn == null || expiraEn.isAfter(lastExpiraEn)) {
+                    lastExpiraEn = expiraEn;
+                }
+            }
+        }
+
+        private Long chatId() {
+            return chatId;
+        }
+
+        private Long userId() {
+            return userId;
+        }
+
+        private LinkedHashSet<Long> expiredMessageIds() {
+            return expiredMessageIds;
+        }
+
+        private Long firstExpiredMessageId() {
+            return firstExpiredMessageId;
+        }
+
+        private LocalDateTime lastExpiraEn() {
+            return lastExpiraEn;
+        }
     }
 
     private record UrlsAuditoria(String audioUrl, String imageUrl, String fileUrl) {

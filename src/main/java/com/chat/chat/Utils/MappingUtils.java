@@ -254,6 +254,8 @@ public class MappingUtils {
             dto.setContenido(placeholder);
             dto.setActivo(false);
             dto.setMotivoEliminacion(firstNonBlank(e.getMotivoEliminacion(), MOTIVO_TEMPORAL_EXPIRADO));
+            dto.setEstadoTemporal("EXPIRADO");
+            dto.setExpiredByPolicy(true);
             dto.setPlaceholderTexto(placeholder);
             dto.setAudioUrl(null);
             dto.setAudioMime(null);

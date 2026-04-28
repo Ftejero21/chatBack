@@ -97,7 +97,7 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, Constantes.API_MENSAJES + Constantes.MENSAJES_DESTACADOS).authenticated()
                         .requestMatchers(Constantes.API_MENSAJES + "/**").authenticated()
                         .requestMatchers(Constantes.USUARIO_API + Constantes.USUARIO_ADMIN_PATTERN).hasRole(Constantes.ADMIN)
-                        .requestMatchers(Constantes.API_AI_PATTERN).hasRole(Constantes.ADMIN)
+                        .requestMatchers(Constantes.API_AI_PATTERN).authenticated()
                         .anyRequest().authenticated())
                 .exceptionHandling(ex -> ex
                         .authenticationEntryPoint(securityDebugAuthenticationEntryPoint)

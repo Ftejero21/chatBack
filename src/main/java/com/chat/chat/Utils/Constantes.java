@@ -97,6 +97,7 @@ public class Constantes {
     public static final String API_UPLOADS_ALL = "/api/uploads";
     public static final String API_AI = "/api/ai";
     public static final String API_AI_PATTERN = "/api/ai/**";
+    public static final String AI_TEXT_PATH = "/texto";
 
     // Subrutas Restantes
     public static final String USUARIOS_SUB = "/usuarios";

@@ -26,6 +26,10 @@ public class DeepSeekProperties {
     @Max(4000)
     private int maxOutputTokens = 300;
 
+    @Min(1)
+    @Max(4000)
+    private int summaryMaxOutputTokens = 500;
+
     @DecimalMin("0.0")
     @DecimalMax("2.0")
     private double temperature = 0.4d;
@@ -64,6 +68,14 @@ public class DeepSeekProperties {
 
     public void setMaxOutputTokens(int maxOutputTokens) {
         this.maxOutputTokens = maxOutputTokens;
+    }
+
+    public int getSummaryMaxOutputTokens() {
+        return summaryMaxOutputTokens;
+    }
+
+    public void setSummaryMaxOutputTokens(int summaryMaxOutputTokens) {
+        this.summaryMaxOutputTokens = summaryMaxOutputTokens;
     }
 
     public double getTemperature() {

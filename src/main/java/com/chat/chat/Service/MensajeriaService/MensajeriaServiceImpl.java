@@ -142,6 +142,9 @@ public class MensajeriaServiceImpl implements MensajeriaService {
 
         UsuarioEntity emisor = usuarioRepository.findById(authenticatedUserId).orElseThrow();
         UsuarioEntity receptor = usuarioRepository.findById(dto.getReceptorId()).orElseThrow();
+        if (isAdminUser(receptor)) {
+            throw new RuntimeException(Constantes.MSG_NO_PUEDE_ENVIAR_MENSAJES);
+        }
 
         ChatIndividualEntity chat = chatIndividualRepository.findRegularChatBetween(emisor, receptor)
                 .orElseThrow(() -> new RuntimeException(Constantes.MSG_CHAT_INDIVIDUAL_NO_ENCONTRADO));
@@ -1630,6 +1633,16 @@ public class MensajeriaServiceImpl implements MensajeriaService {
         String noDiacritics = Normalizer.normalize(lower, Normalizer.Form.NFD);
         String folded = DIACRITICS_PATTERN.matcher(noDiacritics).replaceAll("");
         return folded.isBlank() ? null : folded;
+    }
+
+    private boolean isAdminUser(UsuarioEntity usuario) {
+        if (usuario == null || usuario.getRoles() == null || usuario.getRoles().isEmpty()) {
+            return false;
+        }
+        return usuario.getRoles().stream()
+                .filter(Objects::nonNull)
+                .map(String::trim)
+                .anyMatch(role -> Constantes.ADMIN.equalsIgnoreCase(role) || Constantes.ROLE_ADMIN.equalsIgnoreCase(role));
     }
 
     private void broadcastMensaje(MensajeDTO mensaje, ChatDispatchContext dispatchContext) {

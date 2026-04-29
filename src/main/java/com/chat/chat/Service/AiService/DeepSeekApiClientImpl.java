@@ -36,6 +36,11 @@ public class DeepSeekApiClientImpl implements DeepSeekApiClient {
 
     @Override
     public String completarTexto(String systemPrompt, String userContent) {
+        return completarTexto(systemPrompt, userContent, null);
+    }
+
+    @Override
+    public String completarTexto(String systemPrompt, String userContent, Integer maxOutputTokens) {
         String apiKey = deepSeekProperties.getApiKey();
         if (!StringUtils.hasText(apiKey)) {
             throw new SemanticApiException(HttpStatus.INTERNAL_SERVER_ERROR, "AI_API_KEY_MISSING",
@@ -53,7 +58,7 @@ public class DeepSeekApiClientImpl implements DeepSeekApiClient {
                 new DeepSeekMessage("user", userContent)
         ));
         request.setTemperature(deepSeekProperties.getTemperature());
-        request.setMaxTokens(deepSeekProperties.getMaxOutputTokens());
+        request.setMaxTokens(resolveMaxOutputTokens(maxOutputTokens));
         request.setStream(false);
 
         try {
@@ -88,6 +93,13 @@ public class DeepSeekApiClientImpl implements DeepSeekApiClient {
         String normalizedBase = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
         String normalizedPath = path.startsWith("/") ? path : "/" + path;
         return normalizedBase + normalizedPath;
+    }
+
+    private int resolveMaxOutputTokens(Integer requestedMaxOutputTokens) {
+        if (requestedMaxOutputTokens == null || requestedMaxOutputTokens < 1) {
+            return deepSeekProperties.getMaxOutputTokens();
+        }
+        return requestedMaxOutputTokens;
     }
 
     private String extractContent(DeepSeekChatResponse response) {

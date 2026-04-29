@@ -170,6 +170,9 @@ public class ChatServiceImpl implements ChatService {
 
         UsuarioEntity u1 = usuarioRepo.findById(usuario1Id).orElseThrow();
         UsuarioEntity u2 = usuarioRepo.findById(usuario2Id).orElseThrow();
+        if (hasAdminRole(u1) || hasAdminRole(u2)) {
+            throw new RuntimeException(Constantes.MSG_NO_PUEDE_ENVIAR_MENSAJES);
+        }
 
         if (u1.getBloqueados().contains(u2) || u2.getBloqueados().contains(u1)) {
             throw new RuntimeException(Constantes.MSG_CHAT_INDIVIDUAL_BLOQUEADO);

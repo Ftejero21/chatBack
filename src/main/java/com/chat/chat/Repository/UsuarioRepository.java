@@ -27,7 +27,12 @@ public interface UsuarioRepository extends JpaRepository<UsuarioEntity, Long> {
 
     @Query("SELECT u " +
             "FROM UsuarioEntity u " +
-            "WHERE  " +
+            "WHERE u.activo = true " +
+            "  AND NOT EXISTS ( " +
+            "      SELECT 1 FROM u.roles r " +
+            "      WHERE LOWER(r) = 'admin' OR LOWER(r) = 'role_admin' " +
+            "  ) " +
+            "  AND " +
             "     ( " +
             "         LOWER(u.nombre) LIKE LOWER(CONCAT('%', :q, '%')) " +
             "      OR LOWER(u.apellido) LIKE LOWER(CONCAT('%', :q, '%')) " +

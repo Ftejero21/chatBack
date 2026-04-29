@@ -1,6 +1,6 @@
 services:
   backend:
-    image: chatback:3.3
+    image: chatback:3.4
     container_name: chatback
     restart: unless-stopped
     environment:
@@ -18,7 +18,7 @@ services:
       - ./uploads:/app/uploads
 
   frontend:
-    image: chatfront:3.3
+    image: chatfront:3.4
     container_name: chatfront
     restart: unless-stopped
     depends_on:

@@ -3,6 +3,7 @@ package com.chat.chat.Configuracion;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
+import org.springframework.boot.context.properties.NestedConfigurationProperty;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 import org.springframework.validation.annotation.Validated;
@@ -24,6 +25,17 @@ public class AiProperties {
     @Min(1)
     @Max(20000)
     private int maxInputLengthResponder = 4000;
+
+    @Min(1)
+    @Max(500)
+    private int maxSummaryMessages = 50;
+
+    @Min(1)
+    @Max(50000)
+    private int maxInputLengthSummary = 8000;
+
+    @NestedConfigurationProperty
+    private final QuickReplies quickReplies = new QuickReplies();
 
     private boolean rateLimitEnabled = true;
 
@@ -75,6 +87,26 @@ public class AiProperties {
         this.maxInputLengthResponder = maxInputLengthResponder;
     }
 
+    public int getMaxSummaryMessages() {
+        return maxSummaryMessages;
+    }
+
+    public void setMaxSummaryMessages(int maxSummaryMessages) {
+        this.maxSummaryMessages = maxSummaryMessages;
+    }
+
+    public int getMaxInputLengthSummary() {
+        return maxInputLengthSummary;
+    }
+
+    public void setMaxInputLengthSummary(int maxInputLengthSummary) {
+        this.maxInputLengthSummary = maxInputLengthSummary;
+    }
+
+    public QuickReplies getQuickReplies() {
+        return quickReplies;
+    }
+
     public boolean isRateLimitEnabled() {
         return rateLimitEnabled;
     }
@@ -113,5 +145,32 @@ public class AiProperties {
 
     public void setMaxGlobalUsesPerDay(int maxGlobalUsesPerDay) {
         this.maxGlobalUsesPerDay = maxGlobalUsesPerDay;
+    }
+
+    public static class QuickReplies {
+
+        @Min(1)
+        @Max(100000)
+        private int maxPerUserDay = 50;
+
+        @Min(1)
+        @Max(86400)
+        private int cooldownSeconds = 120;
+
+        public int getMaxPerUserDay() {
+            return maxPerUserDay;
+        }
+
+        public void setMaxPerUserDay(int maxPerUserDay) {
+            this.maxPerUserDay = maxPerUserDay;
+        }
+
+        public int getCooldownSeconds() {
+            return cooldownSeconds;
+        }
+
+        public void setCooldownSeconds(int cooldownSeconds) {
+            this.cooldownSeconds = cooldownSeconds;
+        }
     }
 }

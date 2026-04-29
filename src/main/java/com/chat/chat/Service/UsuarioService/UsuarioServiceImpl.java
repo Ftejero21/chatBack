@@ -684,6 +684,7 @@ public class UsuarioServiceImpl implements UsuarioService {
         List<UsuarioDTO> list = usuarioRepository.searchActivosByNombre(query)
                 .stream()
                 .filter(u -> !u.getId().equals(authenticatedUserId))
+                .filter(u -> !isAdminUser(u.getRoles()))
                 .map(MappingUtils::usuarioEntityADto)
                 .collect(Collectors.toList());
 

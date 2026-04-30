@@ -30,6 +30,14 @@ public class DeepSeekProperties {
     @Max(4000)
     private int summaryMaxOutputTokens = 500;
 
+    @Min(1)
+    @Max(4000)
+    private int pollDraftMaxOutputTokens = 600;
+
+    @Min(1)
+    @Max(4000)
+    private int reportAnalysisMaxOutputTokens = 700;
+
     @DecimalMin("0.0")
     @DecimalMax("2.0")
     private double temperature = 0.4d;
@@ -76,6 +84,22 @@ public class DeepSeekProperties {
 
     public void setSummaryMaxOutputTokens(int summaryMaxOutputTokens) {
         this.summaryMaxOutputTokens = summaryMaxOutputTokens;
+    }
+
+    public int getPollDraftMaxOutputTokens() {
+        return pollDraftMaxOutputTokens;
+    }
+
+    public void setPollDraftMaxOutputTokens(int pollDraftMaxOutputTokens) {
+        this.pollDraftMaxOutputTokens = pollDraftMaxOutputTokens;
+    }
+
+    public int getReportAnalysisMaxOutputTokens() {
+        return reportAnalysisMaxOutputTokens;
+    }
+
+    public void setReportAnalysisMaxOutputTokens(int reportAnalysisMaxOutputTokens) {
+        this.reportAnalysisMaxOutputTokens = reportAnalysisMaxOutputTokens;
     }
 
     public double getTemperature() {

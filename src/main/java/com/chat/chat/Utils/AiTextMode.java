@@ -11,6 +11,7 @@ public enum AiTextMode {
     RESUMIR,
     RESPONDER,
     EXPLICAR,
+    TRADUCIR,
     GENERAR_EMAIL,
     GENERAR_RESPUESTA,
     COMPLETAR_TEXTO;

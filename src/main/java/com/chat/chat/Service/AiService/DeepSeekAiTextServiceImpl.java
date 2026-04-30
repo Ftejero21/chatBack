@@ -43,6 +43,7 @@ public class DeepSeekAiTextServiceImpl implements AiTextService {
     @Override
     public AiTextResponseDTO procesarTexto(AiTextRequestDTO request) {
         String originalText = request == null ? null : request.getTexto();
+        String targetLanguage = request == null ? null : request.getIdiomaDestino();
         Long userId = securityUtils.getAuthenticatedUserId();
 
         if (!aiProperties.isEnabled()) {
@@ -68,6 +69,10 @@ public class DeepSeekAiTextServiceImpl implements AiTextService {
         }
 
         AiTextMode effectiveMode = resolveMode(requestedMode, normalizedOriginal);
+        String normalizedTargetLanguage = normalizeInput(targetLanguage);
+        if (effectiveMode == AiTextMode.TRADUCIR && !hasText(normalizedTargetLanguage)) {
+            return failure(originalText, effectiveMode.name(), "AI_TARGET_LANGUAGE_REQUIRED", "Debes seleccionar un idioma de destino para traducir.");
+        }
         int maxLength = resolveMaxInputLength(effectiveMode);
         logLengthValidation(effectiveMode, normalizedOriginal.length(), maxLength);
         if (normalizedOriginal.length() > maxLength) {
@@ -96,7 +101,10 @@ public class DeepSeekAiTextServiceImpl implements AiTextService {
                     userId,
                     effectiveMode.name(),
                     cleanedUserText.length());
-            String generatedText = deepSeekApiClient.completarTexto(buildPrompt(effectiveMode), cleanedUserText);
+            String generatedText = deepSeekApiClient.completarTexto(
+                    buildPrompt(effectiveMode),
+                    buildUserContent(effectiveMode, cleanedUserText, normalizedTargetLanguage)
+            );
             aiRateLimitService.registrarUso(userId);
             return success(originalText, generatedText, effectiveMode.name());
         } catch (SemanticApiException ex) {
@@ -156,11 +164,20 @@ public class DeepSeekAiTextServiceImpl implements AiTextService {
             case RESUMIR -> "Resume el siguiente texto de forma breve y clara. No anadas informacion nueva. Devuelve unicamente el resumen.";
             case RESPONDER -> "Genera una posible respuesta natural para el siguiente contexto o mensaje recibido. No inventes datos importantes. Si falta contexto, responde de forma prudente. Devuelve unicamente la respuesta.";
             case EXPLICAR -> "Explica el siguiente texto de forma sencilla y clara. No anadas informacion no relacionada. Devuelve unicamente la explicacion.";
+            case TRADUCIR -> "Traduce el siguiente mensaje al idioma indicado por el usuario. Manten el significado original, el tono, la intencion, la formalidad y los emojis si encajan. Si el mensaje es informal, la traduccion debe sonar informal. Si el mensaje es formal, la traduccion debe sonar formal. No anadas informacion nueva. No expliques la traduccion. Devuelve unicamente el texto traducido.";
             case GENERAR_EMAIL -> "Redacta un email formal y completo a partir de la idea del usuario. Devuelve exactamente este formato:\n\nASUNTO: <asunto claro, profesional y breve>\n\nCUERPO:\nBuenas tardes,\n\n<párrafo 1>\n\n<párrafo 2>\n\n<párrafo 3 opcional si hace falta>\n\nMuchas gracias de antemano.\n\nUn saludo,\nTejeChat\n\nReglas:\n- Usa tono profesional, claro y correcto.\n- Usa parrafos separados y saltos de linea.\n- El asunto debe estar bien redactado.\n- El cuerpo no debe ir en una sola linea.\n- No firmes como Fernando.\n- Firma siempre como TejeChat.\n- No anadas explicaciones fuera del email.\n- No inventes datos importantes.";
             case GENERAR_RESPUESTA -> "El usuario quiere generar un mensaje a partir de una explicacion. Convierte la explicacion en un mensaje natural, claro y bien escrito. No inventes datos importantes. No anadas informacion que no este en el texto original. Devuelve unicamente el mensaje final.";
             case COMPLETAR_TEXTO -> "Completa el siguiente texto de forma natural y coherente, respetando el tono original del usuario. Si el texto es informal, responde informal; si es formal, responde formal. Si el texto termina en ':' completa lo que vendria despues. Si el texto queda cortado a mitad de frase, continua la frase de forma natural. Devuelve unicamente el texto final completo, sin explicaciones. No anadas detalles graves, medicos, legales, economicos o sensibles si no aparecen en el texto original. No inventes noticias, resultados deportivos, fichajes, lesiones ni datos actuales como si fueran reales.";
             case AUTO -> throw new IllegalStateException("AUTO no debe llegar al prompt");
         };
+    }
+
+    private String buildUserContent(AiTextMode mode, String cleanedUserText, String targetLanguage) {
+        if (mode == AiTextMode.TRADUCIR) {
+            return "Idioma destino: " + targetLanguage + "\n"
+                    + "Texto original: " + cleanedUserText;
+        }
+        return cleanedUserText;
     }
 
     private int resolveMaxInputLength(AiTextMode mode) {
@@ -187,7 +204,9 @@ public class DeepSeekAiTextServiceImpl implements AiTextService {
         response.setModo(mode);
         response.setSuccess(true);
         response.setCodigo("OK");
-        response.setMensaje("Texto procesado correctamente");
+        response.setMensaje(AiTextMode.TRADUCIR.name().equalsIgnoreCase(mode)
+                ? "Texto traducido correctamente"
+                : "Texto procesado correctamente");
         return response;
     }
 

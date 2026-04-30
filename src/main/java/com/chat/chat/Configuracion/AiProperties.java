@@ -37,6 +37,12 @@ public class AiProperties {
     @NestedConfigurationProperty
     private final QuickReplies quickReplies = new QuickReplies();
 
+    @NestedConfigurationProperty
+    private final PollDraft pollDraft = new PollDraft();
+
+    @NestedConfigurationProperty
+    private final ReportAnalysis reportAnalysis = new ReportAnalysis();
+
     private boolean rateLimitEnabled = true;
 
     @Min(1)
@@ -107,6 +113,14 @@ public class AiProperties {
         return quickReplies;
     }
 
+    public PollDraft getPollDraft() {
+        return pollDraft;
+    }
+
+    public ReportAnalysis getReportAnalysis() {
+        return reportAnalysis;
+    }
+
     public boolean isRateLimitEnabled() {
         return rateLimitEnabled;
     }
@@ -171,6 +185,84 @@ public class AiProperties {
 
         public void setCooldownSeconds(int cooldownSeconds) {
             this.cooldownSeconds = cooldownSeconds;
+        }
+    }
+
+    public static class PollDraft {
+
+        @Min(1)
+        @Max(100)
+        private int maxMessages = 100;
+
+        @Min(2)
+        @Max(10)
+        private int maxOptions = 10;
+
+        @Min(2)
+        @Max(10)
+        private int defaultOptions = 4;
+
+        @Min(100)
+        @Max(50000)
+        private int maxInputLength = 12000;
+
+        public int getMaxMessages() {
+            return maxMessages;
+        }
+
+        public void setMaxMessages(int maxMessages) {
+            this.maxMessages = maxMessages;
+        }
+
+        public int getMaxOptions() {
+            return maxOptions;
+        }
+
+        public void setMaxOptions(int maxOptions) {
+            this.maxOptions = maxOptions;
+        }
+
+        public int getDefaultOptions() {
+            return defaultOptions;
+        }
+
+        public void setDefaultOptions(int defaultOptions) {
+            this.defaultOptions = defaultOptions;
+        }
+
+        public int getMaxInputLength() {
+            return maxInputLength;
+        }
+
+        public void setMaxInputLength(int maxInputLength) {
+            this.maxInputLength = maxInputLength;
+        }
+    }
+
+    public static class ReportAnalysis {
+
+        @Min(1)
+        @Max(50)
+        private int maxMessages = 50;
+
+        @Min(100)
+        @Max(50000)
+        private int maxInputLength = 10000;
+
+        public int getMaxMessages() {
+            return maxMessages;
+        }
+
+        public void setMaxMessages(int maxMessages) {
+            this.maxMessages = maxMessages;
+        }
+
+        public int getMaxInputLength() {
+            return maxInputLength;
+        }
+
+        public void setMaxInputLength(int maxInputLength) {
+            this.maxInputLength = maxInputLength;
         }
     }
 }

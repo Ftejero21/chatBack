@@ -33,6 +33,18 @@ public class AdminAuditCrypto {
     @Value("${app.audit.admin-private-key-path:}")
     private String adminPrivateKeyPath;
 
+    @Value("${crypto.admin.private-key:}")
+    private String cryptoAdminPrivateKeyPem;
+
+    @Value("${crypto.admin.private-key-path:}")
+    private String cryptoAdminPrivateKeyPath;
+
+    @Value("${privateKey_admin_audit:}")
+    private String localStorageStyleAdminPrivateKey;
+
+    @Value("${privateKey_admin_audit_path:}")
+    private String localStorageStyleAdminPrivateKeyPath;
+
     private volatile PrivateKey cachedKey;
     private volatile String cachedPublicKeySpkiBase64;
 
@@ -43,6 +55,11 @@ public class AdminAuditCrypto {
     private String adminPublicKeySpkiPath;
 
     public String decryptBase64Envelope(String base64Ciphertext) {
+        byte[] plaintext = decryptBase64EnvelopeBytes(base64Ciphertext);
+        return plaintext == null ? null : new String(plaintext, StandardCharsets.UTF_8);
+    }
+
+    public byte[] decryptBase64EnvelopeBytes(String base64Ciphertext) {
         if (isBlank(base64Ciphertext)) {
             return null;
         }
@@ -62,12 +79,28 @@ public class AdminAuditCrypto {
                     PSource.PSpecified.DEFAULT
             );
             cipher.init(Cipher.DECRYPT_MODE, key, spec);
-            byte[] plaintext = cipher.doFinal(ciphertext);
-            return new String(plaintext, StandardCharsets.UTF_8);
+            return cipher.doFinal(ciphertext);
         } catch (Exception ex) {
             LOGGER.warn("AUDIT admin envelope decrypt failed: {}", ex.getClass().getSimpleName());
             return null;
         }
+    }
+
+    public boolean hasPrivateKeyConfigured() {
+        return getOrLoadKey() != null;
+    }
+
+    public boolean hasMatchingPrivateKeyForAuditPublicKey() {
+        PrivateKey privateKey = getOrLoadKey();
+        if (privateKey == null) {
+            return false;
+        }
+        String configuredPublic = resolveConfiguredPublicKey();
+        if (isBlank(configuredPublic)) {
+            return true;
+        }
+        String derivedPublic = derivePublicKeySpkiBase64(privateKey);
+        return !isBlank(derivedPublic) && Objects.equals(configuredPublic, derivedPublic);
     }
 
     public String getAuditPublicKeySpkiBase64() {
@@ -151,13 +184,48 @@ public class AdminAuditCrypto {
 
     private String resolvePem() {
         if (!isBlank(adminPrivateKeyPem)) {
-            return adminPrivateKeyPem;
+            return normalizePrivateKeyValue(adminPrivateKeyPem);
+        }
+        if (!isBlank(cryptoAdminPrivateKeyPem)) {
+            return normalizePrivateKeyValue(cryptoAdminPrivateKeyPem);
+        }
+        if (!isBlank(localStorageStyleAdminPrivateKey)) {
+            return normalizePrivateKeyValue(localStorageStyleAdminPrivateKey);
         }
         if (!isBlank(adminPrivateKeyPath)) {
             try {
-                return Files.readString(Path.of(adminPrivateKeyPath), StandardCharsets.UTF_8);
+                return normalizePrivateKeyValue(Files.readString(Path.of(adminPrivateKeyPath), StandardCharsets.UTF_8));
             } catch (Exception ex) {
                 LOGGER.warn("AUDIT admin private key path read failed: {}", ex.getClass().getSimpleName());
+                return null;
+            }
+        }
+        if (!isBlank(cryptoAdminPrivateKeyPath)) {
+            try {
+                return normalizePrivateKeyValue(Files.readString(Path.of(cryptoAdminPrivateKeyPath), StandardCharsets.UTF_8));
+            } catch (Exception ex) {
+                LOGGER.warn("AUDIT admin private key alias path read failed: {}", ex.getClass().getSimpleName());
+                return null;
+            }
+        }
+        if (!isBlank(localStorageStyleAdminPrivateKeyPath)) {
+            try {
+                return normalizePrivateKeyValue(Files.readString(Path.of(localStorageStyleAdminPrivateKeyPath), StandardCharsets.UTF_8));
+            } catch (Exception ex) {
+                LOGGER.warn("AUDIT admin private key localStorage-style path read failed: {}", ex.getClass().getSimpleName());
+                return null;
+            }
+        }
+        String envPem = firstNonBlankEnv("APP_AUDIT_ADMIN_PRIVATE_KEY_PEM", "ADMIN_PRIVATE_KEY", "AI_AUDIT_PRIVATE_KEY");
+        if (!isBlank(envPem)) {
+            return normalizePrivateKeyValue(envPem);
+        }
+        String envPath = firstNonBlankEnv("APP_AUDIT_ADMIN_PRIVATE_KEY_PATH", "ADMIN_PRIVATE_KEY_PATH", "AI_AUDIT_PRIVATE_KEY_PATH");
+        if (!isBlank(envPath)) {
+            try {
+                return normalizePrivateKeyValue(Files.readString(Path.of(envPath), StandardCharsets.UTF_8));
+            } catch (Exception ex) {
+                LOGGER.warn("AUDIT admin private key env path read failed: {}", ex.getClass().getSimpleName());
                 return null;
             }
         }
@@ -225,5 +293,34 @@ public class AdminAuditCrypto {
 
     private static boolean isBlank(String value) {
         return value == null || value.trim().isEmpty();
+    }
+
+    private String firstNonBlankEnv(String... names) {
+        if (names == null) {
+            return null;
+        }
+        for (String name : names) {
+            String value = System.getenv(name);
+            if (!isBlank(value)) {
+                return value;
+            }
+        }
+        return null;
+    }
+
+    private String normalizePrivateKeyValue(String rawValue) {
+        if (isBlank(rawValue)) {
+            return null;
+        }
+        String normalized = rawValue.trim();
+        if ((normalized.startsWith("\"") && normalized.endsWith("\""))
+                || (normalized.startsWith("'") && normalized.endsWith("'"))) {
+            normalized = normalized.substring(1, normalized.length() - 1).trim();
+        }
+        normalized = normalized
+                .replace("\\r\\n", "\n")
+                .replace("\\n", "\n")
+                .replace("\\r", "\n");
+        return normalized.trim();
     }
 }

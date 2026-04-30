@@ -11,6 +11,9 @@ public class AiTextRequestDTO {
     @Size(max = 40, message = "El modo no es valido")
     private String modo;
 
+    @Size(max = 80, message = "El idioma de destino no es valido")
+    private String idiomaDestino;
+
     public String getTexto() {
         return texto;
     }
@@ -25,5 +28,13 @@ public class AiTextRequestDTO {
 
     public void setModo(String modo) {
         this.modo = modo;
+    }
+
+    public String getIdiomaDestino() {
+        return idiomaDestino;
+    }
+
+    public void setIdiomaDestino(String idiomaDestino) {
+        this.idiomaDestino = idiomaDestino;
     }
 }

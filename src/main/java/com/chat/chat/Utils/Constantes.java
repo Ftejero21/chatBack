@@ -98,6 +98,9 @@ public class Constantes {
     public static final String API_AI = "/api/ai";
     public static final String API_AI_PATTERN = "/api/ai/**";
     public static final String AI_TEXT_PATH = "/texto";
+    public static final String AI_POLL_DRAFT_PATH = "/generar-borrador-encuesta";
+    public static final String AI_REPORT_ANALYSIS_PATH = "/analizar-denuncia";
+    public static final String AI_SUMMARY_ENCRYPTED_PATH = "/resumir-conversacion/encrypted";
 
     // Subrutas Restantes
     public static final String USUARIOS_SUB = "/usuarios";

@@ -20,4 +20,14 @@ public class AiConfig {
                 .setReadTimeout(timeout)
                 .build();
     }
+
+    @Bean
+    @Qualifier("deepSeekAdminReportRestTemplate")
+    public RestTemplate deepSeekAdminReportRestTemplate(RestTemplateBuilder builder, DeepSeekProperties deepSeekProperties) {
+        Duration timeout = Duration.ofSeconds(deepSeekProperties.getAdminReportTimeoutSeconds());
+        return builder
+                .setConnectTimeout(timeout)
+                .setReadTimeout(timeout)
+                .build();
+    }
 }

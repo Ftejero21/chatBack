@@ -129,6 +129,14 @@ public interface MensajeRepository extends JpaRepository<MensajeEntity, Long> {
     long countMensajesEntreFechas(@Param("inicio") java.time.LocalDateTime inicio,
                                   @Param("fin") java.time.LocalDateTime fin);
 
+    @Query("SELECT COUNT(m) FROM MensajeEntity m " +
+            "WHERE m.fechaEnvio >= :inicio AND m.fechaEnvio < :fin " +
+            "AND m.activo = true " +
+            "AND m.adminMessage = false " +
+            "AND (m.expiraEn is null or m.expiraEn > CURRENT_TIMESTAMP)")
+    long countUserMensajesEntreFechas(@Param("inicio") java.time.LocalDateTime inicio,
+                                      @Param("fin") java.time.LocalDateTime fin);
+
     @Query("select m from MensajeEntity m " +
             "where m.id = :id and m.chat.id = :chatId")
     Optional<MensajeEntity> findByIdAndChatId(@Param("id") Long id, @Param("chatId") Long chatId);

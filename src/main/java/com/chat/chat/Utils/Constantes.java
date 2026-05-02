@@ -127,6 +127,7 @@ public class Constantes {
     public static final String ADMIN_USER_COMPLAINT_STATS = "/admin/denuncias/stats";
     public static final String ADMIN_USER_COMPLAINT_READ = "/admin/denuncias/{id}/read";
     public static final String ADMIN_USER_COMPLAINT_EXPEDIENTE = "/admin/denuncias/usuario/{userId}/expediente";
+    public static final String ADMIN_AI_REPORT = "/admin/reportes/ia";
     public static final String USUARIO_BLOQUEAR = "/{bloqueadoId}/bloquear";
     public static final String USUARIO_DESBLOQUEAR = "/{bloqueadoId}/desbloquear";
 

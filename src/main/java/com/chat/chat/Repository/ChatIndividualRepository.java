@@ -51,4 +51,18 @@ public interface ChatIndividualRepository extends JpaRepository<ChatIndividualEn
               and (ci.usuario1.id = :userId or ci.usuario2.id = :userId)
             """)
     boolean existsMemberByChatIdAndUserId(@Param("chatId") Long chatId, @Param("userId") Long userId);
+
+    @Query("""
+            select count(distinct ci.id)
+            from ChatIndividualEntity ci
+            join MensajeEntity m on m.chat.id = ci.id
+            where ci.adminDirect = false
+              and m.fechaEnvio >= :inicio
+              and m.fechaEnvio < :fin
+              and m.activo = true
+              and m.adminMessage = false
+              and (m.expiraEn is null or m.expiraEn > CURRENT_TIMESTAMP)
+            """)
+    long countActiveRegularChatsByMessagePeriod(@Param("inicio") java.time.LocalDateTime inicio,
+                                                @Param("fin") java.time.LocalDateTime fin);
 }

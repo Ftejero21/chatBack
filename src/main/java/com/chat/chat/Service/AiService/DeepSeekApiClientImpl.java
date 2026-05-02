@@ -26,11 +26,14 @@ public class DeepSeekApiClientImpl implements DeepSeekApiClient {
     private static final Logger LOGGER = LoggerFactory.getLogger(DeepSeekApiClientImpl.class);
 
     private final RestTemplate restTemplate;
+    private final RestTemplate adminReportRestTemplate;
     private final DeepSeekProperties deepSeekProperties;
 
     public DeepSeekApiClientImpl(@Qualifier("deepSeekRestTemplate") RestTemplate restTemplate,
+                                 @Qualifier("deepSeekAdminReportRestTemplate") RestTemplate adminReportRestTemplate,
                                  DeepSeekProperties deepSeekProperties) {
         this.restTemplate = restTemplate;
+        this.adminReportRestTemplate = adminReportRestTemplate;
         this.deepSeekProperties = deepSeekProperties;
     }
 
@@ -41,6 +44,18 @@ public class DeepSeekApiClientImpl implements DeepSeekApiClient {
 
     @Override
     public String completarTexto(String systemPrompt, String userContent, Integer maxOutputTokens) {
+        return completarTextoInternal(restTemplate, systemPrompt, userContent, maxOutputTokens);
+    }
+
+    @Override
+    public String completarTextoAdminReport(String systemPrompt, String userContent, Integer maxOutputTokens) {
+        return completarTextoInternal(adminReportRestTemplate, systemPrompt, userContent, maxOutputTokens);
+    }
+
+    private String completarTextoInternal(RestTemplate template,
+                                          String systemPrompt,
+                                          String userContent,
+                                          Integer maxOutputTokens) {
         String apiKey = deepSeekProperties.getApiKey();
         if (!StringUtils.hasText(apiKey)) {
             throw new SemanticApiException(HttpStatus.INTERNAL_SERVER_ERROR, "AI_API_KEY_MISSING",
@@ -62,7 +77,7 @@ public class DeepSeekApiClientImpl implements DeepSeekApiClient {
         request.setStream(false);
 
         try {
-            ResponseEntity<DeepSeekChatResponse> response = restTemplate.exchange(
+            ResponseEntity<DeepSeekChatResponse> response = template.exchange(
                     buildUrl(),
                     HttpMethod.POST,
                     new HttpEntity<>(request, headers),

@@ -14,6 +14,9 @@ import java.util.Optional;
 @Repository
 public interface EncuestaRepository extends JpaRepository<EncuestaEntity, Long> {
 
+    long countByCreatedAtGreaterThanEqualAndCreatedAtLessThan(java.time.LocalDateTime inicio,
+                                                              java.time.LocalDateTime fin);
+
     Optional<EncuestaEntity> findByMensajeId(Long mensajeId);
 
     List<EncuestaEntity> findByMensajeIdIn(List<Long> mensajeIds);

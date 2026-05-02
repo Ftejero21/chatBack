@@ -38,6 +38,10 @@ public class DeepSeekProperties {
     @Max(4000)
     private int reportAnalysisMaxOutputTokens = 700;
 
+    @Min(1)
+    @Max(4000)
+    private int adminReportMaxOutputTokens = 1800;
+
     @DecimalMin("0.0")
     @DecimalMax("2.0")
     private double temperature = 0.4d;
@@ -45,6 +49,10 @@ public class DeepSeekProperties {
     @Min(1)
     @Max(120)
     private int timeoutSeconds = 20;
+
+    @Min(1)
+    @Max(180)
+    private int adminReportTimeoutSeconds = 75;
 
     public String getApiKey() {
         return api.getKey();
@@ -102,6 +110,14 @@ public class DeepSeekProperties {
         this.reportAnalysisMaxOutputTokens = reportAnalysisMaxOutputTokens;
     }
 
+    public int getAdminReportMaxOutputTokens() {
+        return adminReportMaxOutputTokens;
+    }
+
+    public void setAdminReportMaxOutputTokens(int adminReportMaxOutputTokens) {
+        this.adminReportMaxOutputTokens = adminReportMaxOutputTokens;
+    }
+
     public double getTemperature() {
         return temperature;
     }
@@ -116,6 +132,14 @@ public class DeepSeekProperties {
 
     public void setTimeoutSeconds(int timeoutSeconds) {
         this.timeoutSeconds = timeoutSeconds;
+    }
+
+    public int getAdminReportTimeoutSeconds() {
+        return adminReportTimeoutSeconds;
+    }
+
+    public void setAdminReportTimeoutSeconds(int adminReportTimeoutSeconds) {
+        this.adminReportTimeoutSeconds = adminReportTimeoutSeconds;
     }
 
     public Api getApi() {

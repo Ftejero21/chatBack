@@ -16,6 +16,18 @@ import java.util.List;
 
 @Repository
 public interface SolicitudDesbaneoRepository extends JpaRepository<SolicitudDesbaneoEntity, Long> {
+    interface ReportTypeCountView {
+        ReporteTipo getTipoReporte();
+
+        Long getTotal();
+    }
+
+    interface ReportStatusCountView {
+        SolicitudDesbaneoEstado getEstado();
+
+        Long getTotal();
+    }
+
     Page<SolicitudDesbaneoEntity> findAllByEstado(SolicitudDesbaneoEstado estado, Pageable pageable);
     Page<SolicitudDesbaneoEntity> findAllByEstadoIn(Collection<SolicitudDesbaneoEstado> estados, Pageable pageable);
     Page<SolicitudDesbaneoEntity> findAllByTipoReporte(ReporteTipo tipoReporte, Pageable pageable);
@@ -31,6 +43,40 @@ public interface SolicitudDesbaneoRepository extends JpaRepository<SolicitudDesb
     long countByEstado(SolicitudDesbaneoEstado estado);
 
     List<SolicitudDesbaneoEntity> findByCreatedAtGreaterThanEqualAndCreatedAtLessThan(LocalDateTime from, LocalDateTime to);
+
+    long countByCreatedAtGreaterThanEqualAndCreatedAtLessThan(LocalDateTime from, LocalDateTime to);
+
+    @Query("""
+            select s.tipoReporte as tipoReporte, count(s.id) as total
+            from SolicitudDesbaneoEntity s
+            where s.createdAt >= :from
+              and s.createdAt < :to
+            group by s.tipoReporte
+            order by count(s.id) desc, s.tipoReporte asc
+            """)
+    List<ReportTypeCountView> countByTipoReporteGroupedByCreatedAtBetween(
+            @Param("from") LocalDateTime from,
+            @Param("to") LocalDateTime to
+    );
+
+    @Query("""
+            select s.estado as estado, count(s.id) as total
+            from SolicitudDesbaneoEntity s
+            where s.createdAt >= :from
+              and s.createdAt < :to
+            group by s.estado
+            order by count(s.id) desc, s.estado asc
+            """)
+    List<ReportStatusCountView> countByEstadoGroupedByCreatedAtBetween(
+            @Param("from") LocalDateTime from,
+            @Param("to") LocalDateTime to
+    );
+
+    long countByTipoReporteAndCreatedAtGreaterThanEqualAndCreatedAtLessThan(
+            ReporteTipo tipoReporte,
+            LocalDateTime from,
+            LocalDateTime to
+    );
 
     long countByEstadoInAndUpdatedAtGreaterThanEqualAndUpdatedAtLessThan(
             Collection<SolicitudDesbaneoEstado> estados,

@@ -43,6 +43,8 @@ public interface UsuarioRepository extends JpaRepository<UsuarioEntity, Long> {
 
     public long countByActivoTrue();
 
+    public long countByActivoFalse();
+
     @Query("SELECT COUNT(u) FROM UsuarioEntity u WHERE u.fechaCreacion >= :inicio AND u.fechaCreacion < :fin")
     long countUsuariosRegistradosEntreFechas(@Param("inicio") java.time.LocalDateTime inicio,
             @Param("fin") java.time.LocalDateTime fin);

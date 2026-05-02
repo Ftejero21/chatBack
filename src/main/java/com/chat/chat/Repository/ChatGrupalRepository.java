@@ -17,7 +17,22 @@ import org.springframework.stereotype.Repository;
 
 @Repository
 public interface ChatGrupalRepository extends JpaRepository<ChatGrupalEntity, Long> {
+    interface AdminGroupActivityView {
+        Long getGrupoId();
+
+        String getNombreGrupo();
+
+        Long getTotalMensajes();
+
+        Long getTotalMiembros();
+    }
+
     List<ChatGrupalEntity> findAllByUsuariosId(Long usuarioId);
+
+    long countByActivoTrueAndClosedFalse();
+
+    long countByFechaCreacionGreaterThanEqualAndFechaCreacionLessThan(java.time.LocalDateTime inicio,
+                                                                      java.time.LocalDateTime fin);
 
     @Query("select distinct c from ChatGrupalEntity c left join fetch c.usuarios where c.id = :id")
     Optional<ChatGrupalEntity> findByIdWithUsuarios(@Param("id") Long id);
@@ -75,4 +90,26 @@ public interface ChatGrupalRepository extends JpaRepository<ChatGrupalEntity, Lo
               and u.activo = true
             """)
     boolean existsActiveMemberByChatIdAndUserId(@Param("chatId") Long chatId, @Param("userId") Long userId);
+
+    @Query("""
+            select c.id as grupoId,
+                   c.nombreGrupo as nombreGrupo,
+                   count(distinct m.id) as totalMensajes,
+                   count(distinct u.id) as totalMiembros
+            from ChatGrupalEntity c
+            left join c.usuarios u
+            left join MensajeEntity m
+                   on m.chat.id = c.id
+                  and m.fechaEnvio >= :inicio
+                  and m.fechaEnvio < :fin
+                  and m.activo = true
+                  and m.adminMessage = false
+                  and (m.expiraEn is null or m.expiraEn > CURRENT_TIMESTAMP)
+            group by c.id, c.nombreGrupo
+            having count(distinct m.id) > 0
+            order by count(distinct m.id) desc, c.id asc
+            """)
+    List<AdminGroupActivityView> findTopActiveGroupsByPeriod(@Param("inicio") java.time.LocalDateTime inicio,
+                                                             @Param("fin") java.time.LocalDateTime fin,
+                                                             Pageable pageable);
 }

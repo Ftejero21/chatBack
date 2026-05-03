@@ -33,7 +33,9 @@ public final class E2EGroupValidationUtils {
     }
 
     public static boolean isImageType(String tipo) {
-        return tipo != null && Constantes.TIPO_IMAGE.equalsIgnoreCase(tipo);
+        return tipo != null
+                && (Constantes.TIPO_IMAGE.equalsIgnoreCase(tipo)
+                || Constantes.TIPO_STICKER.equalsIgnoreCase(tipo));
     }
 
     public static boolean isFileType(String tipo) {

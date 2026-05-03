@@ -219,6 +219,7 @@ public class DeepSeekAiPollDraftServiceImpl implements AiPollDraftService {
     private String buildSystemPrompt() {
         return "Analiza los ultimos mensajes de este chat grupal y genera un borrador de encuesta util basada en el tema principal de la conversacion. "
                 + "La encuesta debe ser clara, breve y natural. Devuelve una pregunta y entre 2 y 4 opciones de respuesta, salvo que se indique otro maximo. "
+                + "Incluye exactamente un icono relevante al inicio de la pregunta y exactamente un icono relevante al inicio de cada opcion. "
                 + "No inventes datos importantes. No anadas explicaciones. Si no hay contexto suficiente, genera una encuesta generica para ayudar al grupo a tomar una decision. "
                 + "Devuelve exactamente este formato:\n\n"
                 + "PREGUNTA: <pregunta de la encuesta>\n"
@@ -371,6 +372,7 @@ public class DeepSeekAiPollDraftServiceImpl implements AiPollDraftService {
     private boolean hasText(String value) {
         return value != null && !value.trim().isEmpty();
     }
+
 
     private AiPollDraftResponseDTO success(String question, List<String> options, boolean multipleResponses) {
         AiPollDraftResponseDTO response = new AiPollDraftResponseDTO();

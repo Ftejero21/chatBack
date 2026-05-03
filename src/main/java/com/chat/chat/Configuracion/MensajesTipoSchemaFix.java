@@ -43,10 +43,11 @@ public class MensajesTipoSchemaFix {
             String normalized = columnType.toUpperCase(Locale.ROOT);
             boolean missingSystem = !normalized.contains("'SYSTEM'");
             boolean missingImage = !normalized.contains("'IMAGE'");
+            boolean missingSticker = !normalized.contains("'STICKER'");
             boolean missingVideo = !normalized.contains("'VIDEO'");
             boolean missingFile = !normalized.contains("'FILE'");
             boolean missingPoll = !normalized.contains("'POLL'");
-            if (normalized.startsWith("ENUM(") && (missingSystem || missingImage || missingVideo || missingFile || missingPoll)) {
+            if (normalized.startsWith("ENUM(") && (missingSystem || missingImage || missingSticker || missingVideo || missingFile || missingPoll)) {
                 jdbcTemplate.execute(Constantes.SQL_ALTER_MENSAJES_TIPO_MULTIMEDIA);
                 LOGGER.info(Constantes.LOG_DB_FIX_TIPO_MULTIMEDIA);
             }

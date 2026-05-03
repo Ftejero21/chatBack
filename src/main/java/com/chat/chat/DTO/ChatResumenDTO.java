@@ -6,6 +6,7 @@ public class ChatResumenDTO {
     private Long id;
     private String tipo;
     private String nombreChat;
+    private String visibilidad;
     private Integer totalMensajes;
     private String ultimoMensaje;
     private LocalDateTime fechaUltimoMensaje;
@@ -49,6 +50,14 @@ public class ChatResumenDTO {
 
     public void setNombreChat(String nombreChat) {
         this.nombreChat = nombreChat;
+    }
+
+    public String getVisibilidad() {
+        return visibilidad;
+    }
+
+    public void setVisibilidad(String visibilidad) {
+        this.visibilidad = visibilidad;
     }
 
     public Integer getTotalMensajes() {

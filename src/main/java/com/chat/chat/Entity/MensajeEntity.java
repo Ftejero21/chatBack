@@ -57,6 +57,9 @@ public class MensajeEntity {
     @Column(name = "media_size_bytes")
     private Long mediaSizeBytes;
 
+    @Column(name = "sticker_id")
+    private Long stickerId;
+
     @Lob
     @Column(columnDefinition = "TEXT")
     private String contenido;
@@ -197,6 +200,14 @@ public class MensajeEntity {
 
     public void setMediaSizeBytes(Long mediaSizeBytes) {
         this.mediaSizeBytes = mediaSizeBytes;
+    }
+
+    public Long getStickerId() {
+        return stickerId;
+    }
+
+    public void setStickerId(Long stickerId) {
+        this.stickerId = stickerId;
     }
 
     public String getContenido() {

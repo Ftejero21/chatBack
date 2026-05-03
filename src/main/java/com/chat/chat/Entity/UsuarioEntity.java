@@ -253,11 +253,22 @@ public class UsuarioEntity {
     @ManyToMany(mappedBy = "bloqueados", fetch = FetchType.LAZY)
     private Set<UsuarioEntity> meHanBloqueado = new HashSet<>();
 
+    @OneToMany(mappedBy = "usuario", cascade = CascadeType.ALL, orphanRemoval = false)
+    private List<StickerEntity> stickers = new ArrayList<>();
+
     public Set<UsuarioEntity> getMeHanBloqueado() {
         return meHanBloqueado;
     }
 
     public void setMeHanBloqueado(Set<UsuarioEntity> meHanBloqueado) {
         this.meHanBloqueado = meHanBloqueado;
+    }
+
+    public List<StickerEntity> getStickers() {
+        return stickers;
+    }
+
+    public void setStickers(List<StickerEntity> stickers) {
+        this.stickers = stickers;
     }
 }

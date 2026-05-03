@@ -26,6 +26,7 @@ import com.chat.chat.Repository.MensajeDestacadoRepository;
 import com.chat.chat.Repository.MensajeReaccionRepository;
 import com.chat.chat.Repository.MensajeRepository;
 import com.chat.chat.Repository.MensajeTemporalAuditoriaRepository;
+import com.chat.chat.Repository.StickerRepository;
 import com.chat.chat.Repository.UsuarioRepository;
 import com.chat.chat.Service.EncuestaService.EncuestaService;
 import com.chat.chat.Utils.MappingUtils;
@@ -82,6 +83,7 @@ public class MensajeriaServiceImpl implements MensajeriaService {
     private static final int DESTACADOS_DEFAULT_SIZE = 10;
     private static final int DESTACADOS_MAX_SIZE = 50;
     private static final Pattern DIACRITICS_PATTERN = Pattern.compile("\\p{M}+");
+    private static final Set<String> STICKER_MIME_ALLOWED = Set.of("image/png", "image/webp", "image/gif", "image/jpeg", "image/jpg");
     private static final String SQL_MENSAJES_COLUMN_EXISTS =
             "SELECT COUNT(1) FROM information_schema.COLUMNS " +
             "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'mensajes' AND COLUMN_NAME = ?";
@@ -131,6 +133,9 @@ public class MensajeriaServiceImpl implements MensajeriaService {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
+    @Autowired
+    private StickerRepository stickerRepository;
+
     private final Map<String, Boolean> mensajesColumnExistsCache = new ConcurrentHashMap<>();
 
     @Override
@@ -171,6 +176,8 @@ public class MensajeriaServiceImpl implements MensajeriaService {
             // si no hay indicios de audio ni tipo explicito, asumimos texto
             dto.setTipo(Constantes.TIPO_TEXT);
         }
+        validateStickerPayload(dto);
+        validateStickerOwnership(dto, authenticatedUserId);
 
         boolean imageType = E2EGroupValidationUtils.isImageType(dto.getTipo());
         boolean fileType = E2EGroupValidationUtils.isFileType(dto.getTipo());
@@ -279,6 +286,8 @@ public class MensajeriaServiceImpl implements MensajeriaService {
             boolean imageType = E2EGroupValidationUtils.isImageType(dto == null ? null : dto.getTipo());
             boolean fileType = E2EGroupValidationUtils.isFileType(dto == null ? null : dto.getTipo());
             boolean encryptedGroupAudio = audioType && E2EGroupValidationUtils.isE2EGroupAudio(inboundDiag);
+            validateStickerPayload(dto);
+            validateStickerOwnership(dto, authenticatedUserId);
             for (Long recipientId : expectedRecipientIds) {
                 String recipientKey = usuarioRepository.findFreshById(recipientId)
                         .map(UsuarioEntity::getPublicKey)
@@ -1024,6 +1033,9 @@ public class MensajeriaServiceImpl implements MensajeriaService {
         if (tipo == MessageType.IMAGE) {
             return "Imagen";
         }
+        if (tipo == MessageType.STICKER) {
+            return "Sticker";
+        }
         if (tipo == MessageType.VIDEO) {
             return "Video";
         }
@@ -1373,6 +1385,9 @@ public class MensajeriaServiceImpl implements MensajeriaService {
         if (tipo == MessageType.IMAGE) {
             return "Imagen";
         }
+        if (tipo == MessageType.STICKER) {
+            return "Sticker";
+        }
         if (tipo == MessageType.VIDEO) {
             return "Video";
         }
@@ -1456,8 +1471,10 @@ public class MensajeriaServiceImpl implements MensajeriaService {
             throw new RecursoNoEncontradoException("chat no encontrado para el mensaje");
         }
 
-        if (chat instanceof ChatIndividualEntity) {
-            ChatIndividualEntity chatIndividual = chatIndividualRepository.findById(chat.getId())
+        ChatEntity resolvedChat = resolveChatIfNeeded(chat);
+
+        if (resolvedChat instanceof ChatIndividualEntity) {
+            ChatIndividualEntity chatIndividual = chatIndividualRepository.findById(resolvedChat.getId())
                     .orElseThrow(() -> new RecursoNoEncontradoException(Constantes.MSG_CHAT_INDIVIDUAL_NO_ENCONTRADO));
 
             Long user1 = chatIndividual.getUsuario1() == null ? null : chatIndividual.getUsuario1().getId();
@@ -1477,8 +1494,8 @@ public class MensajeriaServiceImpl implements MensajeriaService {
             return new ChatDispatchContext(false, chatIndividual.getId(), recipients);
         }
 
-        if (chat instanceof ChatGrupalEntity) {
-            ChatGrupalEntity chatGrupal = chatGrupalRepository.findByIdWithUsuariosForUpdate(chat.getId())
+        if (resolvedChat instanceof ChatGrupalEntity) {
+            ChatGrupalEntity chatGrupal = chatGrupalRepository.findByIdWithUsuariosForUpdate(resolvedChat.getId())
                     .orElseThrow(() -> new RecursoNoEncontradoException(Constantes.MSG_CHAT_GRUPAL_NO_ENCONTRADO));
             if (!chatGrupal.isActivo()) {
                 throw new RecursoNoEncontradoException(Constantes.MSG_CHAT_GRUPAL_NO_ENCONTRADO);
@@ -1633,6 +1650,41 @@ public class MensajeriaServiceImpl implements MensajeriaService {
         String noDiacritics = Normalizer.normalize(lower, Normalizer.Form.NFD);
         String folded = DIACRITICS_PATTERN.matcher(noDiacritics).replaceAll("");
         return folded.isBlank() ? null : folded;
+    }
+
+    private void validateStickerPayload(MensajeDTO dto) {
+        if (dto == null || !Constantes.TIPO_STICKER.equalsIgnoreCase(dto.getTipo())) {
+            return;
+        }
+        E2EDiagnosticUtils.ContentDiagnostic diag = E2EDiagnosticUtils.analyze(dto.getContenido(), dto.getTipo());
+        boolean encrypted = E2EGroupValidationUtils.isE2EImage(diag) || E2EGroupValidationUtils.isE2EGroupImage(diag);
+        if (encrypted) {
+            return;
+        }
+        if (dto.getImageUrl() == null || dto.getImageUrl().isBlank()) {
+            throw new IllegalArgumentException("STICKER requiere imageUrl");
+        }
+        String mime = dto.getImageMime() == null ? "" : dto.getImageMime().trim().toLowerCase(Locale.ROOT);
+        if (!mime.isBlank() && !STICKER_MIME_ALLOWED.contains(mime)) {
+            throw new IllegalArgumentException("MIME de STICKER no permitido");
+        }
+    }
+
+    private void validateStickerOwnership(MensajeDTO dto, Long authenticatedUserId) {
+        if (dto == null || !Constantes.TIPO_STICKER.equalsIgnoreCase(dto.getTipo())) {
+            return;
+        }
+        Long stickerId = dto.getStickerId();
+        if (stickerId == null) {
+            return;
+        }
+        if (stickerId <= 0) {
+            throw new IllegalArgumentException("stickerId invalido");
+        }
+        boolean owned = stickerRepository.existsByIdAndUsuarioIdAndActivoTrue(stickerId, authenticatedUserId);
+        if (!owned) {
+            throw new AccessDeniedException("Sticker no encontrado o sin permisos");
+        }
     }
 
     private boolean isAdminUser(UsuarioEntity usuario) {

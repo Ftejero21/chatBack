@@ -95,6 +95,7 @@ public class Constantes {
     public static final String API_ESTADO = "/api/estado";
     public static final String API_KEYS = "/api/keys";
     public static final String API_UPLOADS_ALL = "/api/uploads";
+    public static final String API_STICKERS = "/api/stickers";
     public static final String API_AI = "/api/ai";
     public static final String API_AI_PATTERN = "/api/ai/**";
     public static final String AI_TEXT_PATH = "/texto";
@@ -136,6 +137,7 @@ public class Constantes {
     public static final String UPLOAD_FILE = "/file";
     public static final String UPLOAD_MEDIA = "/media";
     public static final String UPLOAD_IMAGE = "/image";
+    public static final String STICKERS_MIS_STICKERS = "/mis-stickers";
 
     // Mensajes API
     public static final String KEY_MENSAJE = "mensaje";
@@ -209,6 +211,7 @@ public class Constantes {
     public static final String DIR_AVATARS = "avatars";
     public static final String DIR_VOICE = "voice";
     public static final String DIR_MEDIA = "media";
+    public static final String DIR_STICKERS = "stickers";
 
     public static final String MSG_CHAT_INDIVIDUAL_BLOQUEADO = "No puedes crear un chat individual con un usuario bloqueado";
     public static final String MSG_CREADOR_NO_ENCONTRADO = "Creador no encontrado";
@@ -232,6 +235,7 @@ public class Constantes {
     public static final String CHAT_TIPO_GRUPAL = "GRUPAL";
     public static final String TIPO_AUDIO = "AUDIO";
     public static final String TIPO_IMAGE = "IMAGE";
+    public static final String TIPO_STICKER = "STICKER";
     public static final String TIPO_VIDEO = "VIDEO";
     public static final String TIPO_FILE = "FILE";
     public static final String TIPO_POLL = "POLL";
@@ -473,7 +477,7 @@ public class Constantes {
 
     // Queries DB fix mensajes.tipo
     public static final String SQL_INFO_SCHEMA_COLUMN_TYPE_MENSAJES_TIPO = "SELECT COLUMN_TYPE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'mensajes' AND COLUMN_NAME = 'tipo'";
-    public static final String SQL_ALTER_MENSAJES_TIPO_MULTIMEDIA = "ALTER TABLE mensajes MODIFY COLUMN tipo ENUM('TEXT','AUDIO','IMAGE','VIDEO','FILE','POLL','SYSTEM') NOT NULL DEFAULT 'TEXT'";
+    public static final String SQL_ALTER_MENSAJES_TIPO_MULTIMEDIA = "ALTER TABLE mensajes MODIFY COLUMN tipo ENUM('TEXT','AUDIO','IMAGE','STICKER','VIDEO','FILE','POLL','SYSTEM') NOT NULL DEFAULT 'TEXT'";
     public static final String SQL_INFO_SCHEMA_INDEX_COUNT = "SELECT COUNT(1) FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'mensajes' AND INDEX_NAME = ?";
     public static final String SQL_CREATE_INDEX_MENSAJES_MEDIA_FEED = "CREATE INDEX ";
     public static final String SQL_CREATE_INDEX_MENSAJES_MEDIA_FEED_SUFFIX = " ON mensajes (chat_id, tipo, activo, fecha_envio DESC, id DESC)";

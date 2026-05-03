@@ -15,6 +15,7 @@ public class ChatPinnedMessageMapper {
     private static final int PREVIEW_MAX_LEN = 180;
     private static final String PREVIEW_AUDIO = "[Audio]";
     private static final String PREVIEW_IMAGE = "[Imagen]";
+    private static final String PREVIEW_STICKER = "[Sticker]";
     private static final String PREVIEW_FILE = "[Archivo]";
     private static final String PREVIEW_POLL = "[Encuesta]";
     private static final String PREVIEW_SYSTEM = "[Sistema]";
@@ -60,6 +61,7 @@ public class ChatPinnedMessageMapper {
         return switch (mensaje.getTipo()) {
             case AUDIO -> PREVIEW_AUDIO;
             case IMAGE -> PREVIEW_IMAGE;
+            case STICKER -> PREVIEW_STICKER;
             case FILE, VIDEO -> {
                 String fileName = extractFileNameFromMessage(mensaje);
                 yield fileName == null ? PREVIEW_FILE : truncate(PREVIEW_FILE + " " + fileName);

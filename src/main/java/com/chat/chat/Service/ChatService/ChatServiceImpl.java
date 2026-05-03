@@ -984,6 +984,12 @@ public class ChatServiceImpl implements ChatService {
         if (tipo == MessageType.IMAGE) {
             return prefix + "Imagen";
         }
+        if (tipo == MessageType.STICKER) {
+            return prefix + "Sticker";
+        }
+        if (tipo == MessageType.STICKER) {
+            return prefix + "Sticker";
+        }
         if (tipo == MessageType.AUDIO) {
             GroupMediaMeta meta = extractMediaMeta(last);
             String dur = Utils.mmss(meta.durMs());
@@ -1184,7 +1190,7 @@ public class ChatServiceImpl implements ChatService {
         dto.setUltimaFecha(last.getFechaEnvio());
 
         GroupMediaMeta meta = extractMediaMeta(last);
-        if (tipo == MessageType.IMAGE) {
+        if (tipo == MessageType.IMAGE || tipo == MessageType.STICKER) {
             dto.setUltimaMensajeImageUrl(meta.mediaUrl());
             dto.setUltimaMensajeImageMime(meta.mime());
             dto.setUltimaMensajeImageNombre(meta.fileName());
@@ -1263,7 +1269,7 @@ public class ChatServiceImpl implements ChatService {
         dto.setUltimaFecha(last.getFechaEnvio());
 
         GroupMediaMeta meta = extractMediaMeta(last);
-        if (tipo == MessageType.IMAGE) {
+        if (tipo == MessageType.IMAGE || tipo == MessageType.STICKER) {
             dto.setUltimaMensajeImageUrl(meta.mediaUrl());
             dto.setUltimaMensajeImageMime(meta.mime());
             dto.setUltimaMensajeImageNombre(meta.fileName());
@@ -1996,6 +2002,7 @@ public class ChatServiceImpl implements ChatService {
             dto.setId(ci.getId());
             dto.setTipo(Constantes.CHAT_TIPO_INDIVIDUAL);
             dto.setNombreChat(ci.getUsuario1().getNombre() + Constantes.MSG_Y + ci.getUsuario2().getNombre());
+            dto.setVisibilidad("PRIVADO");
             dto.setAdminDirect(ci.isAdminDirect());
             dto.setTotalMensajes(totalMensajesPorChat.getOrDefault(ci.getId(), 0));
             MensajeEntity ultimo = ultimoMensajePorChat.get(ci.getId());
@@ -2013,6 +2020,7 @@ public class ChatServiceImpl implements ChatService {
             dto.setId(cg.getId());
             dto.setTipo(Constantes.CHAT_TIPO_GRUPAL);
             dto.setNombreChat(cg.getNombreGrupo() + Constantes.MSG_GRUPO_SUFFIX);
+            dto.setVisibilidad(cg.getVisibilidad() == null ? "PRIVADO" : cg.getVisibilidad().name());
             dto.setChatCerrado(cg.isClosed());
             dto.setClosed(cg.isClosed());
             dto.setChatCerradoMotivo(cg.isClosed() ? cg.getClosedReason() : null);
@@ -3132,7 +3140,7 @@ public class ChatServiceImpl implements ChatService {
 
     private List<MessageType> parseMediaTypes(String csv) {
         if (csv == null || csv.isBlank()) {
-            return List.of(MessageType.IMAGE, MessageType.VIDEO, MessageType.AUDIO, MessageType.FILE);
+            return List.of(MessageType.IMAGE, MessageType.STICKER, MessageType.VIDEO, MessageType.AUDIO, MessageType.FILE);
         }
         LinkedHashSet<MessageType> parsed = new LinkedHashSet<>();
         for (String token : csv.split(",")) {
@@ -3146,13 +3154,13 @@ public class ChatServiceImpl implements ChatService {
             } catch (IllegalArgumentException ex) {
                 throw new IllegalArgumentException(ExceptionConstants.ERROR_MEDIA_TYPES_INVALID_PREFIX + normalized);
             }
-            if (!(type == MessageType.IMAGE || type == MessageType.VIDEO || type == MessageType.AUDIO || type == MessageType.FILE)) {
+            if (!(type == MessageType.IMAGE || type == MessageType.STICKER || type == MessageType.VIDEO || type == MessageType.AUDIO || type == MessageType.FILE)) {
                 throw new IllegalArgumentException(ExceptionConstants.ERROR_MEDIA_TYPES_INVALID_PREFIX + normalized);
             }
             parsed.add(type);
         }
         if (parsed.isEmpty()) {
-            return List.of(MessageType.IMAGE, MessageType.VIDEO, MessageType.AUDIO, MessageType.FILE);
+            return List.of(MessageType.IMAGE, MessageType.STICKER, MessageType.VIDEO, MessageType.AUDIO, MessageType.FILE);
         }
         return new ArrayList<>(parsed);
     }

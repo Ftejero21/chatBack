@@ -113,6 +113,7 @@ public class MappingUtils {
         e.setContenidoBusqueda(dto.getContenidoBusqueda());
         e.setReenviado(dto.isReenviado());
         e.setMensajeOriginalId(dto.getMensajeOriginalId());
+        e.setStickerId(dto.getStickerId());
         e.setReplyToMessageId(dto.getReplyToMessageId());
         e.setReplySnippet(dto.getReplySnippet());
         e.setReplyAuthorName(dto.getReplyAuthorName());
@@ -122,6 +123,8 @@ public class MappingUtils {
             t = MessageType.AUDIO;
         } else if (Constantes.TIPO_IMAGE.equalsIgnoreCase(dto.getTipo())) {
             t = MessageType.IMAGE;
+        } else if (Constantes.TIPO_STICKER.equalsIgnoreCase(dto.getTipo())) {
+            t = MessageType.STICKER;
         } else if (Constantes.TIPO_VIDEO.equalsIgnoreCase(dto.getTipo())) {
             t = MessageType.VIDEO;
         } else if (Constantes.TIPO_FILE.equalsIgnoreCase(dto.getTipo())) {
@@ -138,7 +141,7 @@ public class MappingUtils {
             e.setMediaMime(dto.getAudioMime());
             e.setMediaDuracionMs(dto.getAudioDuracionMs());
             e.setMediaSizeBytes(null);
-        } else if (t == MessageType.IMAGE) {
+        } else if (t == MessageType.IMAGE || t == MessageType.STICKER) {
             String imageUrl = firstNonBlank(dto.getImageUrl(), jsonTextField(dto.getContenido(), "imageUrl"));
             String imageMime = firstNonBlank(dto.getImageMime(), jsonTextField(dto.getContenido(), "imageMime"));
             e.setMediaUrl(imageUrl);
@@ -184,13 +187,13 @@ public class MappingUtils {
         dto.setReceptorId(e.getReceptor() != null ? e.getReceptor().getId() : null);
         dto.setContenido(e.getContenido());
         dto.setContenidoBusqueda(e.getContenidoBusqueda());
-        dto.setTipo(e.getTipo().name());
+        dto.setTipo(resolveOutboundTipo(e));
 
         if (e.getTipo() == MessageType.AUDIO) {
             dto.setAudioUrl(e.getMediaUrl());
             dto.setAudioMime(e.getMediaMime());
             dto.setAudioDuracionMs(e.getMediaDuracionMs());
-        } else if (e.getTipo() == MessageType.IMAGE) {
+        } else if (e.getTipo() == MessageType.IMAGE || e.getTipo() == MessageType.STICKER) {
             String imageUrl = firstNonBlank(e.getMediaUrl(), jsonTextField(e.getContenido(), "imageUrl"));
             String imageMime = firstNonBlank(e.getMediaMime(), jsonTextField(e.getContenido(), "imageMime"));
             String imageNombre = firstNonBlank(
@@ -199,6 +202,9 @@ public class MappingUtils {
             dto.setImageUrl(imageUrl);
             dto.setImageMime(imageMime);
             dto.setImageNombre(imageNombre);
+            if (e.getTipo() == MessageType.STICKER || isLegacyStickerContent(e.getContenido())) {
+                dto.setContentKind(Constantes.TIPO_STICKER);
+            }
         } else if (e.getTipo() == MessageType.FILE) {
             String fileUrl = firstNonBlank(e.getMediaUrl(),
                     jsonTextField(e.getContenido(), "fileUrl"),
@@ -230,6 +236,7 @@ public class MappingUtils {
         dto.setFechaEnvio(e.getFechaEnvio());
         dto.setReenviado(e.isReenviado());
         dto.setMensajeOriginalId(e.getMensajeOriginalId());
+        dto.setStickerId(e.getStickerId());
         dto.setReplyToMessageId(e.getReplyToMessageId());
         dto.setReplySnippet(e.getReplySnippet());
         dto.setReplyAuthorName(e.getReplyAuthorName());
@@ -355,6 +362,9 @@ public class MappingUtils {
         ChatGrupalDTO dto = new ChatGrupalDTO();
         dto.setId(entity.getId());
         dto.setNombreGrupo(entity.getNombreGrupo());
+        dto.setDescripcion(entity.getDescripcion());
+        dto.setVisibilidad(entity.getVisibilidad() == null ? "PRIVADO" : entity.getVisibilidad().name());
+        dto.setIdCreador(entity.getCreador() == null ? null : entity.getCreador().getId());
         List<UsuarioDTO> usuarios = entity.getUsuarios().stream()
                 .map(MappingUtils::usuarioEntityADto)
                 .collect(Collectors.toList());
@@ -481,5 +491,26 @@ public class MappingUtils {
                 && e.isMensajeTemporal()
                 && e.getExpiraEn() != null
                 && !e.getExpiraEn().isAfter(LocalDateTime.now());
+    }
+
+    private static String resolveOutboundTipo(MensajeEntity e) {
+        if (e == null || e.getTipo() == null) {
+            return MessageType.TEXT.name();
+        }
+        if (e.getTipo() == MessageType.IMAGE && isLegacyStickerContent(e.getContenido())) {
+            return Constantes.TIPO_STICKER;
+        }
+        return e.getTipo().name();
+    }
+
+    private static boolean isLegacyStickerContent(String contenido) {
+        if (contenido == null || contenido.isBlank()) {
+            return false;
+        }
+        String kind = firstNonBlank(
+                jsonTextField(contenido, "contentKind"),
+                jsonTextField(contenido, "content_kind"),
+                jsonTextField(contenido, "tipo"));
+        return kind != null && Constantes.TIPO_STICKER.equalsIgnoreCase(kind);
     }
 }

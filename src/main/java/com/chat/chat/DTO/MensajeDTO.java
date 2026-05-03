@@ -2,6 +2,7 @@ package com.chat.chat.DTO;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonAlias;
+import io.swagger.v3.oas.annotations.media.Schema;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -17,6 +18,7 @@ public class MensajeDTO {
     private LocalDateTime fechaEnvio;
     private boolean activo;
 
+    @Schema(allowableValues = {"TEXT", "AUDIO", "IMAGE", "STICKER", "VIDEO", "FILE", "POLL", "SYSTEM"})
     private String tipo;             // opcional: usar String o MessageType en el DTO
 
     private boolean reenviado;
@@ -38,6 +40,7 @@ public class MensajeDTO {
     private String fileMime;
     private String fileNombre;
     private Long fileSizeBytes;
+    private Long stickerId;
     private String reaccionEmoji;
     private Long reaccionUsuarioId;
     private LocalDateTime reaccionFecha;
@@ -517,6 +520,14 @@ public class MensajeDTO {
 
     public void setFileSizeBytes(Long fileSizeBytes) {
         this.fileSizeBytes = fileSizeBytes;
+    }
+
+    public Long getStickerId() {
+        return stickerId;
+    }
+
+    public void setStickerId(Long stickerId) {
+        this.stickerId = stickerId;
     }
 
 

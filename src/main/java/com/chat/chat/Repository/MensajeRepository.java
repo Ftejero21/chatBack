@@ -14,6 +14,8 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
 import java.time.LocalDateTime;
 import java.util.Optional;
+import com.chat.chat.Entity.ChatGrupalEntity;
+import com.chat.chat.Entity.ChatIndividualEntity;
 
 @Repository
 public interface MensajeRepository extends JpaRepository<MensajeEntity, Long> {
@@ -115,6 +117,9 @@ public interface MensajeRepository extends JpaRepository<MensajeEntity, Long> {
     @Query("select m.emisor.id from MensajeEntity m where m.id = :id")
     Optional<Long> findEmisorIdById(@Param("id") Long id);
 
+    @Query("select m.chat.id from MensajeEntity m where m.id = :id")
+    Optional<Long> findChatIdByMessageId(@Param("id") Long id);
+
     @Modifying
     @Transactional
     @Query("update MensajeEntity m set m.activo = false, m.fechaEliminacion = CURRENT_TIMESTAMP " +
@@ -140,6 +145,13 @@ public interface MensajeRepository extends JpaRepository<MensajeEntity, Long> {
     @Query("select m from MensajeEntity m " +
             "where m.id = :id and m.chat.id = :chatId")
     Optional<MensajeEntity> findByIdAndChatId(@Param("id") Long id, @Param("chatId") Long chatId);
+
+    @Query("select m from MensajeEntity m " +
+            "left join fetch m.emisor emisor " +
+            "left join fetch m.receptor receptor " +
+            "left join fetch m.chat chat " +
+            "where m.id = :id")
+    Optional<MensajeEntity> findByIdWithChatAndUsers(@Param("id") Long id);
 
     @Query("select m from MensajeEntity m " +
             "where m.id = :messageId and m.mediaUrl = :mediaUrl")
@@ -272,5 +284,296 @@ public interface MensajeRepository extends JpaRepository<MensajeEntity, Long> {
     List<MensajeEntity> findPlaceholdersParaLimpiezaTecnica(
             @Param("motivo") String motivo,
             @Param("cutoff") LocalDateTime cutoff,
+            Pageable pageable);
+
+    @Query("select m from MensajeEntity m " +
+            "left join fetch m.emisor emisor " +
+            "left join fetch m.receptor receptor " +
+            "left join fetch m.chat chat " +
+            "where m.chat.id = :chatId " +
+            "and type(m.chat) = ChatIndividualEntity " +
+            "and m.activo = true " +
+            "and m.adminMessage = false " +
+            "and (m.expiraEn is null or m.expiraEn > CURRENT_TIMESTAMP) " +
+            "order by m.fechaEnvio desc, m.id desc")
+    List<MensajeEntity> findLatestVisibleMessagesByChatIndividualId(
+            @Param("chatId") Long chatId,
+            Pageable pageable);
+
+    @Query("select m from MensajeEntity m " +
+            "left join fetch m.emisor emisor " +
+            "left join fetch m.receptor receptor " +
+            "left join fetch m.chat chat " +
+            "where m.chat.id = :chatGrupalId " +
+            "and type(m.chat) = ChatGrupalEntity " +
+            "and m.activo = true " +
+            "and m.adminMessage = false " +
+            "and (m.expiraEn is null or m.expiraEn > CURRENT_TIMESTAMP) " +
+            "order by m.fechaEnvio desc, m.id desc")
+    List<MensajeEntity> findLatestVisibleMessagesByChatGrupalId(
+            @Param("chatGrupalId") Long chatGrupalId,
+            Pageable pageable);
+
+    @Query(value = "select m from MensajeEntity m " +
+            "where m.emisor.id = :userId " +
+            "and m.activo = true " +
+            "and m.adminMessage = false " +
+            "and m.contenido is not null " +
+            "and m.tipo = :tipo " +
+            "and (m.expiraEn is null or m.expiraEn > CURRENT_TIMESTAMP) " +
+            "and (:fechaInicio is null or m.fechaEnvio >= :fechaInicio) " +
+            "and (:fechaFin is null or m.fechaEnvio <= :fechaFin) " +
+            "order by m.fechaEnvio desc, m.id desc",
+            countQuery = "select count(m) from MensajeEntity m " +
+                    "where m.emisor.id = :userId " +
+                    "and m.activo = true " +
+                    "and m.adminMessage = false " +
+                    "and m.contenido is not null " +
+                    "and m.tipo = :tipo " +
+                    "and (m.expiraEn is null or m.expiraEn > CURRENT_TIMESTAMP) " +
+                    "and (:fechaInicio is null or m.fechaEnvio >= :fechaInicio) " +
+                    "and (:fechaFin is null or m.fechaEnvio <= :fechaFin)")
+    Page<MensajeEntity> findMensajesEnviadosPorUsuarioParaAi(
+            @Param("userId") Long userId,
+            @Param("tipo") MessageType tipo,
+            @Param("fechaInicio") LocalDateTime fechaInicio,
+            @Param("fechaFin") LocalDateTime fechaFin,
+            Pageable pageable);
+
+    @Query("select m from MensajeEntity m " +
+            "left join fetch m.emisor emisor " +
+            "left join fetch m.receptor receptor " +
+            "left join fetch m.chat chat " +
+            "where m.emisor.id = :userId " +
+            "and m.activo = true " +
+            "and m.adminMessage = false " +
+            "and m.contenido is not null " +
+            "and m.tipo = :tipo " +
+            "and (m.expiraEn is null or m.expiraEn > CURRENT_TIMESTAMP) " +
+            "and (:fechaInicio is null or m.fechaEnvio >= :fechaInicio) " +
+            "and (:fechaFin is null or m.fechaEnvio <= :fechaFin) " +
+            "and type(m.chat) = ChatGrupalEntity " +
+            "and m.chat.id = :chatGrupalId " +
+            "order by m.fechaEnvio desc, m.id desc")
+    Page<MensajeEntity> buscarMensajesEnviadosPorUsuarioEnChatGrupal(
+            @Param("userId") Long userId,
+            @Param("tipo") MessageType tipo,
+            @Param("chatGrupalId") Long chatGrupalId,
+            @Param("fechaInicio") LocalDateTime fechaInicio,
+            @Param("fechaFin") LocalDateTime fechaFin,
+            Pageable pageable);
+
+    @Query("select m from MensajeEntity m " +
+            "left join fetch m.emisor emisor " +
+            "left join fetch m.receptor receptor " +
+            "left join fetch m.chat chat " +
+            "where m.emisor.id = :userId " +
+            "and m.activo = true " +
+            "and m.adminMessage = false " +
+            "and m.contenido is not null " +
+            "and m.tipo = :tipo " +
+            "and (m.expiraEn is null or m.expiraEn > CURRENT_TIMESTAMP) " +
+            "and (:fechaInicio is null or m.fechaEnvio >= :fechaInicio) " +
+            "and (:fechaFin is null or m.fechaEnvio <= :fechaFin) " +
+            "and type(m.chat) = ChatIndividualEntity " +
+            "and m.chat.id = :chatId " +
+            "order by m.fechaEnvio desc, m.id desc")
+    Page<MensajeEntity> buscarMensajesEnviadosPorUsuarioEnChatIndividual(
+            @Param("userId") Long userId,
+            @Param("tipo") MessageType tipo,
+            @Param("chatId") Long chatId,
+            @Param("fechaInicio") LocalDateTime fechaInicio,
+            @Param("fechaFin") LocalDateTime fechaFin,
+            Pageable pageable);
+
+    @Query("select m from MensajeEntity m " +
+            "left join fetch m.emisor emisor " +
+            "left join fetch m.receptor receptor " +
+            "left join fetch m.chat chat " +
+            "where m.emisor.id = :userId " +
+            "and m.activo = true " +
+            "and m.adminMessage = false " +
+            "and m.contenido is not null " +
+            "and m.tipo = :tipo " +
+            "and (m.expiraEn is null or m.expiraEn > CURRENT_TIMESTAMP) " +
+            "and (:fechaInicio is null or m.fechaEnvio >= :fechaInicio) " +
+            "and (:fechaFin is null or m.fechaEnvio <= :fechaFin) " +
+            "order by m.fechaEnvio desc, m.id desc")
+    Page<MensajeEntity> buscarMensajesEnviadosPorUsuarioGlobal(
+            @Param("userId") Long userId,
+            @Param("tipo") MessageType tipo,
+            @Param("fechaInicio") LocalDateTime fechaInicio,
+            @Param("fechaFin") LocalDateTime fechaFin,
+            Pageable pageable);
+
+    @Query("select m from MensajeEntity m " +
+            "left join fetch m.emisor emisor " +
+            "left join fetch m.receptor receptor " +
+            "left join fetch m.chat chat " +
+            "where m.emisor.id = :userId " +
+            "and m.activo = true " +
+            "and m.adminMessage = false " +
+            "and m.contenido is not null " +
+            "and m.tipo = :tipo " +
+            "and (m.expiraEn is null or m.expiraEn > CURRENT_TIMESTAMP) " +
+            "and (:fechaInicio is null or m.fechaEnvio >= :fechaInicio) " +
+            "and (:fechaFin is null or m.fechaEnvio <= :fechaFin) " +
+            "and type(m.chat) = ChatGrupalEntity " +
+            "order by m.fechaEnvio desc, m.id desc")
+    Page<MensajeEntity> buscarMensajesEnviadosPorUsuarioGlobalSoloGrupales(
+            @Param("userId") Long userId,
+            @Param("tipo") MessageType tipo,
+            @Param("fechaInicio") LocalDateTime fechaInicio,
+            @Param("fechaFin") LocalDateTime fechaFin,
+            Pageable pageable);
+
+    @Query("select m from MensajeEntity m " +
+            "left join fetch m.emisor emisor " +
+            "left join fetch m.receptor receptor " +
+            "left join fetch m.chat chat " +
+            "where m.emisor.id = :userId " +
+            "and m.activo = true " +
+            "and m.adminMessage = false " +
+            "and (m.expiraEn is null or m.expiraEn > CURRENT_TIMESTAMP) " +
+            "and (:fechaInicio is null or m.fechaEnvio >= :fechaInicio) " +
+            "and (:fechaFin is null or m.fechaEnvio <= :fechaFin) " +
+            "and type(m.chat) = ChatGrupalEntity " +
+            "and m.chat.id = :chatGrupalId " +
+            "order by m.fechaEnvio desc, m.id desc")
+    Page<MensajeEntity> buscarMensajesEnviadosPorUsuarioEnChatGrupalSinFiltroTipo(
+            @Param("userId") Long userId,
+            @Param("chatGrupalId") Long chatGrupalId,
+            @Param("fechaInicio") LocalDateTime fechaInicio,
+            @Param("fechaFin") LocalDateTime fechaFin,
+            Pageable pageable);
+
+    @Query("select m from MensajeEntity m " +
+            "left join fetch m.emisor emisor " +
+            "left join fetch m.receptor receptor " +
+            "left join fetch m.chat chat " +
+            "where m.emisor.id = :userId " +
+            "and m.activo = true " +
+            "and m.adminMessage = false " +
+            "and (m.expiraEn is null or m.expiraEn > CURRENT_TIMESTAMP) " +
+            "and (:fechaInicio is null or m.fechaEnvio >= :fechaInicio) " +
+            "and (:fechaFin is null or m.fechaEnvio <= :fechaFin) " +
+            "and type(m.chat) = ChatIndividualEntity " +
+            "and m.chat.id = :chatId " +
+            "order by m.fechaEnvio desc, m.id desc")
+    Page<MensajeEntity> buscarMensajesEnviadosPorUsuarioEnChatIndividualSinFiltroTipo(
+            @Param("userId") Long userId,
+            @Param("chatId") Long chatId,
+            @Param("fechaInicio") LocalDateTime fechaInicio,
+            @Param("fechaFin") LocalDateTime fechaFin,
+            Pageable pageable);
+
+    @Query("select m from MensajeEntity m " +
+            "left join fetch m.emisor emisor " +
+            "left join fetch m.receptor receptor " +
+            "left join fetch m.chat chat " +
+            "where m.emisor.id = :userId " +
+            "and m.activo = true " +
+            "and m.adminMessage = false " +
+            "and (m.expiraEn is null or m.expiraEn > CURRENT_TIMESTAMP) " +
+            "and (:fechaInicio is null or m.fechaEnvio >= :fechaInicio) " +
+            "and (:fechaFin is null or m.fechaEnvio <= :fechaFin) " +
+            "order by m.fechaEnvio desc, m.id desc")
+    Page<MensajeEntity> buscarMensajesEnviadosPorUsuarioGlobalSinFiltroTipo(
+            @Param("userId") Long userId,
+            @Param("fechaInicio") LocalDateTime fechaInicio,
+            @Param("fechaFin") LocalDateTime fechaFin,
+            Pageable pageable);
+
+    @Query("select m from MensajeEntity m " +
+            "left join fetch m.emisor emisor " +
+            "left join fetch m.receptor receptor " +
+            "left join fetch m.chat chat " +
+            "where m.emisor.id = :userId " +
+            "and m.activo = true " +
+            "and m.adminMessage = false " +
+            "and (m.expiraEn is null or m.expiraEn > CURRENT_TIMESTAMP) " +
+            "and (:fechaInicio is null or m.fechaEnvio >= :fechaInicio) " +
+            "and (:fechaFin is null or m.fechaEnvio <= :fechaFin) " +
+            "and type(m.chat) = ChatGrupalEntity " +
+            "order by m.fechaEnvio desc, m.id desc")
+    Page<MensajeEntity> buscarMensajesEnviadosPorUsuarioGlobalSoloGrupalesSinFiltroTipo(
+            @Param("userId") Long userId,
+            @Param("fechaInicio") LocalDateTime fechaInicio,
+            @Param("fechaFin") LocalDateTime fechaFin,
+            Pageable pageable);
+
+    @Query("select m from MensajeEntity m " +
+            "left join fetch m.emisor emisor " +
+            "left join fetch m.receptor receptor " +
+            "left join fetch m.chat chat " +
+            "where m.emisor.id = :userId " +
+            "and m.activo = true " +
+            "and m.adminMessage = false " +
+            "and (m.expiraEn is null or m.expiraEn > CURRENT_TIMESTAMP) " +
+            "and (:fechaInicio is null or m.fechaEnvio >= :fechaInicio) " +
+            "and (:fechaFin is null or m.fechaEnvio <= :fechaFin) " +
+            "and type(m.chat) = ChatGrupalEntity " +
+            "and m.chat.id = :chatGrupalId " +
+            "order by m.fechaEnvio asc, m.id asc")
+    Page<MensajeEntity> buscarPrimerosMensajesEnviadosPorUsuarioEnChatGrupalSinFiltroTipo(
+            @Param("userId") Long userId,
+            @Param("chatGrupalId") Long chatGrupalId,
+            @Param("fechaInicio") LocalDateTime fechaInicio,
+            @Param("fechaFin") LocalDateTime fechaFin,
+            Pageable pageable);
+
+    @Query("select m from MensajeEntity m " +
+            "left join fetch m.emisor emisor " +
+            "left join fetch m.receptor receptor " +
+            "left join fetch m.chat chat " +
+            "where m.emisor.id = :userId " +
+            "and m.activo = true " +
+            "and m.adminMessage = false " +
+            "and (m.expiraEn is null or m.expiraEn > CURRENT_TIMESTAMP) " +
+            "and (:fechaInicio is null or m.fechaEnvio >= :fechaInicio) " +
+            "and (:fechaFin is null or m.fechaEnvio <= :fechaFin) " +
+            "and type(m.chat) = ChatIndividualEntity " +
+            "and m.chat.id = :chatId " +
+            "order by m.fechaEnvio asc, m.id asc")
+    Page<MensajeEntity> buscarPrimerosMensajesEnviadosPorUsuarioEnChatIndividualSinFiltroTipo(
+            @Param("userId") Long userId,
+            @Param("chatId") Long chatId,
+            @Param("fechaInicio") LocalDateTime fechaInicio,
+            @Param("fechaFin") LocalDateTime fechaFin,
+            Pageable pageable);
+
+    @Query("select m from MensajeEntity m " +
+            "left join fetch m.emisor emisor " +
+            "left join fetch m.receptor receptor " +
+            "left join fetch m.chat chat " +
+            "where m.emisor.id = :userId " +
+            "and m.activo = true " +
+            "and m.adminMessage = false " +
+            "and (m.expiraEn is null or m.expiraEn > CURRENT_TIMESTAMP) " +
+            "and (:fechaInicio is null or m.fechaEnvio >= :fechaInicio) " +
+            "and (:fechaFin is null or m.fechaEnvio <= :fechaFin) " +
+            "order by m.fechaEnvio asc, m.id asc")
+    Page<MensajeEntity> buscarPrimerosMensajesEnviadosPorUsuarioGlobalSinFiltroTipo(
+            @Param("userId") Long userId,
+            @Param("fechaInicio") LocalDateTime fechaInicio,
+            @Param("fechaFin") LocalDateTime fechaFin,
+            Pageable pageable);
+
+    @Query("select m from MensajeEntity m " +
+            "left join fetch m.emisor emisor " +
+            "left join fetch m.receptor receptor " +
+            "left join fetch m.chat chat " +
+            "where m.emisor.id = :userId " +
+            "and m.activo = true " +
+            "and m.adminMessage = false " +
+            "and (m.expiraEn is null or m.expiraEn > CURRENT_TIMESTAMP) " +
+            "and (:fechaInicio is null or m.fechaEnvio >= :fechaInicio) " +
+            "and (:fechaFin is null or m.fechaEnvio <= :fechaFin) " +
+            "and type(m.chat) = ChatGrupalEntity " +
+            "order by m.fechaEnvio asc, m.id asc")
+    Page<MensajeEntity> buscarPrimerosMensajesEnviadosPorUsuarioGlobalSoloGrupalesSinFiltroTipo(
+            @Param("userId") Long userId,
+            @Param("fechaInicio") LocalDateTime fechaInicio,
+            @Param("fechaFin") LocalDateTime fechaFin,
             Pageable pageable);
 }

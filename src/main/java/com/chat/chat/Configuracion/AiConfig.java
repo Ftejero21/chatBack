@@ -30,4 +30,60 @@ public class AiConfig {
                 .setReadTimeout(timeout)
                 .build();
     }
+
+    @Bean
+    @Qualifier("aiMessageSearchRestTemplate")
+    public RestTemplate aiMessageSearchRestTemplate(RestTemplateBuilder builder,
+                                                    TejechatAiServiceProperties tejechatAiServiceProperties) {
+        Duration timeout = Duration.ofSeconds(tejechatAiServiceProperties.getTimeoutSeconds());
+        return builder
+                .setConnectTimeout(timeout)
+                .setReadTimeout(timeout)
+                .build();
+    }
+
+    @Bean
+    @Qualifier("aiEncryptedSummaryRestTemplate")
+    public RestTemplate aiEncryptedSummaryRestTemplate(RestTemplateBuilder builder,
+                                                       TejechatAiServiceProperties tejechatAiServiceProperties) {
+        Duration timeout = Duration.ofSeconds(tejechatAiServiceProperties.getTimeoutSeconds());
+        return builder
+                .setConnectTimeout(timeout)
+                .setReadTimeout(timeout)
+                .build();
+    }
+
+    @Bean
+    @Qualifier("aiTextRestTemplate")
+    public RestTemplate aiTextRestTemplate(RestTemplateBuilder builder,
+                                           TejechatAiServiceProperties tejechatAiServiceProperties) {
+        Duration timeout = Duration.ofSeconds(tejechatAiServiceProperties.getTimeoutSeconds());
+        return builder
+                .setConnectTimeout(timeout)
+                .setReadTimeout(timeout)
+                .build();
+    }
+
+    @Bean
+    @Qualifier("aiReportAnalysisRestTemplate")
+    public RestTemplate aiReportAnalysisRestTemplate(RestTemplateBuilder builder,
+                                                     TejechatAiServiceProperties tejechatAiServiceProperties) {
+        Duration timeout = Duration.ofSeconds(tejechatAiServiceProperties.getTimeoutSeconds());
+        return builder
+                .setConnectTimeout(timeout)
+                .setReadTimeout(timeout)
+                .build();
+    }
+
+    @Bean
+    @Qualifier("aiQuickReplyRestTemplate")
+    public RestTemplate aiQuickReplyRestTemplate(RestTemplateBuilder builder,
+                                                 TejechatAiServiceProperties tejechatAiServiceProperties) {
+        Duration timeout = Duration.ofSeconds(tejechatAiServiceProperties.getTimeoutSeconds());
+        return builder
+                .setConnectTimeout(timeout)
+                .setReadTimeout(timeout)
+                .build();
+    }
+
 }

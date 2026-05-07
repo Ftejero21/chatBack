@@ -8,6 +8,7 @@ import org.springframework.stereotype.Component;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.io.InputStream;
 import java.security.KeyFactory;
 import java.security.PrivateKey;
 import java.security.PublicKey;
@@ -193,28 +194,13 @@ public class AdminAuditCrypto {
             return normalizePrivateKeyValue(localStorageStyleAdminPrivateKey);
         }
         if (!isBlank(adminPrivateKeyPath)) {
-            try {
-                return normalizePrivateKeyValue(Files.readString(Path.of(adminPrivateKeyPath), StandardCharsets.UTF_8));
-            } catch (Exception ex) {
-                LOGGER.warn("AUDIT admin private key path read failed: {}", ex.getClass().getSimpleName());
-                return null;
-            }
+            return readPemFromConfiguredPath(adminPrivateKeyPath, "primary-path");
         }
         if (!isBlank(cryptoAdminPrivateKeyPath)) {
-            try {
-                return normalizePrivateKeyValue(Files.readString(Path.of(cryptoAdminPrivateKeyPath), StandardCharsets.UTF_8));
-            } catch (Exception ex) {
-                LOGGER.warn("AUDIT admin private key alias path read failed: {}", ex.getClass().getSimpleName());
-                return null;
-            }
+            return readPemFromConfiguredPath(cryptoAdminPrivateKeyPath, "alias-path");
         }
         if (!isBlank(localStorageStyleAdminPrivateKeyPath)) {
-            try {
-                return normalizePrivateKeyValue(Files.readString(Path.of(localStorageStyleAdminPrivateKeyPath), StandardCharsets.UTF_8));
-            } catch (Exception ex) {
-                LOGGER.warn("AUDIT admin private key localStorage-style path read failed: {}", ex.getClass().getSimpleName());
-                return null;
-            }
+            return readPemFromConfiguredPath(localStorageStyleAdminPrivateKeyPath, "localstorage-path");
         }
         String envPem = firstNonBlankEnv("APP_AUDIT_ADMIN_PRIVATE_KEY_PEM", "ADMIN_PRIVATE_KEY", "AI_AUDIT_PRIVATE_KEY");
         if (!isBlank(envPem)) {
@@ -222,12 +208,59 @@ public class AdminAuditCrypto {
         }
         String envPath = firstNonBlankEnv("APP_AUDIT_ADMIN_PRIVATE_KEY_PATH", "ADMIN_PRIVATE_KEY_PATH", "AI_AUDIT_PRIVATE_KEY_PATH");
         if (!isBlank(envPath)) {
-            try {
-                return normalizePrivateKeyValue(Files.readString(Path.of(envPath), StandardCharsets.UTF_8));
-            } catch (Exception ex) {
-                LOGGER.warn("AUDIT admin private key env path read failed: {}", ex.getClass().getSimpleName());
-                return null;
+            return readPemFromConfiguredPath(envPath, "env-path");
+        }
+        return null;
+    }
+
+    private String readPemFromConfiguredPath(String configuredPath, String sourceTag) {
+        if (isBlank(configuredPath)) {
+            return null;
+        }
+        String raw = configuredPath.trim();
+        Path direct = Path.of(raw);
+        String pem = readPemIfExists(direct);
+        if (!isBlank(pem)) {
+            LOGGER.info("AUDIT admin private key loaded from {} path={}", sourceTag, direct.toAbsolutePath());
+            return pem;
+        }
+
+        if (!direct.isAbsolute()) {
+            Path cwdResolved = Path.of(System.getProperty("user.dir", ".")).resolve(raw).normalize();
+            pem = readPemIfExists(cwdResolved);
+            if (!isBlank(pem)) {
+                LOGGER.info("AUDIT admin private key loaded from {} path={}", sourceTag, cwdResolved.toAbsolutePath());
+                return pem;
             }
+        }
+
+        try (InputStream is = Thread.currentThread().getContextClassLoader().getResourceAsStream(raw)) {
+            if (is != null) {
+                String content = new String(is.readAllBytes(), StandardCharsets.UTF_8);
+                pem = normalizePrivateKeyValue(content);
+                if (!isBlank(pem)) {
+                    LOGGER.info("AUDIT admin private key loaded from classpath source={} resource={}", sourceTag, raw);
+                    return pem;
+                }
+            }
+        } catch (Exception ex) {
+            LOGGER.warn("AUDIT admin private key classpath read failed source={} resource={} error={}",
+                    sourceTag, raw, ex.getClass().getSimpleName());
+        }
+
+        LOGGER.warn("AUDIT admin private key path not found source={} configuredPath={} cwd={}",
+                sourceTag, raw, System.getProperty("user.dir", "."));
+        return null;
+    }
+
+    private String readPemIfExists(Path path) {
+        try {
+            if (path != null && Files.exists(path) && Files.isRegularFile(path)) {
+                return normalizePrivateKeyValue(Files.readString(path, StandardCharsets.UTF_8));
+            }
+        } catch (Exception ex) {
+            LOGGER.warn("AUDIT admin private key file read failed path={} error={}",
+                    path, ex.getClass().getSimpleName());
         }
         return null;
     }

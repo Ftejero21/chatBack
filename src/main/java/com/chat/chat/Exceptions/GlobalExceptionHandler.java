@@ -19,6 +19,10 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 
 import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.HashMap;
+import java.util.ArrayList;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
@@ -134,8 +138,28 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler(ValidacionPayloadException.class)
-    public ResponseEntity<ApiError> handleValidacionPayload(ValidacionPayloadException ex) {
-        return error(HttpStatus.BAD_REQUEST, Constantes.ERR_RESPUESTA_INVALIDA, safeMessage(ex.getMessage(), Constantes.MSG_FALTAN_DATOS_REQUERIDOS));
+    public ResponseEntity<?> handleValidacionPayload(ValidacionPayloadException ex) {
+        List<String> details = ex.getDetalleCampos() == null ? List.of() : ex.getDetalleCampos();
+        Map<String, List<String>> fieldErrors = new HashMap<>();
+        fieldErrors.put("email", new ArrayList<>());
+        fieldErrors.put("password", new ArrayList<>());
+        for (String detail : details) {
+            if (detail == null) {
+                continue;
+            }
+            if (detail.startsWith("email:")) {
+                fieldErrors.get("email").add(detail.substring("email:".length()).trim());
+            } else if (detail.startsWith("password:")) {
+                fieldErrors.get("password").add(detail.substring("password:".length()).trim());
+            }
+        }
+
+        return ResponseEntity.badRequest().body(Map.of(
+                "code", Constantes.ERR_RESPUESTA_INVALIDA,
+                "message", safeMessage(ex.getMessage(), Constantes.MSG_FALTAN_DATOS_REQUERIDOS),
+                "details", details,
+                "fieldErrors", fieldErrors
+        ));
     }
 
     @ExceptionHandler(SqlInjectionException.class)

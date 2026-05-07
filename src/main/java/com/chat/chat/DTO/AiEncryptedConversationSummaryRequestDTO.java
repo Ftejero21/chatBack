@@ -19,8 +19,12 @@ public class AiEncryptedConversationSummaryRequestDTO {
     private Long chatGrupalId;
 
     @Valid
-    @Size(min = 1, max = 200, message = "Los mensajes son obligatorios y no pueden superar 200 elementos")
+    @Size(max = 200, message = "Los mensajes no pueden superar 200 elementos")
     private List<AiEncryptedContextMessageDTO> mensajes;
+
+    @Min(value = 1, message = "maxMensajes debe ser al menos 1")
+    @Max(value = 200, message = "maxMensajes no puede superar 200")
+    private Integer maxMensajes;
 
     @Min(value = 1, message = "maxLineas debe ser al menos 1")
     @Max(value = 12, message = "maxLineas no puede superar 12")
@@ -28,6 +32,9 @@ public class AiEncryptedConversationSummaryRequestDTO {
 
     @Size(max = 20, message = "El estilo no es valido")
     private String estilo;
+
+    @Size(max = 8192, message = "recipientPublicKey supera la longitud maxima permitida")
+    private String recipientPublicKey;
 
     public String getTipoChat() {
         return tipoChat;
@@ -69,11 +76,27 @@ public class AiEncryptedConversationSummaryRequestDTO {
         this.maxLineas = maxLineas;
     }
 
+    public Integer getMaxMensajes() {
+        return maxMensajes;
+    }
+
+    public void setMaxMensajes(Integer maxMensajes) {
+        this.maxMensajes = maxMensajes;
+    }
+
     public String getEstilo() {
         return estilo;
     }
 
     public void setEstilo(String estilo) {
         this.estilo = estilo;
+    }
+
+    public String getRecipientPublicKey() {
+        return recipientPublicKey;
+    }
+
+    public void setRecipientPublicKey(String recipientPublicKey) {
+        this.recipientPublicKey = recipientPublicKey;
     }
 }

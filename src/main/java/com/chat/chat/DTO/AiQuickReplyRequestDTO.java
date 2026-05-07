@@ -1,16 +1,15 @@
 package com.chat.chat.DTO;
 
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
-import jakarta.validation.constraints.Size;
 
 import java.util.List;
 
 public class AiQuickReplyRequestDTO {
 
-    @NotBlank(message = "El mensaje recibido es obligatorio")
-    @Size(max = 2000, message = "El mensaje recibido supera la longitud maxima permitida")
     private String mensajeRecibido;
 
     @NotBlank(message = "El tipo de chat es obligatorio")
@@ -25,6 +24,10 @@ public class AiQuickReplyRequestDTO {
     private Long chatId;
 
     private Long chatGrupalId;
+
+    @Min(value = 5, message = "maxMensajes debe ser como minimo 5")
+    @Max(value = 50, message = "maxMensajes debe ser como maximo 50")
+    private Integer maxMensajes;
 
     public String getMensajeRecibido() {
         return mensajeRecibido;
@@ -72,5 +75,13 @@ public class AiQuickReplyRequestDTO {
 
     public void setChatGrupalId(Long chatGrupalId) {
         this.chatGrupalId = chatGrupalId;
+    }
+
+    public Integer getMaxMensajes() {
+        return maxMensajes;
+    }
+
+    public void setMaxMensajes(Integer maxMensajes) {
+        this.maxMensajes = maxMensajes;
     }
 }

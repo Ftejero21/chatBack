@@ -90,6 +90,15 @@ public class AiEncryptedContextServiceImpl implements AiEncryptedContextService 
 
     @Override
     public String decryptMessagePayload(String encryptedPayload) {
+        byte[] plain = decryptMessagePayloadToBytes(encryptedPayload);
+        if (plain == null || plain.length == 0) {
+            return null;
+        }
+        return safeUtf8(plain);
+    }
+
+    @Override
+    public byte[] decryptMessagePayloadToBytes(String encryptedPayload) {
         if (encryptedPayload == null || encryptedPayload.isBlank()) {
             return null;
         }
@@ -104,19 +113,19 @@ public class AiEncryptedContextServiceImpl implements AiEncryptedContextService 
                 return null;
             }
 
-            String decrypted = decryptUsingAdminEnvelope(payload, adminEnvelopeBytes);
-            if (!isBlank(decrypted)) {
+            byte[] decrypted = decryptUsingAdminEnvelopeBytes(payload, adminEnvelopeBytes);
+            if (decrypted != null && decrypted.length > 0) {
                 return decrypted;
             }
 
             // Compatibilidad con payloads antiguos donde forAdmin contenia el texto directamente.
-            return safeUtf8(adminEnvelopeBytes);
+            return adminEnvelopeBytes;
         } catch (Exception ex) {
             return null;
         }
     }
 
-    private String decryptUsingAdminEnvelope(E2EMessagePayloadDTO payload, byte[] adminEnvelopeBytes) {
+    private byte[] decryptUsingAdminEnvelopeBytes(E2EMessagePayloadDTO payload, byte[] adminEnvelopeBytes) {
         byte[] aesKey = resolveAesKey(adminEnvelopeBytes);
         if (aesKey == null) {
             return null;
@@ -126,8 +135,7 @@ public class AiEncryptedContextServiceImpl implements AiEncryptedContextService 
             byte[] ciphertext = Base64.getDecoder().decode(payload.getCiphertext());
             Cipher cipher = Cipher.getInstance(TRANSFORM_AES_GCM);
             cipher.init(Cipher.DECRYPT_MODE, new SecretKeySpec(aesKey, "AES"), new GCMParameterSpec(GCM_TAG_LENGTH_BITS, iv));
-            byte[] plaintext = cipher.doFinal(ciphertext);
-            return new String(plaintext, StandardCharsets.UTF_8);
+            return cipher.doFinal(ciphertext);
         } catch (Exception ex) {
             return null;
         }
@@ -215,13 +223,13 @@ public class AiEncryptedContextServiceImpl implements AiEncryptedContextService 
     private String encryptForUserWithoutAdminAudit(String textoPlano, UsuarioEntity user) {
         PublicKey publicKey = parseUserPublicKey(user);
         MaterialCifrado material = encryptPlainTextWithAes(textoPlano);
-        String envelope = encryptAesKey(material.claveAes(), publicKey);
+        String aesKeyRawBase64 = Base64.getEncoder().encodeToString(material.claveAes());
+        String envelope = encryptAesKey(aesKeyRawBase64.getBytes(StandardCharsets.UTF_8), publicKey);
 
         LinkedHashMap<String, Object> payload = new LinkedHashMap<>();
-        payload.put("type", "E2E");
+        payload.put("type", "E2E_AI_SUMMARY");
         payload.put("iv", material.ivBase64());
         payload.put("ciphertext", material.ciphertextBase64());
-        payload.put("forEmisor", envelope);
         payload.put("forReceptor", envelope);
         return writeJson(payload);
     }

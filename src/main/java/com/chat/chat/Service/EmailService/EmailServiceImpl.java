@@ -1,6 +1,7 @@
 package com.chat.chat.Service.EmailService;
 
 import com.chat.chat.DTO.EmailAttachmentDTO;
+import com.chat.chat.Utils.Constantes;
 import jakarta.mail.internet.MimeMessage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -15,6 +16,7 @@ import org.springframework.util.StreamUtils;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.nio.charset.StandardCharsets;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -86,8 +88,14 @@ public class EmailServiceImpl implements EmailService {
             ClassPathResource resource = new ClassPathResource(templatePath);
             String htmlContent = StreamUtils.copyToString(resource.getInputStream(), StandardCharsets.UTF_8);
 
+            Map<String, String> resolvedVariables = new HashMap<>();
+            if (variables != null) {
+                resolvedVariables.putAll(variables);
+            }
+            resolvedVariables.putIfAbsent(Constantes.EMAIL_VAR_APP_TITLE, Constantes.APP_TITLE);
+
             // 2. Reemplazar variables dinamicamente: {{variable}} -> valor
-            for (Map.Entry<String, String> entry : variables.entrySet()) {
+            for (Map.Entry<String, String> entry : resolvedVariables.entrySet()) {
                 htmlContent = htmlContent.replace("{{" + entry.getKey() + "}}", entry.getValue());
             }
 
@@ -130,4 +138,5 @@ public class EmailServiceImpl implements EmailService {
                     contentType);
         }
     }
+
 }

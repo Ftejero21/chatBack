@@ -34,6 +34,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.URI;
 import java.net.URLConnection;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
@@ -61,6 +62,7 @@ public class UploadServiceImpl implements UploadService {
 
     private final String uploadsRoot;
     private final String uploadsBaseUrl;
+    private final String applicationContextPath;
     private final long maxUploadBytes;
     private final Set<String> allowedMimeSet;
     private final Set<String> allowedExtSet;
@@ -77,6 +79,7 @@ public class UploadServiceImpl implements UploadService {
 
     public UploadServiceImpl(@Value(Constantes.PROP_UPLOADS_ROOT) String uploadsRoot,
                              @Value(Constantes.PROP_UPLOADS_BASE_URL) String uploadsBaseUrl,
+                             @Value("${server.servlet.context-path:}") String applicationContextPath,
                              @Value("${app.uploads.security.max-file-bytes:26214400}") Long maxUploadBytes,
                              @Value("${app.uploads.security.allowed-mimes:application/octet-stream,image/png,image/jpeg,image/webp,image/gif,audio/webm,audio/ogg,audio/mpeg,audio/wav,audio/mp4,application/pdf,text/plain,application/zip,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document}") String allowedMimes,
                              @Value("${app.uploads.security.allowed-extensions:.bin,.png,.jpg,.jpeg,.webp,.gif,.webm,.ogg,.mp3,.wav,.m4a,.aac,.opus,.pdf,.txt,.zip,.doc,.docx}") String allowedExtensions,
@@ -92,6 +95,7 @@ public class UploadServiceImpl implements UploadService {
                              UploadFileMetadataRepository uploadFileMetadataRepository) {
         this.uploadsRoot = uploadsRoot;
         this.uploadsBaseUrl = uploadsBaseUrl;
+        this.applicationContextPath = normalizeContextPath(applicationContextPath);
         this.maxUploadBytes = maxUploadBytes == null || maxUploadBytes <= 0 ? DEFAULT_MAX_UPLOAD_BYTES : maxUploadBytes;
         this.allowedMimeSet = parseCsvToLowerSet(allowedMimes);
         this.allowedExtSet = parseExtensionsSet(allowedExtensions);
@@ -173,14 +177,15 @@ public class UploadServiceImpl implements UploadService {
     @Override
     public ResponseEntity<Resource> downloadEncryptedFile(String url, Long chatId, Long messageId) {
         UploadAuditContext audit = buildAuditContext("FILE_DOWNLOAD", chatId, messageId, null);
-        Path filePath = resolvePublicUrlToPath(url, audit);
-        validateDownloadAuthorization(url, chatId, messageId, audit);
+        String normalizedUrl = normalizeRequestedPublicUrl(url);
+        Path filePath = resolvePublicUrlToPath(normalizedUrl, audit);
+        validateDownloadAuthorization(normalizedUrl, chatId, messageId, audit);
         try {
             byte[] bytes = Files.readAllBytes(filePath);
             String sha256 = sha256Hex(bytes);
             String mime = detectMime(bytes, normalizeMime(Files.probeContentType(filePath)), filePath.getFileName().toString());
             String downloadName = safeClientName(filePath.getFileName().toString());
-            logUploadAudit("DOWNLOAD_OK", audit, mime, bytes.length, sha256, url, null);
+            logUploadAudit("DOWNLOAD_OK", audit, mime, bytes.length, sha256, normalizedUrl, null);
             return ResponseEntity.ok()
                     .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + downloadName + "\"")
                     .header("X-Content-Type-Options", "nosniff")
@@ -190,7 +195,7 @@ public class UploadServiceImpl implements UploadService {
         } catch (UploadSecurityException ex) {
             throw ex;
         } catch (Exception ex) {
-            logUploadAudit("DOWNLOAD_ERROR", audit, null, 0L, null, url, ex.getClass().getSimpleName());
+            logUploadAudit("DOWNLOAD_ERROR", audit, null, 0L, null, normalizedUrl, ex.getClass().getSimpleName());
             throw new RuntimeException("Fallo al descargar archivo");
         }
     }
@@ -725,6 +730,49 @@ public class UploadServiceImpl implements UploadService {
             throwSecurityBlock("download_missing", "Archivo no encontrado", audit, null, null, null);
         }
         return path;
+    }
+
+    private String normalizeRequestedPublicUrl(String url) {
+        if (url == null || url.isBlank()) {
+            return url;
+        }
+        String trimmed = url.trim();
+        if (trimmed.startsWith(Constantes.UPLOADS_PREFIX)) {
+            return trimmed;
+        }
+        if (!trimmed.startsWith("http://") && !trimmed.startsWith("https://")) {
+            return trimmed;
+        }
+        try {
+            String path = URI.create(trimmed).getPath();
+            if (path == null || path.isBlank()) {
+                return trimmed;
+            }
+            if (!applicationContextPath.isBlank() && path.startsWith(applicationContextPath + Constantes.UPLOADS_PREFIX)) {
+                return path.substring(applicationContextPath.length());
+            }
+            int uploadsIndex = path.indexOf(Constantes.UPLOADS_PREFIX);
+            if (uploadsIndex >= 0) {
+                return path.substring(uploadsIndex);
+            }
+        } catch (Exception ignored) {
+            // Best effort normalization only.
+        }
+        return trimmed;
+    }
+
+    private String normalizeContextPath(String contextPath) {
+        if (contextPath == null || contextPath.isBlank() || "/".equals(contextPath.trim())) {
+            return "";
+        }
+        String normalized = contextPath.trim();
+        if (!normalized.startsWith("/")) {
+            normalized = "/" + normalized;
+        }
+        while (normalized.endsWith("/") && normalized.length() > 1) {
+            normalized = normalized.substring(0, normalized.length() - 1);
+        }
+        return normalized;
     }
 
     private String normalizeMime(String mime) {

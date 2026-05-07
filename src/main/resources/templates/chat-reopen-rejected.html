@@ -1,9 +1,9 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="es">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Reapertura de chat rechazada - TejeChat</title>
+    <title>Reapertura de chat rechazada - {{appTitle}}</title>
     <style>
         body { margin: 0; background: #f8fafc; font-family: Arial, Helvetica, sans-serif; color: #1f2937; }
         .wrap { max-width: 640px; margin: 0 auto; padding: 32px 16px; }
@@ -21,19 +21,18 @@
 <div class="wrap">
     <div class="card">
         <div class="head">
-            <div class="pill">Reapertura rechazada</div>
-            <h1 style="margin:12px 0 0;">Tu solicitud no fue aprobada</h1>
+            <div class="pill">Reapertura rechazada</div>            <h1 style="margin:12px 0 0;">Tu solicitud no fue aprobada</h1>
         </div>
         <div class="body">
             <p>Hola {{nombre}},</p>
-            <p>Tu solicitud para reabrir el grupo <strong>{{nombreGrupo}}</strong> fue revisada y no se aprobo en esta ocasion.</p>
+            <p>Tu solicitud para reabrir el grupo <strong>{{nombreGrupo}}</strong> fue revisada y no se aprobó en esta ocasión.</p>
             <div class="box">
                 <div class="label">Resumen</div>
-                <div class="quote">Grupo: {{nombreGrupo}}<br>Chat ID: {{chatId}}<br>Motivo original del cierre: {{motivoCierre}}<br>Resolucion admin: {{resolucionMotivo}}</div>
+                <div class="quote">Grupo: {{nombreGrupo}}<br>Chat ID: {{chatId}}<br>Motivo original del cierre: {{motivoCierre}}<br>Resolucion admin: {{resoluciónMotivo}}</div>
             </div>
-            <p>El grupo sigue cerrado hasta nueva resolucion.</p>
+            <p>El grupo sigue cerrado hasta nueva resolución.</p>
         </div>
-        <div class="footer">&copy; 2026 TejeChat. Correo automatico administrativo.</div>
+        <div class="footer">&copy; 2026 {{appTitle}}. Correo automático administrativo.</div>
     </div>
 </div>
 </body>

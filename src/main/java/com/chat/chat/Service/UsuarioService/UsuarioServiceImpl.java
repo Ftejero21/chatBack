@@ -19,6 +19,7 @@ import com.chat.chat.Exceptions.GoogleAuthException;
 import com.chat.chat.Exceptions.PasswordIncorrectaException;
 import com.chat.chat.Exceptions.SemanticApiException;
 import com.chat.chat.Exceptions.UsuarioInactivoException;
+import com.chat.chat.Exceptions.ValidacionPayloadException;
 import com.chat.chat.Mapper.E2EPrivateKeyBackupMapper;
 import com.chat.chat.Repository.E2EPrivateKeyBackupRepository;
 import com.chat.chat.Repository.UsuarioRepository;
@@ -78,7 +79,9 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import java.util.ArrayList;
 
 import static io.micrometer.core.instrument.util.StringEscapeUtils.escapeJson;
 
@@ -116,6 +119,8 @@ public class UsuarioServiceImpl implements UsuarioService {
     private static final String PROFILE_PHOTO_INVALID_SIZE_MSG = "foto de perfil invalida: tamano excede el limite";
     private static final Set<String> PROFILE_IMAGE_MIME_WHITELIST = Set.of("image/jpeg", "image/jpg", "image/png", "image/webp");
     private static final Set<String> PROFILE_IMAGE_EXT_WHITELIST = Set.of("jpg", "jpeg", "png", "webp");
+    private static final Pattern EMAIL_PATTERN = Pattern.compile(Constantes.EMAIL_REGEX_STRICT);
+    private static final Pattern PASSWORD_STRONG_PATTERN = Pattern.compile(Constantes.PASSWORD_REGEX_STRONG);
 
     @Autowired
     private UsuarioRepository usuarioRepository;
@@ -173,6 +178,7 @@ public class UsuarioServiceImpl implements UsuarioService {
 
     @Override
     public AuthRespuestaDTO crearUsuarioConToken(UsuarioDTO dto) {
+        validateRegistrationCredentials(dto);
         dto.setEmail(normalizeEmail(dto.getEmail()));
 
         if (usuarioRepository.findByEmail(dto.getEmail()).isPresent()) {
@@ -417,8 +423,59 @@ public class UsuarioServiceImpl implements UsuarioService {
         usuarioNuevo.setNombre(payload.getNombre());
         usuarioNuevo.setApellido(payload.getApellido());
         usuarioNuevo.setFoto(payload.getFoto());
-        usuarioNuevo.setPassword(UUID.randomUUID().toString());
+        usuarioNuevo.setPassword(generateStrongRandomPassword());
         return crearUsuarioConToken(usuarioNuevo);
+    }
+
+    private void validateRegistrationCredentials(UsuarioDTO dto) {
+        if (dto == null) {
+            throw new ValidacionPayloadException("Registro invalido", List.of("body: obligatorio"));
+        }
+        List<String> details = new ArrayList<>();
+        String email = normalizeEmail(dto.getEmail());
+        if (email == null || email.isBlank()) {
+            details.add("email: obligatorio");
+        } else {
+            if (email.length() > 254) {
+                details.add("email: longitud maxima 254");
+            }
+            if (!EMAIL_PATTERN.matcher(email).matches()) {
+                details.add("email: formato invalido");
+            }
+        }
+
+        String password = dto.getPassword();
+        if (password == null || password.isBlank()) {
+            details.add("password: obligatorio");
+        } else {
+            if (password.length() < Constantes.AUTH_PASSWORD_MIN_LENGTH) {
+                details.add("password: minimo " + Constantes.AUTH_PASSWORD_MIN_LENGTH + " caracteres");
+            }
+            if (password.length() > Constantes.AUTH_PASSWORD_MAX_LENGTH) {
+                details.add("password: maximo " + Constantes.AUTH_PASSWORD_MAX_LENGTH + " caracteres");
+            }
+            if (!password.chars().anyMatch(Character::isUpperCase)) {
+                details.add("password: requiere al menos 1 mayuscula");
+            }
+            if (!password.chars().anyMatch(Character::isLowerCase)) {
+                details.add("password: requiere al menos 1 minuscula");
+            }
+            if (!password.chars().anyMatch(Character::isDigit)) {
+                details.add("password: requiere al menos 1 numero");
+            }
+            if (!PASSWORD_STRONG_PATTERN.matcher(password).matches()) {
+                details.add("password: requiere al menos 1 caracter especial");
+            }
+        }
+
+        if (!details.isEmpty()) {
+            throw new ValidacionPayloadException("Registro invalido", details);
+        }
+    }
+
+    private String generateStrongRandomPassword() {
+        String base = UUID.randomUUID().toString().replace("-", "");
+        return "Aa1!" + base;
     }
 
     private void validateGoogleProvider(GoogleAuthRequestDTO request) {

@@ -10,6 +10,7 @@ public class AiPollDraftResponseDTO {
     private String pregunta;
     private List<String> opciones;
     private boolean multipleRespuestas;
+    private String encryptedPayload;
 
     public boolean isSuccess() {
         return success;
@@ -57,5 +58,13 @@ public class AiPollDraftResponseDTO {
 
     public void setMultipleRespuestas(boolean multipleRespuestas) {
         this.multipleRespuestas = multipleRespuestas;
+    }
+
+    public String getEncryptedPayload() {
+        return encryptedPayload;
+    }
+
+    public void setEncryptedPayload(String encryptedPayload) {
+        this.encryptedPayload = encryptedPayload;
     }
 }

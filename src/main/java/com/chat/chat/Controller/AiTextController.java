@@ -8,12 +8,15 @@ import com.chat.chat.DTO.AiConversationSummaryRequestDTO;
 import com.chat.chat.DTO.AiConversationSummaryResponseDTO;
 import com.chat.chat.DTO.AiEncryptedConversationSummaryRequestDTO;
 import com.chat.chat.DTO.AiEncryptedResponseDTO;
+import com.chat.chat.DTO.AiEncryptedMessageSearchRequestDTO;
+import com.chat.chat.DTO.AiEncryptedMessageSearchResponseDTO;
 import com.chat.chat.DTO.AiPollDraftRequestDTO;
 import com.chat.chat.DTO.AiPollDraftResponseDTO;
 import com.chat.chat.DTO.AiReportAnalysisRequestDTO;
 import com.chat.chat.DTO.AiReportAnalysisResponseDTO;
 import com.chat.chat.Service.AiService.AiConversationSummaryService;
 import com.chat.chat.Service.AiService.AiEncryptedConversationSummaryService;
+import com.chat.chat.Service.AiService.AiEncryptedMessageSearchService;
 import com.chat.chat.Service.AiService.AiPollDraftService;
 import com.chat.chat.Service.AiService.AiQuickReplyService;
 import com.chat.chat.Service.AiService.AiReportAnalysisService;
@@ -38,6 +41,7 @@ public class AiTextController {
     private final AiQuickReplyService aiQuickReplyService;
     private final AiConversationSummaryService aiConversationSummaryService;
     private final AiEncryptedConversationSummaryService aiEncryptedConversationSummaryService;
+    private final AiEncryptedMessageSearchService aiEncryptedMessageSearchService;
     private final AiPollDraftService aiPollDraftService;
     private final AiReportAnalysisService aiReportAnalysisService;
 
@@ -45,18 +49,20 @@ public class AiTextController {
                             AiQuickReplyService aiQuickReplyService,
                             AiConversationSummaryService aiConversationSummaryService,
                             AiEncryptedConversationSummaryService aiEncryptedConversationSummaryService,
+                            AiEncryptedMessageSearchService aiEncryptedMessageSearchService,
                             AiPollDraftService aiPollDraftService,
                             AiReportAnalysisService aiReportAnalysisService) {
         this.aiTextService = aiTextService;
         this.aiQuickReplyService = aiQuickReplyService;
         this.aiConversationSummaryService = aiConversationSummaryService;
         this.aiEncryptedConversationSummaryService = aiEncryptedConversationSummaryService;
+        this.aiEncryptedMessageSearchService = aiEncryptedMessageSearchService;
         this.aiPollDraftService = aiPollDraftService;
         this.aiReportAnalysisService = aiReportAnalysisService;
     }
 
     @PostMapping(Constantes.AI_TEXT_PATH)
-    @Operation(summary = "Procesar texto con IA", description = "Corrige, reformula, resume o completa texto del usuario con DeepSeek.")
+    @Operation(summary = "Procesar texto con IA", description = "Corrige, reformula, resume o completa texto del usuario con IA.")
     public AiTextResponseDTO procesarTexto(@Valid @RequestBody AiTextRequestDTO request) {
         return aiTextService.procesarTexto(request);
     }
@@ -77,6 +83,12 @@ public class AiTextController {
     @Operation(summary = "Resumir conversacion cifrada", description = "Descifra contexto solo en memoria, genera resumen con IA y devuelve el resultado cifrado para el usuario autenticado.")
     public AiEncryptedResponseDTO resumirConversacionCifrada(@Valid @RequestBody AiEncryptedConversationSummaryRequestDTO request) {
         return aiEncryptedConversationSummaryService.resumirConversacionCifrada(request);
+    }
+
+    @PostMapping(Constantes.AI_MESSAGE_SEARCH_ENCRYPTED_PATH)
+    @Operation(summary = "Buscar mensajes cifrados", description = "Busca semanticamente mensajes enviados por el usuario autenticado; descifrado solo en memoria.")
+    public AiEncryptedMessageSearchResponseDTO buscarMensajesCifrados(@Valid @RequestBody AiEncryptedMessageSearchRequestDTO request) {
+        return aiEncryptedMessageSearchService.buscarMensajes(request);
     }
 
     @PostMapping(Constantes.AI_POLL_DRAFT_PATH)

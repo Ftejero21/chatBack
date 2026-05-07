@@ -53,6 +53,9 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.regex.Pattern;
 import jakarta.validation.Valid;
 import jakarta.servlet.http.HttpServletRequest;
 
@@ -62,6 +65,8 @@ import jakarta.servlet.http.HttpServletRequest;
 @Tag(name = "Usuarios y Autenticacion", description = "Endpoints para login, registro, perfil, seguridad E2E y administracion de usuarios.")
 public class UsuarioController {
     private static final Logger LOGGER = LoggerFactory.getLogger(UsuarioController.class);
+    private static final Pattern EMAIL_PATTERN = Pattern.compile(Constantes.EMAIL_REGEX_STRICT);
+    private static final Pattern PASSWORD_STRONG_PATTERN = Pattern.compile(Constantes.PASSWORD_REGEX_STRONG);
 
     @Autowired
     private UsuarioService usuarioService;
@@ -98,6 +103,10 @@ public class UsuarioController {
         if (usuarioService.existePorEmail(normalizedEmail)) {
             LOGGER.info("[AUTH][UNIFIED_LOGIN] stage=LOGIN_EXISTING email={}", normalizedEmail);
             return ResponseEntity.ok(usuarioService.loginConToken(normalizedEmail, dto.getPassword()));
+        }
+        List<String> registrationRules = validateRegistrationInput(normalizedEmail, dto.getPassword());
+        if (!registrationRules.isEmpty()) {
+            return ResponseEntity.badRequest().body(buildRegistrationValidationResponse(registrationRules));
         }
 
         httpRateLimitService.checkRegistrationOtpRequest(request, normalizedEmail);
@@ -153,6 +162,10 @@ public class UsuarioController {
 
         try {
             if (!usuarioService.existePorEmail(normalizedEmail)) {
+                List<String> registrationRules = validateRegistrationInput(normalizedEmail, dto.getPassword());
+                if (!registrationRules.isEmpty()) {
+                    return ResponseEntity.badRequest().body(buildRegistrationValidationResponse(registrationRules));
+                }
                 UsuarioDTO nuevo = new UsuarioDTO();
                 nuevo.setEmail(normalizedEmail);
                 nuevo.setPassword(dto.getPassword());
@@ -169,6 +182,68 @@ public class UsuarioController {
             LOGGER.info("[AUTH][UNIFIED_LOGIN] stage=VERIFY_RACE_LOGIN_EXISTING email={}", normalizedEmail);
             return ResponseEntity.ok(usuarioService.loginConToken(normalizedEmail, dto.getPassword()));
         }
+    }
+
+    private List<String> validateRegistrationInput(String email, String password) {
+        List<String> details = new ArrayList<>();
+        if (email == null || email.isBlank()) {
+            details.add("email: obligatorio");
+        } else {
+            if (email.length() > 254) {
+                details.add("email: longitud maxima 254");
+            }
+            if (!EMAIL_PATTERN.matcher(email).matches()) {
+                details.add("email: formato invalido");
+            }
+        }
+
+        if (password == null || password.isBlank()) {
+            details.add("password: obligatorio");
+            return details;
+        }
+        if (password.length() < Constantes.AUTH_PASSWORD_MIN_LENGTH) {
+            details.add("password: minimo " + Constantes.AUTH_PASSWORD_MIN_LENGTH + " caracteres");
+        }
+        if (password.length() > Constantes.AUTH_PASSWORD_MAX_LENGTH) {
+            details.add("password: maximo " + Constantes.AUTH_PASSWORD_MAX_LENGTH + " caracteres");
+        }
+        if (!password.chars().anyMatch(Character::isUpperCase)) {
+            details.add("password: requiere al menos 1 mayuscula");
+        }
+        if (!password.chars().anyMatch(Character::isLowerCase)) {
+            details.add("password: requiere al menos 1 minuscula");
+        }
+        if (!password.chars().anyMatch(Character::isDigit)) {
+            details.add("password: requiere al menos 1 numero");
+        }
+        if (!PASSWORD_STRONG_PATTERN.matcher(password).matches()) {
+            details.add("password: requiere al menos 1 caracter especial");
+        }
+        return details;
+    }
+
+    private Map<String, Object> buildRegistrationValidationResponse(List<String> details) {
+        Map<String, List<String>> fieldErrors = new HashMap<>();
+        fieldErrors.put("email", new ArrayList<>());
+        fieldErrors.put("password", new ArrayList<>());
+
+        for (String detail : details) {
+            if (detail == null) {
+                continue;
+            }
+            if (detail.startsWith("email:")) {
+                fieldErrors.get("email").add(detail.substring("email:".length()).trim());
+            } else if (detail.startsWith("password:")) {
+                fieldErrors.get("password").add(detail.substring("password:".length()).trim());
+            }
+        }
+
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("code", Constantes.ERR_RESPUESTA_INVALIDA);
+        payload.put("message", "Registro invalido");
+        payload.put("details", details);
+        payload.put("fieldErrors", fieldErrors);
+        return payload;
     }
 
     @PostMapping(Constantes.REGISTRO)

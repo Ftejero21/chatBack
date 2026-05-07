@@ -2,6 +2,20 @@ package com.chat.chat.Utils;
 
 public class Constantes {
 
+    public static final java.util.List<String> AI_REPORT_AVAILABLE_REASONS = java.util.List.of(
+            "Spam o contenido no deseado",
+            "Acoso o comportamiento abusivo",
+            "Discurso de odio",
+            "Amenazas o intimidacion",
+            "Suplantacion de identidad",
+            "Estafa o fraude",
+            "Contenido sexual no solicitado",
+            "Difusion de datos personales",
+            "Contenido violento o autolesivo",
+            "Incitacion a actividades ilegales",
+            "Otro motivo"
+    );
+
     // Rutas API Chat
     public static final String API_CHAT = "/api/chat";
 
@@ -102,6 +116,7 @@ public class Constantes {
     public static final String AI_POLL_DRAFT_PATH = "/generar-borrador-encuesta";
     public static final String AI_REPORT_ANALYSIS_PATH = "/analizar-denuncia";
     public static final String AI_SUMMARY_ENCRYPTED_PATH = "/resumir-conversacion/encrypted";
+    public static final String AI_MESSAGE_SEARCH_ENCRYPTED_PATH = "/buscar-mensajes/encrypted";
 
     // Subrutas Restantes
     public static final String USUARIOS_SUB = "/usuarios";
@@ -349,6 +364,8 @@ public class Constantes {
     public static final String KEY_TITLE = "title";
     public static final String EMAIL_VAR_SUBJECT = "subject";
     public static final String EMAIL_VAR_BODY = "body";
+    public static final String EMAIL_VAR_APP_TITLE = "appTitle";
+    public static final String APP_TITLE = "Nexo";
     public static final String SCHEDULED_DELIVERY_TYPE_CHAT_MESSAGE = "CHAT_MESSAGE";
     public static final String SCHEDULED_DELIVERY_TYPE_ADMIN_BULK_EMAIL = "ADMIN_BULK_EMAIL";
     public static final String TITLE_PASSWORD_RESET = "Recuperación de contraseña";
@@ -409,6 +426,7 @@ public class Constantes {
 
     // Error codes
     public static final String ERR_EMAIL_INVALIDO = "EMAIL_INVALIDO";
+    public static final String ERR_PASSWORD_INVALIDO = "PASSWORD_INVALIDO";
     public static final String ERR_PASSWORD_INCORRECTA = "PASSWORD_INCORRECTA";
     public static final String ERR_USUARIO_INACTIVO = "USUARIO_INACTIVO";
     public static final String ERR_REENVIO_INVALIDO = "REENVIO_INVALIDO";
@@ -448,6 +466,12 @@ public class Constantes {
     public static final String ERR_GOOGLE_PROVIDER_INVALIDO = "GOOGLE_PROVIDER_INVALIDO";
     public static final String ERR_GOOGLE_MODE_INVALIDO = "GOOGLE_MODE_INVALIDO";
     public static final String ERR_GOOGLE_USUARIO_NO_REGISTRADO = "GOOGLE_USUARIO_NO_REGISTRADO";
+
+    // Auth validation
+    public static final int AUTH_PASSWORD_MIN_LENGTH = 10;
+    public static final int AUTH_PASSWORD_MAX_LENGTH = 72;
+    public static final String EMAIL_REGEX_STRICT = "^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,63}$";
+    public static final String PASSWORD_REGEX_STRONG = "^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[^A-Za-z\\d\\s]).+$";
 
     // Payload keys
     public static final String KEY_PUBLIC_KEY = "publicKey";

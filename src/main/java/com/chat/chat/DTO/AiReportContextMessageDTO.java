@@ -14,6 +14,9 @@ public class AiReportContextMessageDTO {
     @Size(max = 10000, message = "El contenido del mensaje supera la longitud maxima permitida")
     private String contenido;
 
+    @Size(max = 50000, message = "El encryptedPayload del mensaje supera la longitud maxima permitida")
+    private String encryptedPayload;
+
     private boolean esUsuarioDenunciado;
 
     private boolean esUsuarioActual;
@@ -51,6 +54,14 @@ public class AiReportContextMessageDTO {
 
     public void setContenido(String contenido) {
         this.contenido = contenido;
+    }
+
+    public String getEncryptedPayload() {
+        return encryptedPayload;
+    }
+
+    public void setEncryptedPayload(String encryptedPayload) {
+        this.encryptedPayload = encryptedPayload;
     }
 
     public boolean isEsUsuarioDenunciado() {

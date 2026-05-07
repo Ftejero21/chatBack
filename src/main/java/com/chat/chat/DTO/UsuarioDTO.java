@@ -1,6 +1,10 @@
 package com.chat.chat.DTO;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import jakarta.validation.constraints.Email;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Size;
 
 import java.util.List;
 import java.util.Set;
@@ -11,6 +15,10 @@ public class UsuarioDTO {
     private String apellido;
     private boolean activo;
     private String foto;
+    @NotBlank(message = "email es obligatorio")
+    @Email(message = "email invalido")
+    @Size(max = 254, message = "email excede longitud maxima")
+    @Pattern(regexp = com.chat.chat.Utils.Constantes.EMAIL_REGEX_STRICT, message = "email invalido")
     private String email;
     private String dni;
     private String telefono;
@@ -22,6 +30,11 @@ public class UsuarioDTO {
     private String instagram;
 
     @JsonProperty(access = JsonProperty.Access.WRITE_ONLY)
+    @NotBlank(message = "password es obligatorio")
+    @Size(min = com.chat.chat.Utils.Constantes.AUTH_PASSWORD_MIN_LENGTH, max = com.chat.chat.Utils.Constantes.AUTH_PASSWORD_MAX_LENGTH,
+            message = "password no cumple longitud requerida")
+    @Pattern(regexp = com.chat.chat.Utils.Constantes.PASSWORD_REGEX_STRONG,
+            message = "password debe incluir mayuscula, minuscula, numero y caracter especial")
     private String password;
     private Set<String> roles;
     private String publicKey;

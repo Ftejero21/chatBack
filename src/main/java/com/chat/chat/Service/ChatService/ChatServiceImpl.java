@@ -2,11 +2,11 @@ package com.chat.chat.Service.ChatService;
 
 import com.chat.chat.Batch.MensajesTemporales.ProgramadorExpiracionMensajesTemporales;
 import com.chat.chat.DTO.*;
+import com.chat.chat.Exceptions.SemanticApiException;
 import com.chat.chat.Entity.*;
 import com.chat.chat.Mapper.ChatPinnedMessageMapper;
 import com.chat.chat.Mapper.GroupMediaItemMapper;
 import com.chat.chat.Mapper.GroupMediaMeta;
-import com.chat.chat.Exceptions.SemanticApiException;
 import com.chat.chat.Exceptions.RecursoNoEncontradoException;
 import com.chat.chat.Exceptions.ValidacionPayloadException;
 import com.chat.chat.Repository.*;
@@ -76,6 +76,7 @@ public class ChatServiceImpl implements ChatService {
     private static final int MAX_MODERATION_ORIGIN_LENGTH = 80;
     private static final int MAX_MODERATION_DESCRIPTION_LENGTH = 5000;
     private static final String DEFAULT_MODERATION_ORIGIN = "panel_admin";
+    private static final String MODERATION_ORIGIN_DENUNCIAS = "denuncias";
     private static final String DEFAULT_WARNING_REASON = "Advertencia administrativa";
     private static final String DEFAULT_CLOSE_REASON = "Chat cerrado por un administrador";
     private static final String CURSOR_SEPARATOR = "_";
@@ -159,7 +160,7 @@ public class ChatServiceImpl implements ChatService {
 
     @Autowired
     private ProgramadorExpiracionMensajesTemporales programadorExpiracionMensajesTemporales;
-
+    
     @Override
     public ChatIndividualDTO crearChatIndividual(Long usuario1Id, Long usuario2Id) {
         Long authenticatedUserId = securityUtils.getAuthenticatedUserId();
@@ -223,11 +224,11 @@ public class ChatServiceImpl implements ChatService {
         }
         Long adminId = admin.getId();
         Long expiresAfterReadSeconds = normalizeAdminDirectExpiry(request.getExpiresAfterReadSeconds());
-        Map<Long, AdminDirectMessagePayloadDTO> payloadsByUserId = resolveAdminDirectPayloads(request);
-        LinkedHashSet<Long> userIds = new LinkedHashSet<>(payloadsByUserId.keySet());
         String moderationOrigin = normalizeModerationOrigin(request.getOrigen());
         String moderationReason = normalizeModerationReason(request.getMotivo(), DEFAULT_WARNING_REASON);
         String moderationDescription = normalizeModerationDescription(request.getDescripcion());
+        Map<Long, AdminDirectMessagePayloadDTO> payloadsByUserId = resolveAdminDirectPayloads(request);
+        LinkedHashSet<Long> userIds = new LinkedHashSet<>(payloadsByUserId.keySet());
 
         AdminDirectMessageResponseDTO response = new AdminDirectMessageResponseDTO();
         response.setRequestedUsers(userIds.size());
@@ -285,6 +286,7 @@ public class ChatServiceImpl implements ChatService {
         return response;
     }
 
+
     private Map<Long, AdminDirectMessagePayloadDTO> resolveAdminDirectPayloads(AdminDirectMessageRequestDTO request) {
         Map<Long, AdminDirectMessagePayloadDTO> payloadsByUserId = new LinkedHashMap<>();
         List<AdminDirectMessagePayloadDTO> encryptedPayloads = request.getEncryptedPayloads() == null
@@ -309,7 +311,11 @@ public class ChatServiceImpl implements ChatService {
             return payloadsByUserId;
         }
 
-        if (!StringUtils.hasText(request.getContenido())) {
+        String legacyContent = request.getContenido();
+        if (!StringUtils.hasText(legacyContent) && isDenunciasOrigin(request.getOrigen())) {
+            legacyContent = buildLegacyDenunciasWarning(request.getMotivo(), request.getDescripcion());
+        }
+        if (!StringUtils.hasText(legacyContent)) {
             throw new IllegalArgumentException("encryptedPayloads es obligatorio");
         }
         if (request.getUserIds() == null || request.getUserIds().isEmpty()) {
@@ -321,12 +327,33 @@ public class ChatServiceImpl implements ChatService {
             }
             AdminDirectMessagePayloadDTO payload = new AdminDirectMessagePayloadDTO();
             payload.setUserId(userId);
-            payload.setContenido(request.getContenido());
+            payload.setContenido(legacyContent);
             if (payloadsByUserId.putIfAbsent(userId, payload) != null) {
                 throw new IllegalArgumentException("userIds duplicado: " + userId);
             }
         }
         return payloadsByUserId;
+    }
+
+    private boolean isDenunciasOrigin(String origen) {
+        if (!StringUtils.hasText(origen)) {
+            return false;
+        }
+        return MODERATION_ORIGIN_DENUNCIAS.equalsIgnoreCase(origen.trim());
+    }
+
+    private String buildLegacyDenunciasWarning(String motivo, String descripcion) {
+        String motivoNorm = normalizeModerationReason(motivo, DEFAULT_WARNING_REASON);
+        String descripcionNorm = normalizeModerationDescription(descripcion);
+        StringBuilder sb = new StringBuilder();
+        sb.append("Te escribimos para advertirte sobre comportamientos reportados recientemente en la plataforma. ");
+        sb.append("Recuerda que debes cumplir las normas de convivencia y uso en todo momento. ");
+        sb.append("Te solicitamos corregir esta conducta de inmediato; si persiste, podrán aplicarse medidas adicionales sobre tu cuenta. ");
+        sb.append("Motivo administrativo: ").append(motivoNorm).append(".");
+        if (StringUtils.hasText(descripcionNorm)) {
+            sb.append(" Referencia: ").append(descripcionNorm);
+        }
+        return sb.toString();
     }
 
     @Override
@@ -3626,6 +3653,16 @@ public class ChatServiceImpl implements ChatService {
         return normalized.length() <= MAX_MODERATION_DESCRIPTION_LENGTH
                 ? normalized
                 : normalized.substring(0, MAX_MODERATION_DESCRIPTION_LENGTH);
+    }
+
+    private record DenunciasContextSnapshot(long totalRecibidas,
+                                            String motivoPrincipal,
+                                            long motivoPrincipalCount,
+                                            String gravedad,
+                                            long warningsPrevios,
+                                            long suspensionesPrevias,
+                                            String estadoExpediente,
+                                            List<UserComplaintEntity> ultimasDenuncias) {
     }
 
 

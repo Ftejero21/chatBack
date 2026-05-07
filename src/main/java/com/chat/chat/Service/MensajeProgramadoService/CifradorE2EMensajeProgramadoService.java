@@ -74,7 +74,7 @@ public class CifradorE2EMensajeProgramadoService {
         payload.put("forEmisor", envelopeEmisor.envelopeBase64());
         payload.put("forReceptor", envelopeReceptor.envelopeBase64());
 
-        String forAdmin = construirForAdmin(textoPlano);
+        String forAdmin = construirForAdmin(material.claveAes());
         if (forAdmin != null) {
             payload.put("forAdmin", forAdmin);
         }
@@ -129,7 +129,7 @@ public class CifradorE2EMensajeProgramadoService {
         payload.put("forEmisor", envelopeEmisor.envelopeBase64());
         payload.put("forReceptores", forReceptores);
 
-        String forAdmin = construirForAdmin(textoPlano);
+        String forAdmin = construirForAdmin(material.claveAes());
         if (forAdmin != null) {
             payload.put("forAdmin", forAdmin);
         }
@@ -155,25 +155,53 @@ public class CifradorE2EMensajeProgramadoService {
         }
     }
 
-    private String construirForAdmin(String textoPlano) {
+    private String construirForAdmin(byte[] aesKeyRaw) {
         String adminPublicKey = adminAuditCrypto.getAuditPublicKeySpkiBase64();
         if (adminPublicKey == null || adminPublicKey.isBlank()) {
             return null;
         }
         PublicKey keyAdmin = parsearClavePublicaBase64(adminPublicKey, "admin_audit", false);
-        return cifrarConRsaOaep(textoPlano.getBytes(StandardCharsets.UTF_8), keyAdmin, "forAdmin").envelopeBase64();
+        if (aesKeyRaw == null || aesKeyRaw.length == 0) {
+            return null;
+        }
+        return cifrarConRsaOaep(aesKeyRaw, keyAdmin, "forAdmin").envelopeBase64();
     }
 
     private ResultadoEnvelopeRsa cifrarConRsaOaep(byte[] data, PublicKey publicKey, String contexto) {
         try {
             Cipher cipher = Cipher.getInstance(TRANSFORM_RSA_OAEP_SHA256);
             cipher.init(Cipher.ENCRYPT_MODE, publicKey, OAEP_SHA256_SPEC);
+            OAEPParameterSpec runtimeSpec = cipher.getParameters() == null
+                    ? null
+                    : cipher.getParameters().getParameterSpec(OAEPParameterSpec.class);
+            if (!isStrictOaepSha256(runtimeSpec)) {
+                throw new ExcepcionCifradoProgramado("provider OAEP runtime no usa SHA-256/MGF1-SHA-256 en " + contexto, true);
+            }
             return new ResultadoEnvelopeRsa(
                     base64(cipher.doFinal(data)),
                     cipher.getAlgorithm());
         } catch (Exception ex) {
             throw new ExcepcionCifradoProgramado("fallo cifrado RSA-OAEP en " + contexto, ex, true);
         }
+    }
+
+    private boolean isStrictOaepSha256(OAEPParameterSpec spec) {
+        if (spec == null) {
+            return false;
+        }
+        if (!"SHA-256".equalsIgnoreCase(spec.getDigestAlgorithm())) {
+            return false;
+        }
+        if (!"MGF1".equalsIgnoreCase(spec.getMGFAlgorithm())) {
+            return false;
+        }
+        if (!(spec.getMGFParameters() instanceof MGF1ParameterSpec mgf1)) {
+            return false;
+        }
+        if (!"SHA-256".equalsIgnoreCase(mgf1.getDigestAlgorithm())) {
+            return false;
+        }
+        return spec.getPSource() instanceof PSource.PSpecified;
     }
 
     private PublicKey parsearClavePublicaUsuario(UsuarioEntity usuario, String contexto) {

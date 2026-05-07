@@ -8,14 +8,19 @@ import com.chat.chat.DTO.AiPollDraftResponseDTO;
 import com.chat.chat.Exceptions.RecursoNoEncontradoException;
 import com.chat.chat.Exceptions.SemanticApiException;
 import com.chat.chat.Repository.ChatGrupalRepository;
+import com.chat.chat.Utils.AdminAuditCrypto;
 import com.chat.chat.Utils.Constantes;
 import com.chat.chat.Utils.SecurityUtils;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.validation.annotation.Validated;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -30,7 +35,7 @@ public class DeepSeekAiPollDraftServiceImpl implements AiPollDraftService {
     private static final Pattern OPTION_PREFIX_PATTERN = Pattern.compile("^(?:OPCION\\s*:\\s*|[-*•]+\\s*|\\d+[.)-]?\\s*)", Pattern.CASE_INSENSITIVE);
     private static final Pattern QUESTION_PREFIX_PATTERN = Pattern.compile("^PREGUNTA\\s*:\\s*", Pattern.CASE_INSENSITIVE);
     private static final Pattern MULTIPLE_PREFIX_PATTERN = Pattern.compile("^MULTIPLE_RESPUESTAS\\s*:\\s*", Pattern.CASE_INSENSITIVE);
-    private static final int MAX_MESSAGE_LENGTH = 200;
+    private static final int MAX_MESSAGE_LENGTH = 500;
     private static final int MAX_AUTHOR_LENGTH = 80;
     private static final int MAX_DATE_LENGTH = 40;
     private static final int MAX_QUESTION_LENGTH = 300;
@@ -42,19 +47,28 @@ public class DeepSeekAiPollDraftServiceImpl implements AiPollDraftService {
     private final AiRateLimitService aiRateLimitService;
     private final SecurityUtils securityUtils;
     private final ChatGrupalRepository chatGrupalRepository;
+    private final AdminAuditCrypto adminAuditCrypto;
+    private final AiEncryptedContextService aiEncryptedContextService;
+    private final ObjectMapper objectMapper;
 
     public DeepSeekAiPollDraftServiceImpl(AiProperties aiProperties,
                                           DeepSeekProperties deepSeekProperties,
                                           DeepSeekApiClient deepSeekApiClient,
                                           AiRateLimitService aiRateLimitService,
                                           SecurityUtils securityUtils,
-                                          ChatGrupalRepository chatGrupalRepository) {
+                                          ChatGrupalRepository chatGrupalRepository,
+                                          AdminAuditCrypto adminAuditCrypto,
+                                          AiEncryptedContextService aiEncryptedContextService,
+                                          ObjectMapper objectMapper) {
         this.aiProperties = aiProperties;
         this.deepSeekProperties = deepSeekProperties;
         this.deepSeekApiClient = deepSeekApiClient;
         this.aiRateLimitService = aiRateLimitService;
         this.securityUtils = securityUtils;
         this.chatGrupalRepository = chatGrupalRepository;
+        this.adminAuditCrypto = adminAuditCrypto;
+        this.aiEncryptedContextService = aiEncryptedContextService;
+        this.objectMapper = objectMapper;
     }
 
     @Override
@@ -80,7 +94,17 @@ public class DeepSeekAiPollDraftServiceImpl implements AiPollDraftService {
         }
 
         int maxOptions = resolveMaxOptions(request == null ? null : request.getMaxOpciones());
-        List<AiPollDraftContextMessageDTO> sanitizedMessages = sanitizeMessages(request == null ? null : request.getMensajes());
+        if (!adminAuditCrypto.hasPrivateKeyConfigured()) {
+            return failure("AI_ADMIN_PRIVATE_KEY_MISSING", "No esta configurada la clave privada de auditoria para generar borrador de encuesta cifrado.");
+        }
+        if (!adminAuditCrypto.hasMatchingPrivateKeyForAuditPublicKey()) {
+            return failure("AI_ADMIN_PRIVATE_KEY_MISMATCH", "La clave privada de auditoria configurada no corresponde a la audit public key actual.");
+        }
+        if (!hasEncryptedMessages(request == null ? null : request.getMensajes())) {
+            return failure("AI_POLL_DRAFT_CONTEXT_ENCRYPTED_REQUIRED", "Debes enviar mensajes cifrados en encryptedPayload para generar el borrador.");
+        }
+
+        List<AiPollDraftContextMessageDTO> sanitizedMessages = sanitizeMessages(request == null ? null : request.getMensajes(), true);
         if (sanitizedMessages.isEmpty()) {
             return failure("AI_POLL_DRAFT_EMPTY_CONTEXT", "No hay mensajes suficientes para generar una encuesta.");
         }
@@ -115,7 +139,7 @@ public class DeepSeekAiPollDraftServiceImpl implements AiPollDraftService {
             if (!result.valid()) {
                 return failure(result.code(), result.message());
             }
-            return success(result.question(), result.options(), result.multipleResponses());
+            return successEncrypted(userId, result.question(), result.options(), result.multipleResponses());
         } catch (SemanticApiException ex) {
             LOGGER.warn("[AI][POLL_DRAFT] provider-error userId={} chatGrupalId={} code={} status={}",
                     userId,
@@ -139,7 +163,7 @@ public class DeepSeekAiPollDraftServiceImpl implements AiPollDraftService {
         }
     }
 
-    private List<AiPollDraftContextMessageDTO> sanitizeMessages(List<AiPollDraftContextMessageDTO> messages) {
+    private List<AiPollDraftContextMessageDTO> sanitizeMessages(List<AiPollDraftContextMessageDTO> messages, boolean encryptedFlow) {
         if (messages == null || messages.isEmpty()) {
             return List.of();
         }
@@ -148,12 +172,14 @@ public class DeepSeekAiPollDraftServiceImpl implements AiPollDraftService {
         int maxInputLength = aiProperties.getPollDraft().getMaxInputLength();
         int totalLength = 0;
         List<AiPollDraftContextMessageDTO> sanitized = new ArrayList<>();
-        for (int i = start; i < messages.size(); i++) {
+        for (int i = messages.size() - 1; i >= start; i--) {
             AiPollDraftContextMessageDTO message = messages.get(i);
             if (message == null) {
                 continue;
             }
-            String content = normalizeInput(message.getContenido());
+            String content = encryptedFlow
+                    ? normalizeInput(resolvePlainContextContent(message.getEncryptedPayload()))
+                    : normalizeInput(message.getContenido());
             if (!hasText(content) || isNonTextContent(content)) {
                 continue;
             }
@@ -176,10 +202,61 @@ public class DeepSeekAiPollDraftServiceImpl implements AiPollDraftService {
             current.setContenido(content);
             current.setEsUsuarioActual(message.isEsUsuarioActual());
             current.setFecha(truncate(normalizeInput(message.getFecha()), MAX_DATE_LENGTH));
+            System.out.println("[AI][POLL_DRAFT][CTX_MSG] id=" + current.getId()
+                    + " autor=" + current.getAutor()
+                    + " fecha=" + current.getFecha()
+                    + " esUsuarioActual=" + current.isEsUsuarioActual()
+                    + " contenido=" + current.getContenido());
             sanitized.add(current);
             totalLength += line.length() + 1;
         }
+        Collections.reverse(sanitized);
         return sanitized;
+    }
+
+    private String resolvePlainContextContent(String encryptedPayload) {
+        String firstPass = aiEncryptedContextService.decryptMessagePayload(encryptedPayload);
+        if (!hasText(firstPass)) {
+            return null;
+        }
+        String normalizedFirstPass = normalizeInput(firstPass);
+        if (!hasText(normalizedFirstPass)) {
+            return null;
+        }
+        try {
+            JsonNode root = objectMapper.readTree(normalizedFirstPass);
+            if (root == null || !root.isObject()) {
+                return normalizedFirstPass;
+            }
+
+            JsonNode contenidoNode = root.get("contenido");
+            if (contenidoNode != null && contenidoNode.isTextual() && hasText(contenidoNode.asText())) {
+                return normalizeInput(contenidoNode.asText());
+            }
+
+            JsonNode nestedEncryptedPayloadNode = root.get("encryptedPayload");
+            if (nestedEncryptedPayloadNode != null && nestedEncryptedPayloadNode.isTextual() && hasText(nestedEncryptedPayloadNode.asText())) {
+                String secondPass = aiEncryptedContextService.decryptMessagePayload(nestedEncryptedPayloadNode.asText());
+                if (hasText(secondPass)) {
+                    return normalizeInput(secondPass);
+                }
+            }
+        } catch (Exception ignored) {
+            return normalizedFirstPass;
+        }
+        return normalizedFirstPass;
+    }
+
+    private boolean hasEncryptedMessages(List<AiPollDraftContextMessageDTO> messages) {
+        if (messages == null || messages.isEmpty()) {
+            return false;
+        }
+        for (AiPollDraftContextMessageDTO message : messages) {
+            if (message == null || !hasText(message.getEncryptedPayload())) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private String buildConversationContext(List<AiPollDraftContextMessageDTO> messages, String estilo, int maxOptions) {
@@ -200,7 +277,9 @@ public class DeepSeekAiPollDraftServiceImpl implements AiPollDraftService {
         builder.append("- No crees encuesta real.\n");
         builder.append("- No envies mensajes.\n");
         builder.append("- No inventes datos importantes.");
-        return builder.toString();
+        String finalContext = builder.toString();
+        System.out.println("[AI][POLL_DRAFT][CTX_FINAL] " + finalContext);
+        return finalContext;
     }
 
     private String buildContextLine(String author, String date, String content, boolean currentUser) {
@@ -382,6 +461,38 @@ public class DeepSeekAiPollDraftServiceImpl implements AiPollDraftService {
         response.setPregunta(question);
         response.setOpciones(options);
         response.setMultipleRespuestas(multipleResponses);
+        response.setEncryptedPayload(null);
+        return response;
+    }
+
+    private AiPollDraftResponseDTO successEncrypted(Long userId, String question, List<String> options, boolean multipleResponses) {
+        String plainPayload;
+        try {
+            var payload = new java.util.LinkedHashMap<String, Object>();
+            payload.put("success", true);
+            payload.put("codigo", "OK");
+            payload.put("mensaje", "Borrador de encuesta generado correctamente");
+            payload.put("pregunta", question);
+            payload.put("opciones", options);
+            payload.put("multipleRespuestas", multipleResponses);
+            plainPayload = objectMapper.writeValueAsString(payload);
+        } catch (JsonProcessingException ex) {
+            return failure("AI_RESPONSE_ENCRYPTION_ERROR", "No se pudo cifrar el borrador de encuesta para el usuario actual.");
+        }
+
+        var encrypted = aiEncryptedContextService.encryptAiResponseForUser(plainPayload, userId);
+        if (encrypted == null || !encrypted.isSuccess() || !hasText(encrypted.getEncryptedPayload())) {
+            return failure("AI_RESPONSE_ENCRYPTION_ERROR", "No se pudo cifrar el borrador de encuesta para el usuario actual.");
+        }
+
+        AiPollDraftResponseDTO response = new AiPollDraftResponseDTO();
+        response.setSuccess(true);
+        response.setCodigo("OK");
+        response.setMensaje("Borrador de encuesta generado correctamente");
+        response.setPregunta(null);
+        response.setOpciones(List.of());
+        response.setMultipleRespuestas(false);
+        response.setEncryptedPayload(encrypted.getEncryptedPayload());
         return response;
     }
 
@@ -393,6 +504,7 @@ public class DeepSeekAiPollDraftServiceImpl implements AiPollDraftService {
         response.setPregunta(null);
         response.setOpciones(List.of());
         response.setMultipleRespuestas(false);
+        response.setEncryptedPayload(null);
         return response;
     }
 

@@ -1,9 +1,9 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="es">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Cuenta Suspendida - TejeChat</title>
+    <title>Cuenta Suspendida - {{appTitle}}</title>
     <style>
         /* Reset de estilos para clientes de correo */
         body, table, td, a { -webkit-text-size-adjust: 100%; -ms-text-size-adjust: 100%; }
@@ -157,17 +157,16 @@
                 <svg width="32" height="32" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                     <path d="M18.364 18.364C19.9926 16.7353 21 14.4853 21 12C21 7.02944 16.9706 3 12 3C9.51472 3 7.26472 4.00736 5.63604 5.63604M5.63604 5.63604C4.00736 7.26472 3 9.51472 3 12C3 16.9706 7.02944 21 12 21C14.4853 21 16.7353 19.9926 18.364 18.364M5.63604 5.63604L18.364 18.364" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
                 </svg>
-            </div>
-            <h1>Acceso Restringido</h1>
+            </div>            <h1>Acceso Restringido</h1>
         </div>
 
         <div class="content">
             <div class="status-badge">Estado: Suspendido</div>
             <div class="user-greeting">Hola, {{nombre}}</div>
 
-            <p>Te informamos que tu cuenta en <strong>TejeChat</strong> ha sido inhabilitada por un administrador del sistema debido a un incumplimiento de nuestras normas de convivencia.</p>
+            <p>Te informamos que tu cuenta en <strong>{{appTitle}}</strong> ha sido inhabilitada por un administrador del sistema debido a un incumplimiento de nuestras normas de convivencia.</p>
 
-            <p>Como resultado de esta acción, tu sesión ha sido finalizada y no podrás participar en chats ni acceder a tus grupos.</p>
+            <p>Como resultado de esta acción, tu sesión ha sido finalizada y no podrs participar en chats ni acceder a tus grupos.</p>
 
             <div class="resolution-chat">
                 <span class="resolution-label">Motivo de la suspensión</span>
@@ -186,8 +185,8 @@
     </div>
 
     <div class="footer">
-        &copy; 2026 TejeChat - Gestión de Comunidad.<br>
-        Este correo es una notificación oficial sobre el estado de tu cuenta.
+        &copy; 2026 {{appTitle}} - Gestión de Comunidad.<br>
+        Este correo es una notificacin oficial sobre el estado de tu cuenta.
     </div>
 </div>
 </body>

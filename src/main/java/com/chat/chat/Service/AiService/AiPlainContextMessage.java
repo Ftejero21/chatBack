@@ -8,6 +8,7 @@ class AiPlainContextMessage {
     private String fecha;
     private boolean esUsuarioActual;
     private String contenido;
+    private String tipoMensaje;
 
     public Long getId() {
         return id;
@@ -55,5 +56,13 @@ class AiPlainContextMessage {
 
     public void setContenido(String contenido) {
         this.contenido = contenido;
+    }
+
+    public String getTipoMensaje() {
+        return tipoMensaje;
+    }
+
+    public void setTipoMensaje(String tipoMensaje) {
+        this.tipoMensaje = tipoMensaje;
     }
 }

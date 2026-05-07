@@ -10,6 +10,7 @@ public class AiReportAnalysisResponseDTO {
     private String gravedad;
     private String resumen;
     private String accionSugerida;
+    private String encryptedPayload;
 
     public boolean isSuccess() {
         return success;
@@ -73,5 +74,13 @@ public class AiReportAnalysisResponseDTO {
 
     public void setAccionSugerida(String accionSugerida) {
         this.accionSugerida = accionSugerida;
+    }
+
+    public String getEncryptedPayload() {
+        return encryptedPayload;
+    }
+
+    public void setEncryptedPayload(String encryptedPayload) {
+        this.encryptedPayload = encryptedPayload;
     }
 }

@@ -43,6 +43,9 @@ public class AiProperties {
     @NestedConfigurationProperty
     private final ReportAnalysis reportAnalysis = new ReportAnalysis();
 
+    @NestedConfigurationProperty
+    private final AudioTranscription audioTranscription = new AudioTranscription();
+
     private boolean rateLimitEnabled = true;
 
     @Min(1)
@@ -119,6 +122,10 @@ public class AiProperties {
 
     public ReportAnalysis getReportAnalysis() {
         return reportAnalysis;
+    }
+
+    public AudioTranscription getAudioTranscription() {
+        return audioTranscription;
     }
 
     public boolean isRateLimitEnabled() {
@@ -263,6 +270,108 @@ public class AiProperties {
 
         public void setMaxInputLength(int maxInputLength) {
             this.maxInputLength = maxInputLength;
+        }
+    }
+
+    public static class AudioTranscription {
+
+        private boolean enabled = true;
+
+        @NotBlank
+        private String provider = "local-faster-whisper";
+
+        @NotBlank
+        private String model = "small";
+
+        @NotBlank
+        private String language = "es";
+
+        @NotBlank
+        private String pythonCommand = "python";
+
+        @NotBlank
+        private String scriptPath = "src/main/resources/transcribe_audio.py";
+
+        private String ffmpegBinPath = "";
+
+        @Min(1024)
+        @Max(52428800)
+        private int maxAudioSizeBytes = 10485760;
+
+        @Min(1000)
+        @Max(300000)
+        private int timeoutMs = 120000;
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        public String getProvider() {
+            return provider;
+        }
+
+        public void setProvider(String provider) {
+            this.provider = provider;
+        }
+
+        public String getModel() {
+            return model;
+        }
+
+        public void setModel(String model) {
+            this.model = model;
+        }
+
+        public int getMaxAudioSizeBytes() {
+            return maxAudioSizeBytes;
+        }
+
+        public void setMaxAudioSizeBytes(int maxAudioSizeBytes) {
+            this.maxAudioSizeBytes = maxAudioSizeBytes;
+        }
+
+        public int getTimeoutMs() {
+            return timeoutMs;
+        }
+
+        public void setTimeoutMs(int timeoutMs) {
+            this.timeoutMs = timeoutMs;
+        }
+
+        public String getLanguage() {
+            return language;
+        }
+
+        public void setLanguage(String language) {
+            this.language = language;
+        }
+
+        public String getPythonCommand() {
+            return pythonCommand;
+        }
+
+        public void setPythonCommand(String pythonCommand) {
+            this.pythonCommand = pythonCommand;
+        }
+
+        public String getScriptPath() {
+            return scriptPath;
+        }
+
+        public void setScriptPath(String scriptPath) {
+            this.scriptPath = scriptPath;
+        }
+
+        public String getFfmpegBinPath() {
+            return ffmpegBinPath;
+        }
+
+        public void setFfmpegBinPath(String ffmpegBinPath) {
+            this.ffmpegBinPath = ffmpegBinPath;
         }
     }
 }

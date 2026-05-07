@@ -11,5 +11,7 @@ public interface AiEncryptedContextService {
 
     String decryptMessagePayload(String encryptedPayload);
 
+    byte[] decryptMessagePayloadToBytes(String encryptedPayload);
+
     AiEncryptedResponseDTO encryptAiResponseForUser(String textoPlano, Long userId);
 }

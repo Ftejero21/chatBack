@@ -8,6 +8,7 @@ public class AiQuickReplyResponseDTO {
     private String codigo;
     private String mensaje;
     private List<String> sugerencias;
+    private String encryptedPayload;
 
     public boolean isSuccess() {
         return success;
@@ -39,5 +40,13 @@ public class AiQuickReplyResponseDTO {
 
     public void setSugerencias(List<String> sugerencias) {
         this.sugerencias = sugerencias;
+    }
+
+    public String getEncryptedPayload() {
+        return encryptedPayload;
+    }
+
+    public void setEncryptedPayload(String encryptedPayload) {
+        this.encryptedPayload = encryptedPayload;
     }
 }

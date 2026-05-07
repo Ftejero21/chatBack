@@ -8,6 +8,7 @@ public class AiTextResponseDTO {
     private boolean success;
     private String codigo;
     private String mensaje;
+    private String encryptedPayload;
 
     public String getTextoOriginal() {
         return textoOriginal;
@@ -55,5 +56,13 @@ public class AiTextResponseDTO {
 
     public void setMensaje(String mensaje) {
         this.mensaje = mensaje;
+    }
+
+    public String getEncryptedPayload() {
+        return encryptedPayload;
+    }
+
+    public void setEncryptedPayload(String encryptedPayload) {
+        this.encryptedPayload = encryptedPayload;
     }
 }

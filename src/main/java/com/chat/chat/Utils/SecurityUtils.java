@@ -15,6 +15,14 @@ public class SecurityUtils {
     @Autowired
     private UsuarioRepository usuarioRepository;
 
+    public String getAuthenticatedUserEmail() {
+        Object principal = SecurityContextHolder.getContext().getAuthentication().getPrincipal();
+        if (principal instanceof UserDetails) {
+            return ((UserDetails) principal).getUsername();
+        }
+        return principal.toString();
+    }
+
     /**
      * Devuelve el ID del usuario actualmente autenticado (el que envió el JWT).
      * Útil para evitar Spoofing e IDOR, ya que la fuente de verdad es el Token, no

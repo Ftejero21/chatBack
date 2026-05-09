@@ -215,6 +215,7 @@ public class Constantes {
     public static final String WS_QUEUE_BANEOS = "/queue/baneos";
     public static final String WS_QUEUE_ERRORS = "/queue/errors";
     public static final String WS_QUEUE_CHAT_CIERRES = "/queue/chat-cierres";
+    public static final String WS_QUEUE_AI_SEARCH_PROGRESS = "/queue/ai-search-progress";
     public static final String WS_BLOCK_STATUS_PAYLOAD_TEMPLATE = "{\"blockerId\":%d,\"type\":\"%s\"}";
     public static final String WS_BAN_PAYLOAD_TEMPLATE = "{\"banned\": true, \"motivo\": \"%s\"}";
 

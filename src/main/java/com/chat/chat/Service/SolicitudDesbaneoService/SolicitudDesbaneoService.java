@@ -5,12 +5,19 @@ import com.chat.chat.DTO.SolicitudDesbaneoCreateResponseDTO;
 import com.chat.chat.DTO.SolicitudDesbaneoDTO;
 import com.chat.chat.DTO.SolicitudDesbaneoEstadoUpdateDTO;
 import com.chat.chat.DTO.SolicitudDesbaneoStatsDTO;
+import com.chat.chat.Utils.ReporteTipo;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.data.domain.Page;
 
 public interface SolicitudDesbaneoService {
     SolicitudDesbaneoCreateResponseDTO crearSolicitud(SolicitudDesbaneoCreateDTO request);
     SolicitudDesbaneoDTO crearReporteChatCerrado(Long chatId, String motivo, String ip, String userAgent);
+
+    /**
+     * Creates an app-related report (incident, complaint, improvement, bug, suggestion, unban request, other)
+     * triggered from AI search-intent classification. usuarioId comes from authenticated user — never trust client.
+     */
+    SolicitudDesbaneoDTO crearReporteDesdeAi(Long usuarioId, ReporteTipo tipo, String motivo);
 
     Page<SolicitudDesbaneoDTO> listarSolicitudes(String estado, String estados, String tipoReporte, Integer page, Integer size, String sort);
 

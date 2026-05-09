@@ -123,5 +123,35 @@ public interface UserComplaintRepository extends JpaRepository<UserComplaintEnti
                                                                               @Param("fin") java.time.LocalDateTime fin,
                                                                               Pageable pageable);
 
+    List<UserComplaintEntity> findByDenuncianteIdOrderByCreatedAtDescIdDesc(Long denuncianteId, Pageable pageable);
+
+    @Query("""
+            select uc from UserComplaintEntity uc
+            where uc.denuncianteId = :denuncianteId
+              and uc.createdAt >= :inicio
+              and uc.createdAt < :fin
+            order by uc.createdAt desc, uc.id desc
+            """)
+    List<UserComplaintEntity> findByDenuncianteIdAndCreatedAtBetweenOrdered(
+            @Param("denuncianteId") Long denuncianteId,
+            @Param("inicio") java.time.LocalDateTime inicio,
+            @Param("fin") java.time.LocalDateTime fin,
+            Pageable pageable);
+
+    List<UserComplaintEntity> findByDenunciadoIdOrderByCreatedAtDescIdDesc(Long denunciadoId, Pageable pageable);
+
+    @Query("""
+            select uc from UserComplaintEntity uc
+            where uc.denunciadoId = :denunciadoId
+              and uc.createdAt >= :inicio
+              and uc.createdAt < :fin
+            order by uc.createdAt desc, uc.id desc
+            """)
+    List<UserComplaintEntity> findByDenunciadoIdAndCreatedAtBetweenOrdered(
+            @Param("denunciadoId") Long denunciadoId,
+            @Param("inicio") java.time.LocalDateTime inicio,
+            @Param("fin") java.time.LocalDateTime fin,
+            Pageable pageable);
+
     List<UserComplaintEntity> findTop5ByDenunciadoIdOrderByCreatedAtDescIdDesc(Long denunciadoId);
 }

@@ -390,6 +390,71 @@ public interface MensajeRepository extends JpaRepository<MensajeEntity, Long> {
             "left join fetch m.emisor emisor " +
             "left join fetch m.receptor receptor " +
             "left join fetch m.chat chat " +
+            "where m.chat.id in :chatIds " +
+            "and m.activo = true " +
+            "and m.adminMessage = false " +
+            "and m.contenido is not null " +
+            "and m.tipo = :tipo " +
+            "and (m.expiraEn is null or m.expiraEn > CURRENT_TIMESTAMP) " +
+            "and (:fechaInicio is null or m.fechaEnvio >= :fechaInicio) " +
+            "and (:fechaFin is null or m.fechaEnvio <= :fechaFin) " +
+            "and (:filterByEmitters = false or m.emisor.id in :emisorIds) " +
+            "order by m.fechaEnvio desc, m.id desc")
+    Page<MensajeEntity> buscarMensajesParaAiEnChatsYEmisores(
+            @Param("chatIds") List<Long> chatIds,
+            @Param("filterByEmitters") boolean filterByEmitters,
+            @Param("emisorIds") List<Long> emisorIds,
+            @Param("tipo") MessageType tipo,
+            @Param("fechaInicio") LocalDateTime fechaInicio,
+            @Param("fechaFin") LocalDateTime fechaFin,
+            Pageable pageable);
+
+    @Query("select m from MensajeEntity m " +
+            "left join fetch m.emisor emisor " +
+            "left join fetch m.receptor receptor " +
+            "left join fetch m.chat chat " +
+            "where m.chat.id in :chatIds " +
+            "and m.activo = true " +
+            "and m.adminMessage = false " +
+            "and m.contenido is not null " +
+            "and (m.expiraEn is null or m.expiraEn > CURRENT_TIMESTAMP) " +
+            "and (:fechaInicio is null or m.fechaEnvio >= :fechaInicio) " +
+            "and (:fechaFin is null or m.fechaEnvio <= :fechaFin) " +
+            "and (:filterByEmitters = false or m.emisor.id in :emisorIds) " +
+            "order by m.fechaEnvio desc, m.id desc")
+    Page<MensajeEntity> buscarMensajesParaAiEnChatsYEmisoresSinFiltroTipo(
+            @Param("chatIds") List<Long> chatIds,
+            @Param("filterByEmitters") boolean filterByEmitters,
+            @Param("emisorIds") List<Long> emisorIds,
+            @Param("fechaInicio") LocalDateTime fechaInicio,
+            @Param("fechaFin") LocalDateTime fechaFin,
+            Pageable pageable);
+
+    @Query("select m from MensajeEntity m " +
+            "left join fetch m.emisor emisor " +
+            "left join fetch m.receptor receptor " +
+            "left join fetch m.chat chat " +
+            "where m.chat.id in :chatIds " +
+            "and m.activo = true " +
+            "and m.adminMessage = false " +
+            "and m.contenido is not null " +
+            "and (m.expiraEn is null or m.expiraEn > CURRENT_TIMESTAMP) " +
+            "and (:fechaInicio is null or m.fechaEnvio >= :fechaInicio) " +
+            "and (:fechaFin is null or m.fechaEnvio <= :fechaFin) " +
+            "and (:filterByEmitters = false or m.emisor.id in :emisorIds) " +
+            "order by m.fechaEnvio asc, m.id asc")
+    Page<MensajeEntity> buscarPrimerosMensajesParaAiEnChatsYEmisoresSinFiltroTipo(
+            @Param("chatIds") List<Long> chatIds,
+            @Param("filterByEmitters") boolean filterByEmitters,
+            @Param("emisorIds") List<Long> emisorIds,
+            @Param("fechaInicio") LocalDateTime fechaInicio,
+            @Param("fechaFin") LocalDateTime fechaFin,
+            Pageable pageable);
+
+    @Query("select m from MensajeEntity m " +
+            "left join fetch m.emisor emisor " +
+            "left join fetch m.receptor receptor " +
+            "left join fetch m.chat chat " +
             "where m.emisor.id = :userId " +
             "and m.activo = true " +
             "and m.adminMessage = false " +

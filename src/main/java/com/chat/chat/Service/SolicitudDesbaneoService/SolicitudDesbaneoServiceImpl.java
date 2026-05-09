@@ -217,6 +217,44 @@ public class SolicitudDesbaneoServiceImpl implements SolicitudDesbaneoService {
     }
 
     @Override
+    @Transactional
+    public SolicitudDesbaneoDTO crearReporteDesdeAi(Long usuarioId, ReporteTipo tipo, String motivo) {
+        if (usuarioId == null) {
+            throw new IllegalArgumentException("usuarioId es obligatorio");
+        }
+        if (tipo == null) {
+            tipo = ReporteTipo.OTRO;
+        }
+        // Block CHAT_CERRADO/DESBANEO via AI fork to keep flows separated
+        if (tipo == ReporteTipo.CHAT_CERRADO) {
+            throw new IllegalArgumentException("CHAT_CERRADO no se permite via AI");
+        }
+        UsuarioEntity usuario = usuarioRepository.findById(usuarioId)
+                .orElseThrow(() -> new RecursoNoEncontradoException(Constantes.MSG_USUARIO_NO_ENCONTRADO));
+
+        // Trust user email from auth, never client
+        String email = usuario.getEmail();
+        String motivoSanitized = normalizeOptionalReason(motivo, "motivo");
+
+        SolicitudDesbaneoEntity entity = new SolicitudDesbaneoEntity();
+        entity.setTipoReporte(tipo);
+        entity.setUsuarioId(usuarioId);
+        entity.setEmail(email);
+        entity.setMotivo(motivoSanitized);
+        entity.setEstado(SolicitudDesbaneoEstado.PENDIENTE);
+
+        SolicitudDesbaneoEntity saved = solicitudDesbaneoRepository.save(entity);
+        LOGGER.info("[APP_REPORT_CREATED] id={} usuarioId={} tipoReporte={} estado={} motivoLength={}",
+                saved.getId(),
+                saved.getUsuarioId(),
+                saved.getTipoReporte(),
+                saved.getEstado(),
+                motivoSanitized == null ? 0 : motivoSanitized.length());
+        publishWsEvent(EVENT_CREATED, saved);
+        return solicitudDesbaneoMapper.toDto(saved, usuario);
+    }
+
+    @Override
     public Page<SolicitudDesbaneoDTO> listarSolicitudes(String estado, String estados, String tipoReporte, Integer page, Integer size, String sort) {
         int safePage = page == null ? DEFAULT_PAGE : Math.max(DEFAULT_PAGE, page);
         int requestedSize = size == null ? DEFAULT_SIZE : size;
@@ -545,7 +583,7 @@ public class SolicitudDesbaneoServiceImpl implements SolicitudDesbaneoService {
         try {
             return ReporteTipo.valueOf(raw.trim().toUpperCase(Locale.ROOT));
         } catch (IllegalArgumentException ex) {
-            throw new IllegalArgumentException("tipoReporte invalido. Valores permitidos: DESBANEO, CHAT_CERRADO");
+            throw new IllegalArgumentException("tipoReporte invalido. Valores permitidos: DESBANEO, CHAT_CERRADO, INCIDENCIA, QUEJA, MEJORA, ERROR_APP, SUGERENCIA, OTRO");
         }
     }
 

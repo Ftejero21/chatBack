@@ -18,6 +18,8 @@ public interface MensajeProgramadoRepository extends JpaRepository<MensajeProgra
 
     List<MensajeProgramadoEntity> findByCreatedByIdOrderByCreatedAtDesc(Long createdById);
 
+    List<MensajeProgramadoEntity> findByCreatedByIdOrderByScheduledAtAscIdAsc(Long createdById);
+
     List<MensajeProgramadoEntity> findByCreatedByIdAndStatusOrderByCreatedAtDesc(Long createdById,
                                                                                   EstadoMensajeProgramado status);
 

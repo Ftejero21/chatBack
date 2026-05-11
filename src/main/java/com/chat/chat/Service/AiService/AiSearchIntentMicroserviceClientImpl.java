@@ -3,6 +3,8 @@ package com.chat.chat.Service.AiService;
 import com.chat.chat.Configuracion.TejechatAiServiceProperties;
 import com.chat.chat.DTO.AiSearchIntentInternalRequestDTO;
 import com.chat.chat.DTO.AiSearchIntentInternalResponseDTO;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -26,11 +28,14 @@ public class AiSearchIntentMicroserviceClientImpl implements AiSearchIntentMicro
 
     private final RestTemplate restTemplate;
     private final TejechatAiServiceProperties tejechatAiServiceProperties;
+    private final ObjectMapper objectMapper;
 
     public AiSearchIntentMicroserviceClientImpl(@Qualifier("aiMessageSearchRestTemplate") RestTemplate restTemplate,
-                                                TejechatAiServiceProperties tejechatAiServiceProperties) {
+                                                TejechatAiServiceProperties tejechatAiServiceProperties,
+                                                ObjectMapper objectMapper) {
         this.restTemplate = restTemplate;
         this.tejechatAiServiceProperties = tejechatAiServiceProperties;
+        this.objectMapper = objectMapper;
     }
 
     @Override
@@ -48,21 +53,30 @@ public class AiSearchIntentMicroserviceClientImpl implements AiSearchIntentMicro
                 safe(request == null ? null : request.getUsuarioActualNombre()));
 
         try {
-            ResponseEntity<AiSearchIntentInternalResponseDTO> response = restTemplate.exchange(
+            ResponseEntity<String> response = restTemplate.exchange(
                     tejechatAiServiceProperties.buildSearchIntentUrl(),
                     HttpMethod.POST,
                     new HttpEntity<>(request, headers),
-                    AiSearchIntentInternalResponseDTO.class
+                    String.class
             );
             LOGGER.info("[AI][SEARCH_INTENT_CLIENT] requestId={} service-status={} hasBody={}",
                     requestId, response.getStatusCode().value(), response.getBody() != null);
-            AiSearchIntentInternalResponseDTO body = response.getBody();
+            String rawBody = response.getBody();
+            LOGGER.info("[AI][SEARCH_INTENT_CLIENT][RAW_BODY] requestId={} body=<<<{}>>>",
+                    requestId, safeRawBody(rawBody));
+            AiSearchIntentInternalResponseDTO body = mapResponseBody(requestId, rawBody);
             if (body != null) {
-                LOGGER.info("[AI][SEARCH_INTENT_CLIENT] requestId={} inbound success={} codigo={} target={} complaintDirection={} senderScope={} tipoScopeSolicitado={} tipoMensajeSolicitado={} readStatus={} personaMencionada=\"{}\" grupoMencionado=\"{}\" temporalExpression=\"{}\" orden={} confidence={}",
+                body.setTarget(normalizeTarget(body.getTarget()));
+                LOGGER.info("[AI][SEARCH_INTENT_CLIENT][MAPPED_DTO] requestId={} target={} tipoReporte={} reportStatus={} temporalExpression={} confidence={} listMode={}",
+                        requestId, body.getTarget(), body.getTipoReporte(), body.getReportStatus(), safe(body.getTemporalExpression()), body.getConfidence(), body.getListMode());
+                LOGGER.info("[AI][SEARCH_INTENT_CLIENT] requestId={} inbound success={} codigo={} target={} tipoReporte={} motivoReporte=\"{}\" reportStatus={} complaintDirection={} senderScope={} tipoScopeSolicitado={} tipoMensajeSolicitado={} readStatus={} personaMencionada=\"{}\" grupoMencionado=\"{}\" temporalExpression=\"{}\" orden={} confidence={} listMode={}",
                         requestId,
                         body.isSuccess(),
                         body.getCodigo(),
                         body.getTarget(),
+                        body.getTipoReporte(),
+                        safe(body.getMotivoReporte()),
+                        body.getReportStatus(),
                         body.getComplaintDirection(),
                         body.getSenderScope(),
                         body.getTipoScopeSolicitado(),
@@ -72,7 +86,8 @@ public class AiSearchIntentMicroserviceClientImpl implements AiSearchIntentMicro
                         safe(body.getGrupoMencionado()),
                         safe(body.getTemporalExpression()),
                         body.getOrden(),
-                        body.getConfidence());
+                        body.getConfidence(),
+                        body.getListMode());
             }
             return body;
         } catch (ResourceAccessException ex) {
@@ -92,5 +107,32 @@ public class AiSearchIntentMicroserviceClientImpl implements AiSearchIntentMicro
             return "";
         }
         return value.replaceAll("\\s+", " ").trim();
+    }
+
+    private String safeRawBody(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value.replace("\r", "\\r").replace("\n", "\\n");
+    }
+
+    private AiSearchIntentInternalResponseDTO mapResponseBody(String requestId, String rawBody) {
+        if (rawBody == null || rawBody.isBlank()) {
+            return null;
+        }
+        try {
+            return objectMapper.readValue(rawBody, AiSearchIntentInternalResponseDTO.class);
+        } catch (JsonProcessingException ex) {
+            LOGGER.warn("[AI][SEARCH_INTENT_CLIENT] requestId={} mapping-error type={}", requestId, ex.getClass().getSimpleName());
+            return null;
+        }
+    }
+
+    private String normalizeTarget(String target) {
+        if (target == null) {
+            return null;
+        }
+        String normalized = target.trim().toUpperCase();
+        return normalized.isBlank() ? null : normalized;
     }
 }

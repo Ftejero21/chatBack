@@ -11,6 +11,7 @@ import com.chat.chat.Utils.Constantes;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import org.springframework.core.io.Resource;
 import org.springframework.data.domain.Page;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -83,6 +84,24 @@ public class SolicitudDesbaneoController {
     @Operation(summary = "Detalle solicitud de desbaneo (admin)")
     public ResponseEntity<SolicitudDesbaneoDTO> obtenerSolicitud(@PathVariable("id") Long id) {
         return ResponseEntity.ok(solicitudDesbaneoService.obtenerSolicitud(id));
+    }
+
+    @GetMapping(Constantes.ADMIN_SOLICITUD_DESBANEO_IMAGEN)
+    @Operation(summary = "Descargar imagen adjunta de solicitud (admin)")
+    public ResponseEntity<Resource> obtenerImagenAdmin(@PathVariable("id") Long id) {
+        return solicitudDesbaneoService.obtenerImagenReporteAdmin(id);
+    }
+
+    @GetMapping(Constantes.SOLICITUD_DESBANEO_IMAGEN_USUARIO)
+    @Operation(summary = "Descargar imagen adjunta de la propia solicitud")
+    public ResponseEntity<Resource> obtenerImagenUsuario(@PathVariable("id") Long id) {
+        return solicitudDesbaneoService.obtenerImagenReporteUsuario(id);
+    }
+
+    @GetMapping(Constantes.REPORTE_IMAGEN_USUARIO)
+    @Operation(summary = "Descargar imagen adjunta del propio reporte")
+    public ResponseEntity<Resource> obtenerImagenReporteUsuario(@PathVariable("id") Long id) {
+        return solicitudDesbaneoService.obtenerImagenReporteUsuario(id);
     }
 
     @PatchMapping(Constantes.ADMIN_SOLICITUD_DESBANEO_ESTADO)

@@ -3,8 +3,15 @@ package com.chat.chat.Service.AiService;
 import com.chat.chat.Configuracion.AiProperties;
 import com.chat.chat.DTO.AiEncryptedMessageSearchResultDTO;
 import com.chat.chat.Entity.UsuarioEntity;
+import com.chat.chat.Repository.ChatGrupalRepository;
+import com.chat.chat.Repository.ChatIndividualRepository;
 import com.chat.chat.Repository.MensajeRepository;
+import com.chat.chat.Repository.MensajeProgramadoRepository;
+import com.chat.chat.Repository.SolicitudDesbaneoRepository;
+import com.chat.chat.Repository.SolicitudReporteHistorialRepository;
+import com.chat.chat.Repository.UserComplaintRepository;
 import com.chat.chat.Repository.UsuarioRepository;
+import com.chat.chat.Service.SolicitudDesbaneoService.SolicitudDesbaneoService;
 import com.chat.chat.Utils.AdminAuditCrypto;
 import com.chat.chat.Utils.SecurityUtils;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -15,6 +22,7 @@ import java.lang.reflect.Method;
 import java.util.List;
 import java.util.Optional;
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
@@ -34,14 +42,26 @@ class DeepSeekAiEncryptedMessageSearchServiceImplResumenBusquedaTest {
                 new AiProperties(),
                 mock(AiRateLimitService.class),
                 mock(SecurityUtils.class),
+                mock(ChatIndividualRepository.class),
+                mock(ChatGrupalRepository.class),
                 mock(MensajeRepository.class),
+                mock(MensajeProgramadoRepository.class),
                 usuarioRepository,
+                mock(UserComplaintRepository.class),
                 mock(AiEncryptedContextService.class),
                 mock(AdminAuditCrypto.class),
                 mock(AudioTranscriptionService.class),
                 mock(AiMessageSearchNaturalQueryAnalyzer.class),
                 mock(AiMessageSearchScopeResolverService.class),
                 mock(AiMessageSearchMicroserviceClient.class),
+                mock(AiSearchIntentMicroserviceClient.class),
+                mock(AiScheduledMessageSummaryMicroserviceClient.class),
+                mock(SolicitudDesbaneoService.class),
+                mock(SolicitudDesbaneoRepository.class),
+                mock(SolicitudReporteHistorialRepository.class),
+                mock(AiAppReportStatusSummaryMicroserviceClient.class),
+                mock(AiAppReportResolutionNoteMicroserviceClient.class),
+                mock(AiSearchProgressNotifier.class),
                 new ObjectMapper(),
                 "uploads",
                 "",

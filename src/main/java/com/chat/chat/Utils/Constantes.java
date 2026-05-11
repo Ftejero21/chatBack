@@ -139,6 +139,9 @@ public class Constantes {
     public static final String ADMIN_SOLICITUD_DESBANEO_BY_ID = "/admin/solicitudes-desbaneo/{id}";
     public static final String ADMIN_SOLICITUD_DESBANEO_ESTADO = "/admin/solicitudes-desbaneo/{id}/estado";
     public static final String ADMIN_SOLICITUD_DESBANEO_STATS = "/admin/solicitudes-desbaneo/stats";
+    public static final String ADMIN_SOLICITUD_DESBANEO_IMAGEN = "/admin/solicitudes-desbaneo/{id}/imagen";
+    public static final String SOLICITUD_DESBANEO_IMAGEN_USUARIO = "/solicitudes-desbaneo/{id}/imagen";
+    public static final String REPORTE_IMAGEN_USUARIO = "/reportes/{id}/imagen";
     public static final String ADMIN_USER_COMPLAINT_LIST = "/admin/denuncias";
     public static final String ADMIN_USER_COMPLAINT_STATS = "/admin/denuncias/stats";
     public static final String ADMIN_USER_COMPLAINT_READ = "/admin/denuncias/{id}/read";

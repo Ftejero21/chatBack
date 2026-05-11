@@ -1,5 +1,7 @@
 package com.chat.chat.DTO;
 
+import java.util.List;
+
 public class AiEncryptedMessageSearchResultDTO {
 
     private Long mensajeId;
@@ -32,6 +34,19 @@ public class AiEncryptedMessageSearchResultDTO {
     private String gravedadDenuncia;
     private String estadoDenuncia;
     private String fechaDenuncia;
+    private Long reporteId;
+    private String tipoReporte;
+    private String estadoReporte;
+    private String motivoReporte;
+    private String resolucionMotivoReporte;
+    private String fechaCreacionReporte;
+    private String fechaActualizacionReporte;
+    private Boolean tieneImagenReporte;
+    private String imagenReporteMimeType;
+    private String imagenReporteNombre;
+    private Long imagenReporteSize;
+    private String imagenReporteUrl;
+    private List<AiAppReportHistoryDTO> historialReporte;
     private String motivoCoincidencia;
     private Integer relevancia;
     private Boolean mejorResultadoAproximado;
@@ -240,6 +255,45 @@ public class AiEncryptedMessageSearchResultDTO {
 
     public String getFechaDenuncia() { return fechaDenuncia; }
     public void setFechaDenuncia(String fechaDenuncia) { this.fechaDenuncia = fechaDenuncia; }
+
+    public Long getReporteId() { return reporteId; }
+    public void setReporteId(Long reporteId) { this.reporteId = reporteId; }
+
+    public String getTipoReporte() { return tipoReporte; }
+    public void setTipoReporte(String tipoReporte) { this.tipoReporte = tipoReporte; }
+
+    public String getEstadoReporte() { return estadoReporte; }
+    public void setEstadoReporte(String estadoReporte) { this.estadoReporte = estadoReporte; }
+
+    public String getMotivoReporte() { return motivoReporte; }
+    public void setMotivoReporte(String motivoReporte) { this.motivoReporte = motivoReporte; }
+
+    public String getResolucionMotivoReporte() { return resolucionMotivoReporte; }
+    public void setResolucionMotivoReporte(String resolucionMotivoReporte) { this.resolucionMotivoReporte = resolucionMotivoReporte; }
+
+    public String getFechaCreacionReporte() { return fechaCreacionReporte; }
+    public void setFechaCreacionReporte(String fechaCreacionReporte) { this.fechaCreacionReporte = fechaCreacionReporte; }
+
+    public String getFechaActualizacionReporte() { return fechaActualizacionReporte; }
+    public void setFechaActualizacionReporte(String fechaActualizacionReporte) { this.fechaActualizacionReporte = fechaActualizacionReporte; }
+
+    public Boolean getTieneImagenReporte() { return tieneImagenReporte; }
+    public void setTieneImagenReporte(Boolean tieneImagenReporte) { this.tieneImagenReporte = tieneImagenReporte; }
+
+    public String getImagenReporteMimeType() { return imagenReporteMimeType; }
+    public void setImagenReporteMimeType(String imagenReporteMimeType) { this.imagenReporteMimeType = imagenReporteMimeType; }
+
+    public String getImagenReporteNombre() { return imagenReporteNombre; }
+    public void setImagenReporteNombre(String imagenReporteNombre) { this.imagenReporteNombre = imagenReporteNombre; }
+
+    public Long getImagenReporteSize() { return imagenReporteSize; }
+    public void setImagenReporteSize(Long imagenReporteSize) { this.imagenReporteSize = imagenReporteSize; }
+
+    public String getImagenReporteUrl() { return imagenReporteUrl; }
+    public void setImagenReporteUrl(String imagenReporteUrl) { this.imagenReporteUrl = imagenReporteUrl; }
+
+    public List<AiAppReportHistoryDTO> getHistorialReporte() { return historialReporte; }
+    public void setHistorialReporte(List<AiAppReportHistoryDTO> historialReporte) { this.historialReporte = historialReporte; }
 
     public String getMotivoCoincidencia() {
         return motivoCoincidencia;

@@ -21,6 +21,11 @@ public class SolicitudDesbaneoDTO {
     private String usuarioApellido;
     private String chatNombreSnapshot;
     private String chatCerradoMotivoSnapshot;
+    private Boolean tieneImagenReporte;
+    private String imagenReporteMimeType;
+    private String imagenReporteNombre;
+    private Long imagenReporteSize;
+    private String imagenReporteUrl;
 
     public Long getId() {
         return id;
@@ -140,5 +145,45 @@ public class SolicitudDesbaneoDTO {
 
     public void setChatCerradoMotivoSnapshot(String chatCerradoMotivoSnapshot) {
         this.chatCerradoMotivoSnapshot = chatCerradoMotivoSnapshot;
+    }
+
+    public Boolean getTieneImagenReporte() {
+        return tieneImagenReporte;
+    }
+
+    public void setTieneImagenReporte(Boolean tieneImagenReporte) {
+        this.tieneImagenReporte = tieneImagenReporte;
+    }
+
+    public String getImagenReporteMimeType() {
+        return imagenReporteMimeType;
+    }
+
+    public void setImagenReporteMimeType(String imagenReporteMimeType) {
+        this.imagenReporteMimeType = imagenReporteMimeType;
+    }
+
+    public String getImagenReporteNombre() {
+        return imagenReporteNombre;
+    }
+
+    public void setImagenReporteNombre(String imagenReporteNombre) {
+        this.imagenReporteNombre = imagenReporteNombre;
+    }
+
+    public Long getImagenReporteSize() {
+        return imagenReporteSize;
+    }
+
+    public void setImagenReporteSize(Long imagenReporteSize) {
+        this.imagenReporteSize = imagenReporteSize;
+    }
+
+    public String getImagenReporteUrl() {
+        return imagenReporteUrl;
+    }
+
+    public void setImagenReporteUrl(String imagenReporteUrl) {
+        this.imagenReporteUrl = imagenReporteUrl;
     }
 }

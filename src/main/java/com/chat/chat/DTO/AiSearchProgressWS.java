@@ -12,6 +12,7 @@ public class AiSearchProgressWS {
     private Boolean hasApproximateResult;
     private String target;
     private String tipoReporte;
+    private String complaintDirection;
 
     public AiSearchProgressWS(String requestId, String step, String status, String message, Boolean hasApproximateResult) {
         this.requestId = requestId;
@@ -29,8 +30,15 @@ public class AiSearchProgressWS {
         this.tipoReporte = tipoReporte;
     }
 
+    public AiSearchProgressWS(String requestId, String step, String status, String message,
+                              Boolean hasApproximateResult, String target, String tipoReporte, String complaintDirection) {
+        this(requestId, step, status, message, hasApproximateResult, target, tipoReporte);
+        this.complaintDirection = complaintDirection;
+    }
+
     public String getTarget() { return target; }
     public String getTipoReporte() { return tipoReporte; }
+    public String getComplaintDirection() { return complaintDirection; }
 
     public String getRequestId() {
         return requestId;

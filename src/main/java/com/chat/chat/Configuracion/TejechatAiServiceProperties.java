@@ -37,6 +37,12 @@ public class TejechatAiServiceProperties {
     private String searchIntentPath = "/internal/ai/search-intent";
 
     @NotBlank
+    private String appReportStatusSummaryPath = "/internal/ai/app-report-status-summary";
+
+    @NotBlank
+    private String appReportResolutionNotePath = "/internal/ai/app-report-resolution-note";
+
+    @NotBlank
     private String scheduledMessageSummaryPath = "/internal/ai/resumir-mensajes-programados";
 
     @Min(1)
@@ -107,12 +113,28 @@ public class TejechatAiServiceProperties {
         this.searchIntentPath = searchIntentPath;
     }
 
+    public String getAppReportStatusSummaryPath() {
+        return appReportStatusSummaryPath;
+    }
+
+    public void setAppReportStatusSummaryPath(String appReportStatusSummaryPath) {
+        this.appReportStatusSummaryPath = appReportStatusSummaryPath;
+    }
+
     public String getScheduledMessageSummaryPath() {
         return scheduledMessageSummaryPath;
     }
 
     public void setScheduledMessageSummaryPath(String scheduledMessageSummaryPath) {
         this.scheduledMessageSummaryPath = scheduledMessageSummaryPath;
+    }
+
+    public String getAppReportResolutionNotePath() {
+        return appReportResolutionNotePath;
+    }
+
+    public void setAppReportResolutionNotePath(String appReportResolutionNotePath) {
+        this.appReportResolutionNotePath = appReportResolutionNotePath;
     }
 
     public int getTimeoutSeconds() {
@@ -156,6 +178,18 @@ public class TejechatAiServiceProperties {
     public String buildSearchIntentUrl() {
         String normalizedBaseUrl = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
         String normalizedPath = searchIntentPath.startsWith("/") ? searchIntentPath : "/" + searchIntentPath;
+        return normalizedBaseUrl + normalizedPath;
+    }
+
+    public String buildAppReportStatusSummaryUrl() {
+        String normalizedBaseUrl = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
+        String normalizedPath = appReportStatusSummaryPath.startsWith("/") ? appReportStatusSummaryPath : "/" + appReportStatusSummaryPath;
+        return normalizedBaseUrl + normalizedPath;
+    }
+
+    public String buildAppReportResolutionNoteUrl() {
+        String normalizedBaseUrl = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
+        String normalizedPath = appReportResolutionNotePath.startsWith("/") ? appReportResolutionNotePath : "/" + appReportResolutionNotePath;
         return normalizedBaseUrl + normalizedPath;
     }
 

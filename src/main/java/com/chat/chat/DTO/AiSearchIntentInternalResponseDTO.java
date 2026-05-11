@@ -17,9 +17,11 @@ public class AiSearchIntentInternalResponseDTO {
     private String readStatus;
     private String tipoReporte;
     private String motivoReporte;
+    private String reportStatus;
     private String temporalExpression;
     private String orden;
     private String rangoTemporalSugerido;
+    private Boolean listMode;
     private Double confidence;
 
     public AiSearchIntentInternalResponseDTO() {}
@@ -69,6 +71,9 @@ public class AiSearchIntentInternalResponseDTO {
     public String getMotivoReporte() { return motivoReporte; }
     public void setMotivoReporte(String motivoReporte) { this.motivoReporte = motivoReporte; }
 
+    public String getReportStatus() { return reportStatus; }
+    public void setReportStatus(String reportStatus) { this.reportStatus = reportStatus; }
+
     public String getTemporalExpression() { return temporalExpression; }
     public void setTemporalExpression(String temporalExpression) { this.temporalExpression = temporalExpression; }
 
@@ -77,6 +82,9 @@ public class AiSearchIntentInternalResponseDTO {
 
     public String getRangoTemporalSugerido() { return rangoTemporalSugerido; }
     public void setRangoTemporalSugerido(String rangoTemporalSugerido) { this.rangoTemporalSugerido = rangoTemporalSugerido; }
+
+    public Boolean getListMode() { return listMode; }
+    public void setListMode(Boolean listMode) { this.listMode = listMode; }
 
     public Double getConfidence() { return confidence; }
     public void setConfidence(Double confidence) { this.confidence = confidence; }

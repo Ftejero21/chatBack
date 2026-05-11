@@ -15,5 +15,16 @@ public interface AiSearchProgressNotifier {
     /** APP_REPORT progress events. tipoReporte goes in payload (no message body). */
     void notifyAppReportStarted(String userEmail, String requestId, String tipoReporte);
     void notifyAppReportCompleted(String userEmail, String requestId, String tipoReporte);
+    void notifyAppReportCompleted(String userEmail, String requestId, String tipoReporte, boolean hasImage);
     void notifyAppReportFailed(String userEmail, String requestId, String tipoReporte);
+
+    /** APP_REPORT_STATUS progress events. */
+    void notifyAppReportStatusStarted(String userEmail, String requestId, String tipoReporte);
+    void notifyAppReportStatusCompleted(String userEmail, String requestId, String tipoReporte);
+    void notifyAppReportStatusFailed(String userEmail, String requestId, String tipoReporte);
+
+    /** COMPLAINTS_SEARCH progress events. */
+    void notifyComplaintsSearchStarted(String userEmail, String requestId, String target, String complaintDirection);
+    void notifyComplaintsSearchCompleted(String userEmail, String requestId, String target, String complaintDirection, Boolean hasApproximateResult);
+    void notifyComplaintsSearchFailed(String userEmail, String requestId, String target, String complaintDirection);
 }

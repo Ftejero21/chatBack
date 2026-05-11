@@ -28,6 +28,8 @@ public interface SolicitudDesbaneoRepository extends JpaRepository<SolicitudDesb
         Long getTotal();
     }
 
+    List<SolicitudDesbaneoEntity> findByUsuarioIdOrderByCreatedAtDesc(Long usuarioId, Pageable pageable);
+
     Page<SolicitudDesbaneoEntity> findAllByEstado(SolicitudDesbaneoEstado estado, Pageable pageable);
     Page<SolicitudDesbaneoEntity> findAllByEstadoIn(Collection<SolicitudDesbaneoEstado> estados, Pageable pageable);
     Page<SolicitudDesbaneoEntity> findAllByTipoReporte(ReporteTipo tipoReporte, Pageable pageable);

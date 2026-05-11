@@ -26,6 +26,12 @@ public class AiEncryptedMessageSearchRequestDTO {
 
     private Boolean incluirIndividuales;
 
+    private String imagenReporteBase64;
+
+    private String imagenReporteMimeType;
+
+    private String imagenReporteNombre;
+
     public String getConsulta() {
         return consulta;
     }
@@ -80,5 +86,29 @@ public class AiEncryptedMessageSearchRequestDTO {
 
     public void setIncluirIndividuales(Boolean incluirIndividuales) {
         this.incluirIndividuales = incluirIndividuales;
+    }
+
+    public String getImagenReporteBase64() {
+        return imagenReporteBase64;
+    }
+
+    public void setImagenReporteBase64(String imagenReporteBase64) {
+        this.imagenReporteBase64 = imagenReporteBase64;
+    }
+
+    public String getImagenReporteMimeType() {
+        return imagenReporteMimeType;
+    }
+
+    public void setImagenReporteMimeType(String imagenReporteMimeType) {
+        this.imagenReporteMimeType = imagenReporteMimeType;
+    }
+
+    public String getImagenReporteNombre() {
+        return imagenReporteNombre;
+    }
+
+    public void setImagenReporteNombre(String imagenReporteNombre) {
+        this.imagenReporteNombre = imagenReporteNombre;
     }
 }

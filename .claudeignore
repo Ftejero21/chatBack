@@ -1,0 +1,40 @@
+# Build output
+target/
+*.class
+*.jar
+*.war
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# Maven wrapper (binario)
+.mvn/wrapper/maven-wrapper.jar
+
+# Logs
+*.log
+logs/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Uploads generados en runtime
+uploads/
+
+# Docker (no relevante para edición de código)
+# docker-compose*.yml  # descomenta si no trabajas con Docker activamente
+
+# Secretos (nunca en contexto)
+.env
+.env.*
+!.env.example
+
+# Archivos generados / no relevantes
+HELP.md
+mvnw
+mvnw.cmd
+
+# Tests (descomenta si no trabajas en tests activamente)
+# src/test/

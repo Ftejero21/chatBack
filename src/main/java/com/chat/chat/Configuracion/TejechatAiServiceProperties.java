@@ -45,6 +45,9 @@ public class TejechatAiServiceProperties {
     @NotBlank
     private String scheduledMessageSummaryPath = "/internal/ai/resumir-mensajes-programados";
 
+    @NotBlank
+    private String semanticRerankPath = "/internal/ai/semantic-rerank";
+
     @Min(1)
     @Max(120)
     private int timeoutSeconds = 10;
@@ -145,6 +148,14 @@ public class TejechatAiServiceProperties {
         this.timeoutSeconds = timeoutSeconds;
     }
 
+    public String getSemanticRerankPath() {
+        return semanticRerankPath;
+    }
+
+    public void setSemanticRerankPath(String semanticRerankPath) {
+        this.semanticRerankPath = semanticRerankPath;
+    }
+
     public String buildMessageSearchUrl() {
         String normalizedBaseUrl = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
         String normalizedPath = messageSearchPath.startsWith("/") ? messageSearchPath : "/" + messageSearchPath;
@@ -196,6 +207,12 @@ public class TejechatAiServiceProperties {
     public String buildScheduledMessageSummaryUrl() {
         String normalizedBaseUrl = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
         String normalizedPath = scheduledMessageSummaryPath.startsWith("/") ? scheduledMessageSummaryPath : "/" + scheduledMessageSummaryPath;
+        return normalizedBaseUrl + normalizedPath;
+    }
+
+    public String buildSemanticRerankUrl() {
+        String normalizedBaseUrl = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
+        String normalizedPath = semanticRerankPath.startsWith("/") ? semanticRerankPath : "/" + semanticRerankPath;
         return normalizedBaseUrl + normalizedPath;
     }
 }

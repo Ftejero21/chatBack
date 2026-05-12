@@ -18,6 +18,7 @@ public class AiSearchIntentInternalResponseDTO {
     private String tipoReporte;
     private String motivoReporte;
     private String reportStatus;
+    private Integer limitSolicitado;
     private String complaintStatus;
     private String temporalExpression;
     private String orden;
@@ -74,6 +75,9 @@ public class AiSearchIntentInternalResponseDTO {
 
     public String getReportStatus() { return reportStatus; }
     public void setReportStatus(String reportStatus) { this.reportStatus = reportStatus; }
+
+    public Integer getLimitSolicitado() { return limitSolicitado; }
+    public void setLimitSolicitado(Integer limitSolicitado) { this.limitSolicitado = limitSolicitado; }
 
     public String getComplaintStatus() { return complaintStatus; }
     public void setComplaintStatus(String complaintStatus) { this.complaintStatus = complaintStatus; }

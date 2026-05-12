@@ -8,8 +8,10 @@ import com.chat.chat.Repository.ChatIndividualRepository;
 import com.chat.chat.Repository.MensajeRepository;
 import com.chat.chat.Repository.MensajeProgramadoRepository;
 import com.chat.chat.Repository.SolicitudDesbaneoRepository;
+import com.chat.chat.Repository.SolicitudReporteAdjuntoRepository;
 import com.chat.chat.Repository.SolicitudReporteHistorialRepository;
 import com.chat.chat.Repository.UserComplaintRepository;
+import com.chat.chat.Repository.UserComplaintHistoryRepository;
 import com.chat.chat.Repository.UsuarioRepository;
 import com.chat.chat.Service.SolicitudDesbaneoService.SolicitudDesbaneoService;
 import com.chat.chat.Utils.AdminAuditCrypto;
@@ -48,6 +50,7 @@ class DeepSeekAiEncryptedMessageSearchServiceImplResumenBusquedaTest {
                 mock(MensajeProgramadoRepository.class),
                 usuarioRepository,
                 mock(UserComplaintRepository.class),
+                mock(UserComplaintHistoryRepository.class),
                 mock(AiEncryptedContextService.class),
                 mock(AdminAuditCrypto.class),
                 mock(AudioTranscriptionService.class),
@@ -58,8 +61,10 @@ class DeepSeekAiEncryptedMessageSearchServiceImplResumenBusquedaTest {
                 mock(AiScheduledMessageSummaryMicroserviceClient.class),
                 mock(SolicitudDesbaneoService.class),
                 mock(SolicitudDesbaneoRepository.class),
+                mock(SolicitudReporteAdjuntoRepository.class),
                 mock(SolicitudReporteHistorialRepository.class),
                 mock(AiAppReportStatusSummaryMicroserviceClient.class),
+                mock(AiSemanticRerankMicroserviceClient.class),
                 mock(AiAppReportResolutionNoteMicroserviceClient.class),
                 mock(AiSearchProgressNotifier.class),
                 new ObjectMapper(),

@@ -30,6 +30,9 @@ import com.chat.chat.DTO.AiAppReportResolutionNoteInternalRequestDTO;
 import com.chat.chat.DTO.AiAppReportResolutionNoteInternalResponseDTO;
 import com.chat.chat.DTO.AiAppReportStatusSummaryInternalRequestDTO;
 import com.chat.chat.DTO.AiAppReportStatusSummaryInternalResponseDTO;
+import com.chat.chat.DTO.AiSemanticRerankCandidateDTO;
+import com.chat.chat.DTO.AiSemanticRerankInternalRequestDTO;
+import com.chat.chat.DTO.AiSemanticRerankInternalResponseDTO;
 import com.chat.chat.Entity.SolicitudDesbaneoEntity;
 import com.chat.chat.Entity.SolicitudReporteAdjuntoEntity;
 import com.chat.chat.Entity.SolicitudReporteHistorialEntity;
@@ -111,6 +114,11 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
     private static final int MIN_RELEVANCIA_APP_REPORT_STATUS = MIN_RELEVANCIA_PUBLICA;
     private static final int MIN_RELEVANCIA_APP_REPORT_STATUS_APROX = 45;
     private static final int DEFAULT_MAX_APP_REPORT_STATUS_RESULTS = 3;
+    private static final int MAX_APP_REPORT_STATUS_RERANK_CANDIDATES = 12;
+    private static final int MAX_APP_REPORT_STATUS_RERANK_FALLBACK_RESULTS = 3;
+    private static final double MIN_APP_REPORT_STATUS_RERANK_CONFIDENCE = 0.55d;
+    private static final int MAX_GENERIC_SEMANTIC_RERANK_CANDIDATES = 12;
+    private static final double MIN_GENERIC_SEMANTIC_RERANK_CONFIDENCE = 0.55d;
     private static final int MAX_MESSAGE_CONTENT_LENGTH = 500;
     private static final int MAX_REASON_LENGTH = 300;
     private static final long MAX_APP_REPORT_IMAGE_BYTES = 5L * 1024L * 1024L;
@@ -139,6 +147,12 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
             "que", "qué", "se", "si", "sin", "sobre", "tu", "un", "una", "uno", "y"
     );
 
+    private static final Set<String> GENERIC_SEMANTIC_MOTIVE_TOKENS = Set.of(
+            "audio", "perfil", "buscador", "notificacion", "notificaciones", "grupo", "sticker", "mensaje",
+            "mensajes", "chat", "foto", "imagen", "archivo", "insulto", "insultos", "amenaza", "amenazas",
+            "acoso", "spam", "otro"
+    );
+
     private final AiProperties aiProperties;
     private final AiRateLimitService aiRateLimitService;
     private final SecurityUtils securityUtils;
@@ -162,6 +176,7 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
     private final SolicitudReporteAdjuntoRepository solicitudReporteAdjuntoRepository;
     private final SolicitudReporteHistorialRepository solicitudReporteHistorialRepository;
     private final AiAppReportStatusSummaryMicroserviceClient aiAppReportStatusSummaryClient;
+    private final AiSemanticRerankMicroserviceClient aiSemanticRerankMicroserviceClient;
     private final AiAppReportResolutionNoteMicroserviceClient aiAppReportResolutionNoteMicroserviceClient;
     private final AiSearchProgressNotifier aiSearchProgressNotifier;
     private final ObjectMapper objectMapper;
@@ -192,6 +207,7 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
                                                        SolicitudReporteAdjuntoRepository solicitudReporteAdjuntoRepository,
                                                        SolicitudReporteHistorialRepository solicitudReporteHistorialRepository,
                                                        AiAppReportStatusSummaryMicroserviceClient aiAppReportStatusSummaryClient,
+                                                       AiSemanticRerankMicroserviceClient aiSemanticRerankMicroserviceClient,
                                                        AiAppReportResolutionNoteMicroserviceClient aiAppReportResolutionNoteMicroserviceClient,
                                                        AiSearchProgressNotifier aiSearchProgressNotifier,
                                                        ObjectMapper objectMapper,
@@ -223,6 +239,7 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
         this.solicitudReporteAdjuntoRepository = solicitudReporteAdjuntoRepository;
         this.solicitudReporteHistorialRepository = solicitudReporteHistorialRepository;
         this.aiAppReportStatusSummaryClient = aiAppReportStatusSummaryClient;
+        this.aiSemanticRerankMicroserviceClient = aiSemanticRerankMicroserviceClient;
         this.aiAppReportResolutionNoteMicroserviceClient = aiAppReportResolutionNoteMicroserviceClient;
         this.aiSearchProgressNotifier = aiSearchProgressNotifier;
         this.objectMapper = objectMapper;
@@ -257,14 +274,14 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
             intentReq.setUsuarioActualNombre(resolveUserDisplayName(userId));
             intentResp = aiSearchIntentMicroserviceClient.classifyIntent(requestId, intentReq);
             if (intentResp != null) {
-                LOGGER.info("[AI][INTENT_RAW] requestId={} success={} target={} senderScope={} tipoScopeSolicitado={} tipoMensajeSolicitado={} tipoReporte={} motivoReporte=\"{}\" reportStatus={} complaintDirection={} complaintStatus={} motivoDenuncia=\"{}\" scheduledStatus={} readStatus={} listMode={} orden={} personaMencionada=\"{}\" grupoMencionado=\"{}\" temporalExpression=\"{}\" confidence={}",
+                LOGGER.info("[AI][INTENT_RAW] requestId={} success={} target={} senderScope={} tipoScopeSolicitado={} tipoMensajeSolicitado={} tipoReporte={} motivoReporte=\"{}\" reportStatus={} complaintDirection={} complaintStatus={} motivoDenuncia=\"{}\" scheduledStatus={} readStatus={} listMode={} limitSolicitado={} orden={} personaMencionada=\"{}\" grupoMencionado=\"{}\" temporalExpression=\"{}\" confidence={}",
                         requestId, intentResp.isSuccess(), intentResp.getTarget(), intentResp.getSenderScope(),
                         intentResp.getTipoScopeSolicitado(), intentResp.getTipoMensajeSolicitado(),
                         intentResp.getTipoReporte(), safeForLog(intentResp.getMotivoReporte()),
                         intentResp.getReportStatus(), intentResp.getComplaintDirection(),
                         intentResp.getComplaintStatus(), safeForLog(intentResp.getMotivoDenuncia()),
                         intentResp.getScheduledStatus(), intentResp.getReadStatus(),
-                        intentResp.getListMode(), intentResp.getOrden(),
+                        intentResp.getListMode(), intentResp.getLimitSolicitado(), intentResp.getOrden(),
                         safeForLog(intentResp.getPersonaMencionada()), safeForLog(intentResp.getGrupoMencionado()),
                         safeForLog(intentResp.getTemporalExpression()), intentResp.getConfidence());
             } else {
@@ -314,6 +331,7 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
                     values.incluirIndividuales(), newIncluirIndividuales);
             values = values.withIncluir(newIncluirGrupales, newIncluirIndividuales);
         }
+        values = applyMessageIntentOverrides(requestId, values, intentResp);
 
         // Fork: APP_REPORT_STATUS — query existing user reports, no semantic message search
         if (intentResp != null
@@ -405,12 +423,29 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
                 analysis
         );
 
-        SearchIntent intent = resolveSearchIntent(values.consulta(), analysis);
+        SearchIntent intent = resolveSearchIntent(values.consulta(), analysis, intentResp);
         boolean intencionAudioDetectada = analysis != null && analysis.isIntencionAudio();
         String requestedType = intent == null ? null : intent.requestedType();
         SenderResolution senderResolution = resolveSenderResolution(userId, analysis, intentResp, personaDeterministicaAntesLlm, requestId);
         scope = refineScopeAfterPersonResolution(requestId, scope, analysis, senderResolution);
-        boolean useDirectResolution = shouldUseDirectResolution(scope, intent);
+
+        // Fork: direct multimedia list (listMode + tipoMensaje multimedia) → skip semantic IA
+        if (isDirectMultimediaListQuery(intentResp, requestedType)) {
+            aiSearchProgressNotifier.notifyCompleted(userEmail, requestId, AiSearchProgressStep.ANALYZING_CONTEXT);
+            return resolveDirectMultimediaList(requestId, userId, userEmail, values, scope, senderResolution, intent, intentResp);
+        }
+
+        boolean offensiveIntent = isOffensiveMessageSearchIntent(intentResp, analysis);
+        boolean directSingularDisabledByListMode = isLockedMessagesListMode(intentResp);
+        if (directSingularDisabledByListMode) {
+            LOGGER.info("[AI][MESSAGE_SEARCH_ENCRYPTED] requestId={} listMode=true directSingularDisabled=true reason=LIST_MODE",
+                    requestId);
+        }
+        if (isDirectMessageListQuery(intentResp, values, analysis, requestedType, offensiveIntent)) {
+            aiSearchProgressNotifier.notifyCompleted(userEmail, requestId, AiSearchProgressStep.ANALYZING_CONTEXT);
+            return resolveDirectMessageList(requestId, userId, userEmail, values, scope, senderResolution, intentResp, requestedType);
+        }
+        boolean useDirectResolution = !directSingularDisabledByListMode && shouldUseDirectResolution(scope, intent, offensiveIntent);
         AiMessageSearchScopeType scopeInicialType = effectiveScopeType(scope);
         String nombreScopeInicial = scope != null ? scope.getNombreScopeAplicado() : null;
         String nombreDetectadoInicial = scope != null ? scope.getNombreDetectado() : null;
@@ -476,6 +511,11 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
                 analysis != null && analysis.isIntencionContenidoOfensivo(),
                 intent != null && intent.directResolution(),
                 useDirectResolution);
+        if (offensiveIntent && !useDirectResolution) {
+            LOGGER.info("[AI][MESSAGE_SEARCH_ENCRYPTED] requestId={} offensiveIntent=true motivoDenuncia={} directSearchDisabled=true reason=OFFENSIVE_CONTENT_REQUIRES_CONTENT_MATCH",
+                    requestId,
+                    mapMotivoDenuncia(intentResp == null ? null : intentResp.getMotivoDenuncia()));
+        }
         logSemanticFilters(requestId, "target=" + (intentResp == null ? "MESSAGES" : firstNonBlank(intentResp.getTarget(), "MESSAGES"))
                 + ",senderScope=" + senderResolution.senderScope().name()
                 + ",tipoScope=" + effectiveScopeType(scope).name()
@@ -683,6 +723,61 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
                 }
             }
 
+            boolean listModeIntent = Boolean.TRUE.equals(intentResp == null ? null : intentResp.getListMode());
+            boolean scopeAmbiguous = (scope != null && !scope.isScopeResuelto()
+                    && (scope.isIntencionGrupoDetectada() || scope.isIntencionIndividualDetectada()))
+                    || (senderResolution != null && senderResolution.senderScope() == AiMessageSearchSenderScope.MULTIPLE_POSSIBLE_USERS);
+            boolean genericMotive = isAmbiguousMessageQuery(values.consulta(), requestedType);
+            boolean ambiguousTemporal = isAmbiguousTemporalExpression(intentResp == null ? null : intentResp.getTemporalExpression());
+            boolean tie = hasCloseRelevanceScores(resultados.stream()
+                    .map(AiEncryptedMessageSearchResultDTO::getRelevancia)
+                    .filter(Objects::nonNull)
+                    .toList(), 8);
+            boolean singularAmbiguous = !listModeIntent && (genericMotive || ambiguousTemporal || scopeAmbiguous);
+            SemanticRerankDecision messageRerankDecision = shouldUseSemanticRerank(new SemanticRerankDecisionContext(
+                    resultados.size(),
+                    decryptedCandidates.size(),
+                    listModeIntent,
+                    false,
+                    genericMotive,
+                    ambiguousTemporal,
+                    tie,
+                    scopeAmbiguous,
+                    singularAmbiguous,
+                    offensiveIntent
+            ));
+            logSemanticRerankDecision(requestId, messageRerankDecision, decryptedCandidates.size());
+            boolean messageRerankUsed = false;
+            String messageRerankMotivo = null;
+            if (messageRerankDecision.enabled()) {
+                GenericSemanticRerankOutcome rerankOutcome = applySemanticRerankForMessages(
+                        requestId,
+                        values,
+                        intentResp,
+                        requestedType,
+                        decryptedCandidates,
+                        offensiveIntent
+                );
+                if (rerankOutcome != null && rerankOutcome.used()) {
+                    List<AiEncryptedMessageSearchResultDTO> rerankedResults = buildResultsFromRerankedMessages(rerankOutcome, decryptedCandidates);
+                    if (!rerankedResults.isEmpty()) {
+                        resultados = rerankedResults;
+                        messageRerankUsed = true;
+                        messageRerankMotivo = rerankOutcome.motivoCoincidencia();
+                        LOGGER.info("[AI][RERANK_APPLIED] requestId={} selectedIds={} mejorResultadoAproximado=true",
+                                requestId, rerankOutcome.selectedIds());
+                    }
+                }
+            }
+            if (offensiveIntent) {
+                long totalOffensiveMatches = resultados.stream()
+                        .filter(Objects::nonNull)
+                        .filter(this::isOffensiveMessageResult)
+                        .count();
+                LOGGER.info("[AI][MESSAGE_OFFENSIVE_SEARCH] requestId={} totalCandidatos={} totalCoincidencias={}",
+                        requestId, decryptedCandidates.size(), totalOffensiveMatches);
+            }
+
             aiRateLimitService.registrarUso(userId);
             long totalResultadosAudio = resultados.stream().filter(r -> "AUDIO".equals(r.getTipoMensaje())).count();
 
@@ -721,7 +816,7 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
                     relevanciaMaximaGlobal,
                     faseGanadora);
             aiSearchProgressNotifier.notifyCompleted(userEmail, requestId, AiSearchProgressStep.ANALYZING_MESSAGES);
-            boolean sinResultadosFuertes = Boolean.TRUE.equals(winningInternalResponse.getSinResultadosFuertes());
+            boolean sinResultadosFuertes = Boolean.TRUE.equals(winningInternalResponse.getSinResultadosFuertes()) || messageRerankUsed;
             if (!resultados.isEmpty() && !sinResultadosFuertes) {
                 aiSearchProgressNotifier.notifyStarted(userEmail, requestId, AiSearchProgressStep.MESSAGE_FOUND);
                 aiSearchProgressNotifier.notifyCompleted(userEmail, requestId, AiSearchProgressStep.MESSAGE_FOUND);
@@ -731,8 +826,13 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
                 aiSearchProgressNotifier.notifyCompleted(userEmail, requestId, AiSearchProgressStep.MESSAGE_NOT_FOUND, hasApproximateResult);
             }
             String resumenBusqueda = resolveNaturalSummary(winningInternalResponse, resultados, scope, requestedType);
+            if (messageRerankUsed) {
+                resumenBusqueda = buildMessageSemanticRerankSummary(resultados, requestedType, scope, messageRerankMotivo);
+            }
             if (!hasText(resumenBusqueda) && (resultados == null || resultados.isEmpty())) {
-                resumenBusqueda = buildEmptyResumenBusqueda(values.analysis(), senderResolution, scope, intent);
+                resumenBusqueda = offensiveIntent && hasText(senderResolution == null ? null : senderResolution.personaObjetivoNombre())
+                        ? "No he encontrado un mensaje claro donde insultaras a " + senderResolution.personaObjetivoNombre() + "."
+                        : buildEmptyResumenBusqueda(values.analysis(), senderResolution, scope, intent);
                 LOGGER.info("[AI][MESSAGE_SEARCH_ENCRYPTED] requestId={} ia-result=empty fallback-resumen=true resumenBusqueda=\"{}\"",
                         requestId, resumenBusqueda);
             }
@@ -763,6 +863,246 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
             aiSearchProgressNotifier.notifyError(userEmail, requestId);
             return failure("AI_MESSAGE_SEARCH_RUNTIME_ERROR", "No se pudo completar la busqueda de mensajes cifrados.", scope);
         }
+    }
+
+    private boolean isDirectMultimediaListQuery(AiSearchIntentInternalResponseDTO intent, String requestedType) {
+        if (intent == null || !intent.isSuccess()) return false;
+        if (intent.getConfidence() == null || intent.getConfidence() < MIN_INTENT_CONFIDENCE) return false;
+        if (!"MESSAGES".equals(intent.getTarget())) return false;
+        if (!Boolean.TRUE.equals(intent.getListMode())) return false;
+        String tipo = requestedType != null ? requestedType : intent.getTipoMensajeSolicitado();
+        if (tipo == null) return false;
+        return "STICKER".equals(tipo) || "IMAGE".equals(tipo) || "AUDIO".equals(tipo) || "FILE".equals(tipo);
+    }
+
+    private AiEncryptedMessageSearchResponseDTO resolveDirectMultimediaList(String requestId,
+                                                                            Long userId,
+                                                                            String userEmail,
+                                                                            ValidationValues values,
+                                                                            AiMessageSearchScopeDTO scope,
+                                                                            SenderResolution senderResolution,
+                                                                            SearchIntent intent,
+                                                                            AiSearchIntentInternalResponseDTO intentResp) {
+        String requestedType = intent != null && intent.requestedType() != null
+                ? intent.requestedType()
+                : intentResp.getTipoMensajeSolicitado();
+        int requestedLimit = intentResp.getLimitSolicitado() != null && intentResp.getLimitSolicitado() > 0
+                ? intentResp.getLimitSolicitado()
+                : values.maxResultados();
+        int limit = Math.min(Math.max(1, requestedLimit), MAX_MAX_RESULTADOS);
+
+        AiMessageSearchSenderScope senderScope = senderResolution == null
+                ? AiMessageSearchSenderScope.AUTHENTICATED_USER
+                : senderResolution.senderScope();
+
+        LOGGER.info("[AI][MESSAGE_DIRECT_LIST] requestId={} enabled=true tipo={} limit={} senderScope={} tipoScopeAplicado={} nombreScopeAplicado={}",
+                requestId, requestedType, limit, senderScope.name(),
+                effectiveScopeType(scope).name(),
+                scope == null ? null : scope.getNombreScopeAplicado());
+
+        aiSearchProgressNotifier.notifyStarted(userEmail, requestId, AiSearchProgressStep.ANALYZING_MESSAGES);
+
+        List<MensajeEntity> mensajes = loadOrderedCandidatesByScope(userId, values, scope, SearchDirection.LAST, senderResolution, false);
+        int totalAntes = mensajes == null ? 0 : mensajes.size();
+
+        // Fallback global if no candidates with explicit scope
+        if (totalAntes == 0) {
+            mensajes = loadOrderedCandidatesByScope(userId, values, scope, SearchDirection.LAST, senderResolution, true);
+            totalAntes = mensajes == null ? 0 : mensajes.size();
+        }
+
+        boolean isAudio = "AUDIO".equals(requestedType);
+        List<AiEncryptedMessageSearchResultDTO> resultados = new ArrayList<>();
+        List<Long> selectedIds = new ArrayList<>();
+        if (mensajes != null) {
+            for (MensajeEntity m : mensajes) {
+                if (resultados.size() >= limit) break;
+                CandidateMessage candidate = toRichCandidate(userId, m, values.incluirIndividuales(), values.incluirGrupales(), false, isAudio, senderResolution);
+                if (candidate == null) continue;
+                if (!matchesScopeRestriction(scope, candidate)) continue;
+                if (!requestedType.equals(candidate.tipoMensaje())) continue;
+                AiEncryptedMessageSearchResultDTO dto = toPublicResult(candidate, "Coincide con tu consulta", 100);
+                resultados.add(dto);
+                selectedIds.add(candidate.mensajeId());
+            }
+        }
+
+        LOGGER.info("[AI][MESSAGE_DIRECT_LIST] requestId={} totalCandidatos={} totalFinales={} selectedIds={}",
+                requestId, totalAntes, resultados.size(), selectedIds);
+
+        aiSearchProgressNotifier.notifyCompleted(userEmail, requestId, AiSearchProgressStep.ANALYZING_MESSAGES);
+        if (resultados.isEmpty()) {
+            aiSearchProgressNotifier.notifyStarted(userEmail, requestId, AiSearchProgressStep.MESSAGE_NOT_FOUND);
+            aiSearchProgressNotifier.notifyCompleted(userEmail, requestId, AiSearchProgressStep.MESSAGE_NOT_FOUND, false);
+        } else {
+            aiSearchProgressNotifier.notifyStarted(userEmail, requestId, AiSearchProgressStep.MESSAGE_FOUND);
+            aiSearchProgressNotifier.notifyCompleted(userEmail, requestId, AiSearchProgressStep.MESSAGE_FOUND);
+        }
+
+        String resumen = buildDirectMultimediaListSummary(requestedType, resultados.size(), senderResolution, scope, intentResp);
+        return success(resultados, scope, resumen, userId);
+    }
+
+    private boolean isDirectMessageListQuery(AiSearchIntentInternalResponseDTO intent,
+                                             ValidationValues values,
+                                             AiMessageSearchNaturalQueryAnalysis analysis,
+                                             String requestedType,
+                                             boolean offensiveIntent) {
+        if (!isLockedMessagesListMode(intent) || offensiveIntent) {
+            return false;
+        }
+        if (requestedType != null && ("STICKER".equals(requestedType) || "IMAGE".equals(requestedType)
+                || "AUDIO".equals(requestedType) || "FILE".equals(requestedType))) {
+            return false;
+        }
+        return !isSemanticContentConstrainedMessageQuery(values == null ? null : values.consulta(), analysis);
+    }
+
+    private AiEncryptedMessageSearchResponseDTO resolveDirectMessageList(String requestId,
+                                                                         Long userId,
+                                                                         String userEmail,
+                                                                         ValidationValues values,
+                                                                         AiMessageSearchScopeDTO scope,
+                                                                         SenderResolution senderResolution,
+                                                                         AiSearchIntentInternalResponseDTO intentResp,
+                                                                         String requestedType) {
+        String effectiveRequestedType = normalizeRequestedMessageType(requestedType);
+        int limit = Math.max(1, Math.min(MAX_MAX_RESULTADOS, values == null ? MAX_MAX_RESULTADOS : values.maxResultados()));
+        SearchDirection direction = "FIRST".equalsIgnoreCase(intentResp == null ? null : intentResp.getOrden())
+                ? SearchDirection.FIRST
+                : SearchDirection.LAST;
+        String orderLabel = direction == SearchDirection.FIRST ? "fechaEnvio_ASC" : "fechaEnvio_DESC";
+
+        if (effectiveRequestedType == null || "TEXT".equals(effectiveRequestedType)) {
+            AiEncryptedMessageSearchResponseDTO keyFailure = validateAdminAuditKeyForTextSearch(scope);
+            if (keyFailure != null) {
+                return keyFailure;
+            }
+        }
+
+        LOGGER.info("[AI][MESSAGE_SEARCH_ENCRYPTED] requestId={} listMode=true directSearch=true senderScopeAplicado={} tipoScopeAplicado={} requestedType={} limit={} order={}",
+                requestId,
+                senderResolution == null ? AiMessageSearchSenderScope.AUTHENTICATED_USER.name() : senderResolution.senderScope().name(),
+                effectiveScopeType(scope).name(),
+                effectiveRequestedType,
+                limit,
+                orderLabel);
+
+        aiSearchProgressNotifier.notifyStarted(userEmail, requestId, AiSearchProgressStep.ANALYZING_MESSAGES);
+
+        List<MensajeEntity> mensajes = loadOrderedCandidatesByScope(userId, values, scope, direction, senderResolution, false);
+        int totalAntes = mensajes == null ? 0 : mensajes.size();
+        if (totalAntes == 0) {
+            mensajes = loadOrderedCandidatesByScope(userId, values, scope, direction, senderResolution, true);
+            totalAntes = mensajes == null ? 0 : mensajes.size();
+        }
+
+        List<AiEncryptedMessageSearchResultDTO> resultados = new ArrayList<>();
+        if (mensajes != null) {
+            for (MensajeEntity mensaje : mensajes) {
+                if (resultados.size() >= limit) {
+                    break;
+                }
+                CandidateMessage candidate = toRichCandidate(userId, mensaje, values.incluirIndividuales(), values.incluirGrupales(), false, false, senderResolution);
+                if (candidate == null || !matchesScopeRestriction(scope, candidate)) {
+                    continue;
+                }
+                if (effectiveRequestedType != null && !effectiveRequestedType.equals(candidate.tipoMensaje())) {
+                    continue;
+                }
+                resultados.add(toPublicResult(candidate, "Coincide con los filtros solicitados", 100));
+            }
+        }
+
+        aiSearchProgressNotifier.notifyCompleted(userEmail, requestId, AiSearchProgressStep.ANALYZING_MESSAGES);
+        if (resultados.isEmpty()) {
+            aiSearchProgressNotifier.notifyStarted(userEmail, requestId, AiSearchProgressStep.MESSAGE_NOT_FOUND);
+            aiSearchProgressNotifier.notifyCompleted(userEmail, requestId, AiSearchProgressStep.MESSAGE_NOT_FOUND, false);
+        } else {
+            aiSearchProgressNotifier.notifyStarted(userEmail, requestId, AiSearchProgressStep.MESSAGE_FOUND);
+            aiSearchProgressNotifier.notifyCompleted(userEmail, requestId, AiSearchProgressStep.MESSAGE_FOUND);
+        }
+
+        LOGGER.info("[AI][MESSAGE_SEARCH_ENCRYPTED] requestId={} listMode=true directSingularDisabled=true reason=LIST_MODE",
+                requestId);
+        LOGGER.info("[AI][MESSAGE_SEARCH_ENCRYPTED] requestId={} totalFinales={} order={}",
+                requestId,
+                resultados.size(),
+                orderLabel);
+        logSemanticResults(requestId, totalAntes, resultados.size());
+
+        String resumen = buildDirectMessageListSummary(resultados.size(), effectiveRequestedType, senderResolution, scope, values);
+        return success(resultados, scope, resumen, userId);
+    }
+
+    private String buildDirectMultimediaListSummary(String tipo,
+                                                    int found,
+                                                    SenderResolution senderResolution,
+                                                    AiMessageSearchScopeDTO scope,
+                                                    AiSearchIntentInternalResponseDTO intent) {
+        String pluralTipo = switch (tipo) {
+            case "STICKER" -> "sticker";
+            case "IMAGE" -> "imagen";
+            case "AUDIO" -> "audio";
+            case "FILE" -> "archivo";
+            default -> "mensaje";
+        };
+        if (found == 0) {
+            return "No he encontrado " + pluralTipo + "s con esos criterios. Prueba con otra persona o amplía el rango.";
+        }
+        String plural = found > 1 ? "s" : "";
+        StringBuilder sb = new StringBuilder("He encontrado ");
+        sb.append(found).append(" ").append(pluralTipo).append(plural);
+        AiMessageSearchSenderScope ss = senderResolution == null ? null : senderResolution.senderScope();
+        if (ss == AiMessageSearchSenderScope.AUTHENTICATED_USER && hasText(senderResolution.personaObjetivoNombre())) {
+            sb.append(" que enviaste a ").append(senderResolution.personaObjetivoNombre());
+        } else if (ss == AiMessageSearchSenderScope.AUTHENTICATED_USER) {
+            sb.append(" que enviaste");
+        } else if ((ss == AiMessageSearchSenderScope.SPECIFIC_OTHER_USER || ss == AiMessageSearchSenderScope.MULTIPLE_POSSIBLE_USERS)
+                && hasText(senderResolution.emisorObjetivoNombre())) {
+            sb.append(" que te envió ").append(senderResolution.emisorObjetivoNombre());
+        } else if (ss == AiMessageSearchSenderScope.RECEIVED_MESSAGES) {
+            sb.append(" recibido").append(plural);
+        }
+        sb.append(".");
+        return sb.toString();
+    }
+
+    private String buildDirectMessageListSummary(int found,
+                                                 String requestedType,
+                                                 SenderResolution senderResolution,
+                                                 AiMessageSearchScopeDTO scope,
+                                                 ValidationValues values) {
+        if (found == 0) {
+            return buildEmptyResumenBusqueda(values == null ? null : values.analysis(), senderResolution, scope, null);
+        }
+        StringBuilder sb = new StringBuilder("He encontrado ");
+        sb.append(found).append(" ").append(resolveDirectMessageListLabel(requestedType, found));
+        AiMessageSearchSenderScope senderScope = senderResolution == null
+                ? AiMessageSearchSenderScope.AUTHENTICATED_USER
+                : senderResolution.senderScope();
+        if (senderScope == AiMessageSearchSenderScope.AUTHENTICATED_USER) {
+            sb.append(" enviados por ti");
+        } else if (senderScope == AiMessageSearchSenderScope.RECEIVED_MESSAGES) {
+            sb.append(" recibidos");
+        } else if ((senderScope == AiMessageSearchSenderScope.SPECIFIC_OTHER_USER
+                || senderScope == AiMessageSearchSenderScope.MULTIPLE_POSSIBLE_USERS)
+                && hasText(senderResolution.emisorObjetivoNombre())) {
+            sb.append(" de ").append(senderResolution.emisorObjetivoNombre());
+        }
+        if (values != null && values.rangoTemporalDetectado() && hasText(values.descripcionRangoTemporal())) {
+            sb.append(" en ").append(values.descripcionRangoTemporal());
+        }
+        sb.append(".");
+        return sb.toString();
+    }
+
+    private String resolveDirectMessageListLabel(String requestedType, int found) {
+        boolean plural = found != 1;
+        if ("TEXT".equals(requestedType)) {
+            return plural ? "mensajes de texto" : "mensaje de texto";
+        }
+        return plural ? "mensajes" : "mensaje";
     }
 
     private AiEncryptedMessageSearchResponseDTO resolveDirectSearch(String requestId,
@@ -887,17 +1227,10 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
     private boolean shouldSearchScheduledMessages(AiSearchIntentInternalResponseDTO intent,
                                                   String consulta,
                                                   AiMessageSearchNaturalQueryAnalysis analysis) {
-        if (isHighConfidenceScheduledIntent(intent)) {
-            return true;
+        if (isUsableSemanticIntent(intent)) {
+            return AiGlobalSearchTarget.SCHEDULED_MESSAGES.name().equalsIgnoreCase(intent.getTarget());
         }
         if (analysis != null && analysis.isIntencionDenuncia()) {
-            return false;
-        }
-        if (intent != null
-                && intent.isSuccess()
-                && hasText(intent.getTarget())
-                && !AiGlobalSearchTarget.MESSAGES.name().equalsIgnoreCase(intent.getTarget())
-                && !AiGlobalSearchTarget.SCHEDULED_MESSAGES.name().equalsIgnoreCase(intent.getTarget())) {
             return false;
         }
         return matchesScheduledFallback(consulta);
@@ -973,18 +1306,14 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
 
     private ComplaintBranch resolveComplaintBranch(AiSearchIntentInternalResponseDTO intent,
                                                    AiMessageSearchNaturalQueryAnalysis analysis) {
-        if (intent != null
-                && intent.isSuccess()
-                && intent.getConfidence() != null
-                && intent.getConfidence() >= MIN_INTENT_CONFIDENCE) {
-            if (AiGlobalSearchTarget.COMPLAINTS_RECEIVED.name().equalsIgnoreCase(intent.getTarget())
-                    || "RECEIVED".equalsIgnoreCase(intent.getComplaintDirection())) {
+        if (isUsableSemanticIntent(intent)) {
+            if (AiGlobalSearchTarget.COMPLAINTS_RECEIVED.name().equalsIgnoreCase(intent.getTarget())) {
                 return ComplaintBranch.RECEIVED;
             }
-            if (AiGlobalSearchTarget.COMPLAINTS_CREATED.name().equalsIgnoreCase(intent.getTarget())
-                    || "CREATED".equalsIgnoreCase(intent.getComplaintDirection())) {
+            if (AiGlobalSearchTarget.COMPLAINTS_CREATED.name().equalsIgnoreCase(intent.getTarget())) {
                 return ComplaintBranch.CREATED;
             }
+            return ComplaintBranch.NONE;
         }
         if (analysis != null) {
             if (analysis.isIntencionDenunciaRecibida()) {
@@ -1022,6 +1351,60 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
                 && intent.getConfidence() >= MIN_SCHEDULED_INTENT_CONFIDENCE;
     }
 
+    private ValidationValues applyMessageIntentOverrides(String requestId,
+                                                         ValidationValues values,
+                                                         AiSearchIntentInternalResponseDTO intent) {
+        if (values == null || !values.valid() || !isLockedMessagesListMode(intent)) {
+            return values;
+        }
+
+        ValidationValues updated = values;
+        int limit = resolveMessageListLimit(intent, values);
+        if (limit != values.maxResultados()) {
+            updated = updated.withMaxResultados(limit);
+        }
+        LOGGER.info("[AI][MESSAGE_LIST_MODE] requestId={} enabled=true reason=LIST_MODE_FROM_INTENT limit={}",
+                requestId, limit);
+
+        String temporalExpression = normalizeInput(intent == null ? null : intent.getTemporalExpression());
+        if (hasText(temporalExpression)) {
+            if (!updated.rangoTemporalDetectado()) {
+                AiMessageSearchNaturalQueryAnalysis temporalAnalysis = aiMessageSearchNaturalQueryAnalyzer.analyze(temporalExpression);
+                if (temporalAnalysis != null
+                        && temporalAnalysis.isRangoTemporalDetectado()
+                        && temporalAnalysis.getFechaInicioDetectada() != null
+                        && temporalAnalysis.getFechaFinDetectada() != null) {
+                    updated = updated.withTemporalRange(
+                            temporalAnalysis.getFechaInicioDetectada(),
+                            temporalAnalysis.getFechaFinDetectada(),
+                            temporalAnalysis.getDescripcionRangoTemporal(),
+                            temporalAnalysis.getConfidenceTemporal());
+                }
+            }
+            LOGGER.info("[AI][TEMPORAL_RANGE] requestId={} expression=\"{}\" detected={} fechaInicio={} fechaFin={}",
+                    requestId,
+                    safeForLog(temporalExpression),
+                    updated.rangoTemporalDetectado(),
+                    updated.fechaInicio(),
+                    updated.fechaFin());
+        }
+        return updated;
+    }
+
+    private int resolveMessageListLimit(AiSearchIntentInternalResponseDTO intent, ValidationValues values) {
+        Integer requested = intent == null ? null : intent.getLimitSolicitado();
+        if (requested != null && requested > 0) {
+            return Math.max(1, Math.min(MAX_MAX_RESULTADOS, requested));
+        }
+        return MAX_MAX_RESULTADOS;
+    }
+
+    private boolean isLockedMessagesListMode(AiSearchIntentInternalResponseDTO intent) {
+        return isUsableSemanticIntent(intent)
+                && AiGlobalSearchTarget.MESSAGES.name().equalsIgnoreCase(intent.getTarget())
+                && Boolean.TRUE.equals(intent.getListMode());
+    }
+
     private boolean matchesScheduledFallback(String consulta) {
         String normalized = normalizeIntentText(consulta);
         if (!hasText(normalized)) {
@@ -1057,11 +1440,17 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
         String reportStatusSolicitado = intent.getReportStatus();
         String motivoReporteDetectado = intent.getMotivoReporte();
         boolean listMode = Boolean.TRUE.equals(intent.getListMode()) || isBroadAppReportStatusQuery(consulta, intent);
+        boolean genericQuery = isGenericAppReportStatusQuery(consulta, intent, listMode);
+        boolean skipRelevance = genericQuery && !hasText(motivoReporteDetectado);
+        String rerankMotivoCoincidencia = null;
+        boolean rerankUsed = false;
 
         LOGGER.info("[AI][APP_REPORT_STATUS] requestId={} searching=true userId={} tipoReporte={} reportStatus={} motivoReporte=\"{}\" motivoReporteLength={}",
                 requestId, userId, tipoReporteSolicitado, reportStatusSolicitado,
                 safeForLog(motivoReporteDetectado),
                 motivoReporteDetectado == null ? 0 : motivoReporteDetectado.length());
+        LOGGER.info("[AI][APP_REPORT_STATUS] requestId={} genericQuery={} motivoReporte={} orden={} listMode={}",
+                requestId, genericQuery, safeForLog(motivoReporteDetectado), intent.getOrden(), listMode);
         LOGGER.info("[AI][APP_REPORT_STATUS] requestId={} listMode={} tipoReporte={} motivoReporte={} reportStatus={} temporalExpression={}",
                 requestId, listMode, tipoReporteSolicitado, safeForLog(motivoReporteDetectado), reportStatusSolicitado, safeForLog(intent.getTemporalExpression()));
         logSemanticFilters(requestId, "tipoReporte=" + tipoReporteSolicitado
@@ -1081,6 +1470,7 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
             SolicitudDesbaneoEstado filterEstado = parseFilterEstado(reportStatusSolicitado);
             boolean broadQuery = listMode;
             int maxResultadosPermitidos = resolveAppReportStatusMaxResults(maxResultadosSolicitados, broadQuery);
+            int effectiveLimit = resolveAppReportStatusEffectiveLimit(intent, listMode, maxResultadosPermitidos, skipRelevance);
 
             List<SolicitudDesbaneoEntity> baseFiltered = new ArrayList<>();
             for (SolicitudDesbaneoEntity r : all) {
@@ -1123,35 +1513,43 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
                         attachmentsByReport.get(r == null ? null : r.getId()),
                         userId,
                         dateFmt);
-                int relevancia = calculateAppReportStatusRelevance(consulta, intent, r, historialReporte, broadQuery);
+                int relevancia = skipRelevance ? 100 : calculateAppReportStatusRelevance(consulta, intent, r, historialReporte, broadQuery);
                 scoredCandidates.add(new AppReportStatusScoredCandidate(r, historialReporte, resolucionVisible, relevancia));
             }
-            scoredCandidates.sort(Comparator
-                    .comparingInt(AppReportStatusScoredCandidate::relevancia).reversed()
-                    .thenComparing(candidate -> candidate.reporte().getId(), Comparator.nullsLast(Comparator.reverseOrder())));
-            LOGGER.info("[AI][APP_REPORT_STATUS] requestId={} motivoReporte=\"{}\" relevancias={}",
-                    requestId, safeForLog(motivoReporteDetectado), formatAppReportStatusRelevancias(scoredCandidates));
+            if (skipRelevance) {
+                LOGGER.info("[AI][APP_REPORT_STATUS] requestId={} skipRelevance=true reason=NO_MOTIVO_REPORTE", requestId);
+                scoredCandidates.sort(resolveAppReportStatusOrderComparator(intent, listMode));
+                selected = new ArrayList<>(scoredCandidates.subList(0, Math.min(effectiveLimit, scoredCandidates.size())));
+            } else {
+                scoredCandidates.sort(Comparator
+                        .comparingInt(AppReportStatusScoredCandidate::relevancia).reversed()
+                        .thenComparing(candidate -> candidate.reporte().getId(), Comparator.nullsLast(Comparator.reverseOrder())));
+                LOGGER.info("[AI][APP_REPORT_STATUS] requestId={} motivoReporte=\"{}\" relevancias={}",
+                        requestId, safeForLog(motivoReporteDetectado), formatAppReportStatusRelevancias(scoredCandidates));
 
-            for (AppReportStatusScoredCandidate candidate : scoredCandidates) {
-                if (candidate.relevancia() >= MIN_RELEVANCIA_APP_REPORT_STATUS) {
-                    selected.add(candidate);
-                    if (selected.size() >= maxResultadosPermitidos) {
-                        break;
+                for (AppReportStatusScoredCandidate candidate : scoredCandidates) {
+                    if (candidate.relevancia() >= MIN_RELEVANCIA_APP_REPORT_STATUS) {
+                        selected.add(candidate);
+                        if (selected.size() >= effectiveLimit) {
+                            break;
+                        }
                     }
                 }
             }
 
             boolean aproximadoUsed = temporalOutcome.aproximado();
-            if (listMode && !hasText(motivoReporteDetectado)) {
+            if (skipRelevance) {
+                aproximadoUsed = false;
+            } else if (listMode && !hasText(motivoReporteDetectado)) {
                 List<AppReportStatusScoredCandidate> orderedByIdDesc = new ArrayList<>(scoredCandidates);
                 orderedByIdDesc.sort(Comparator.comparing(candidate -> candidate.reporte().getId(), Comparator.nullsLast(Comparator.reverseOrder())));
-                selected = new ArrayList<>(orderedByIdDesc.subList(0, Math.min(maxResultadosPermitidos, orderedByIdDesc.size())));
+                selected = new ArrayList<>(orderedByIdDesc.subList(0, Math.min(effectiveLimit, orderedByIdDesc.size())));
             } else if (listMode) {
                 for (AppReportStatusScoredCandidate candidate : scoredCandidates) {
                     if (candidate.relevancia() >= MIN_RELEVANCIA_APP_REPORT_STATUS_APROX) {
                         selected.add(candidate);
                     }
-                    if (selected.size() >= maxResultadosPermitidos) {
+                    if (selected.size() >= effectiveLimit) {
                         break;
                     }
                 }
@@ -1167,13 +1565,41 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
                 }
             }
 
+            if (shouldUseSemanticRerankForAppReportStatus(consulta, intent, filtered, scoredCandidates, selected, genericQuery, listMode, skipRelevance)) {
+                logSemanticRerankDecision(requestId,
+                        shouldUseSemanticRerank(new SemanticRerankDecisionContext(
+                                selected.size(),
+                                scoredCandidates.size(),
+                                false,
+                                false,
+                                isAmbiguousAppReportStatusMotivo(intent == null ? null : intent.getMotivoReporte()),
+                                isAmbiguousAppReportStatusTemporal(intent == null ? null : intent.getTemporalExpression()),
+                                hasCloseAppReportStatusScores(scoredCandidates),
+                                false,
+                                true,
+                                false
+                        )),
+                        scoredCandidates.size());
+                AppReportRerankOutcome rerankOutcome = applySemanticRerankForAppReportStatus(requestId, consulta, intent, scoredCandidates, selected);
+                if (rerankOutcome != null && rerankOutcome.used()) {
+                    rerankUsed = true;
+                    selected = rerankOutcome.selected();
+                    aproximadoUsed = rerankOutcome.aproximado();
+                    rerankMotivoCoincidencia = rerankOutcome.motivoCoincidencia();
+                    LOGGER.info("[AI][RERANK_APPLIED] requestId={} selectedIds={} mejorResultadoAproximado=true",
+                            requestId, rerankOutcome.selectedIds());
+                    LOGGER.info("[AI][APP_REPORT_STATUS] requestId={} rerankUsed=true selectedIds={} mejorResultadoAproximado=true",
+                            requestId, rerankOutcome.selectedIds());
+                }
+            }
+
             LOGGER.info("[AI][APP_REPORT_STATUS] requestId={} minRelevancia={} totalFiltrados={}",
-                    requestId, MIN_RELEVANCIA_APP_REPORT_STATUS, selected.size());
+                    requestId, skipRelevance ? 0 : MIN_RELEVANCIA_APP_REPORT_STATUS, selected.size());
             List<Long> selectedIds = selected.stream()
                     .map(candidate -> candidate.reporte().getId())
                     .toList();
-            LOGGER.info("[AI][APP_REPORT_STATUS] requestId={} motivoReporte=\"{}\" selectedIds={}",
-                    requestId, safeForLog(motivoReporteDetectado), selectedIds);
+            LOGGER.info("[AI][APP_REPORT_STATUS] requestId={} motivoReporte=\"{}\" selectedIds={} limit={} order={}",
+                    requestId, safeForLog(motivoReporteDetectado), selectedIds, effectiveLimit, firstNonBlank(intent.getOrden(), listMode ? null : "LATEST"));
 
             if (selected.isEmpty()) {
                 aiSearchProgressNotifier.notifyAppReportStatusCompleted(userEmail, requestId, tipoReporteSolicitado);
@@ -1203,9 +1629,7 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
                 dto.setChatCerradoMotivoSnapshot(truncate(r.getChatCerradoMotivoSnapshot(), 500));
                 dto.setHistorialReporte(candidate.historialReporte());
                 dto.setAproximado(aproximadoUsed);
-                dto.setMotivoCoincidencia(aproximadoUsed ? "Coincidencia aproximada" : "Coincide con tu consulta");
-                dto.setMotivoCoincidencia(aproximadoUsed ? "Coincidencia aproximada (filtro por palabras clave no cuadró exacto)" : null);
-                dto.setMotivoCoincidencia(aproximadoUsed ? "Coincidencia aproximada" : "Coincide con tu consulta");
+                dto.setMotivoCoincidencia(resolveAppReportStatusMotivoCoincidencia(rerankMotivoCoincidencia, aproximadoUsed));
                 candidatas.add(dto);
                 resolucionesVisibles.add(resolucionVisible);
             }
@@ -1265,17 +1689,21 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
                 res.setFechaActualizacionReporte(r.getUpdatedAt() == null ? null : r.getUpdatedAt().format(dateFmt));
                 res.setHistorialReporte(candidatas.get(i).getHistorialReporte());
                 res.setContenidoVisible("[Reporte]");
-                res.setMotivoCoincidencia(aproximadoUsed ? "Coincidencia aproximada" : "Coincide con tu consulta");
+                res.setMotivoCoincidencia(resolveAppReportStatusMotivoCoincidencia(rerankMotivoCoincidencia, aproximadoUsed));
                 res.setMejorResultadoAproximado(aproximadoUsed);
                 res.setRelevancia(selected.get(i).relevancia());
                 resultados.add(res);
             }
-            resultados.sort(Comparator.comparing(AiEncryptedMessageSearchResultDTO::getReporteId, Comparator.nullsLast(Comparator.reverseOrder())));
+            if (skipRelevance) {
+                resultados.sort(resolveAppReportStatusResultOrderComparator(intent, listMode));
+            } else {
+                resultados.sort(Comparator.comparing(AiEncryptedMessageSearchResultDTO::getReporteId, Comparator.nullsLast(Comparator.reverseOrder())));
+            }
             List<Long> orderedResultIds = resultados.stream()
                     .map(AiEncryptedMessageSearchResultDTO::getReporteId)
                     .toList();
-            LOGGER.info("[AI][APP_REPORT_STATUS] requestId={} orderedResultsBy=relevancia_desc_reporteId_desc selectedIds={}",
-                    requestId, orderedResultIds);
+            LOGGER.info("[AI][APP_REPORT_STATUS] requestId={} orderedResultsBy={} selectedIds={}",
+                    requestId, skipRelevance ? resolveAppReportStatusOrderLabel(intent, listMode) : "relevancia_desc_reporteId_desc", orderedResultIds);
 
             String codigo = resultados.isEmpty() ? "APP_REPORT_STATUS_EMPTY" : "APP_REPORT_STATUS_OK";
 
@@ -1377,11 +1805,472 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
                 && normalized.contains("report");
     }
 
+    private boolean isGenericAppReportStatusQuery(String consulta,
+                                                  AiSearchIntentInternalResponseDTO intent,
+                                                  boolean listMode) {
+        String normalized = normalizeIntentText(consulta);
+        if (!hasText(normalized) || intent == null) {
+            return false;
+        }
+        if (hasText(intent.getMotivoReporte()) || looksLikeSpecificAppReportStatusTopic(normalized)) {
+            return false;
+        }
+        String orden = intent.getOrden();
+        if ("LATEST".equalsIgnoreCase(orden) || "FIRST".equalsIgnoreCase(orden)) {
+            return true;
+        }
+        if (listMode) {
+            return true;
+        }
+        return normalized.contains("reporte")
+                || normalized.contains("reporte")
+                || normalized.contains("mejora")
+                || normalized.contains("incidencia")
+                || normalized.contains("sugerencia")
+                || normalized.contains("queja")
+                || normalized.contains("error");
+    }
+
     private int resolveAppReportStatusMaxResults(Integer maxResultadosSolicitados, boolean broadQuery) {
         int maxResultados = maxResultadosSolicitados == null
                 ? DEFAULT_MAX_RESULTADOS
                 : Math.max(1, Math.min(MAX_MAX_RESULTADOS, maxResultadosSolicitados));
         return broadQuery ? maxResultados : Math.min(DEFAULT_MAX_APP_REPORT_STATUS_RESULTS, maxResultados);
+    }
+
+    private int resolveAppReportStatusEffectiveLimit(AiSearchIntentInternalResponseDTO intent,
+                                                     boolean listMode,
+                                                     int maxResultadosPermitidos,
+                                                     boolean skipRelevance) {
+        if (!skipRelevance) {
+            return maxResultadosPermitidos;
+        }
+        String orden = intent == null ? null : intent.getOrden();
+        if ("LATEST".equalsIgnoreCase(orden) || "FIRST".equalsIgnoreCase(orden)) {
+            return 1;
+        }
+        return listMode ? maxResultadosPermitidos : 1;
+    }
+
+    private boolean shouldUseSemanticRerankForAppReportStatus(String consulta,
+                                                              AiSearchIntentInternalResponseDTO intent,
+                                                              List<SolicitudDesbaneoEntity> filtered,
+                                                              List<AppReportStatusScoredCandidate> scoredCandidates,
+                                                              List<AppReportStatusScoredCandidate> selected,
+                                                              boolean genericQuery,
+                                                              boolean listMode,
+                                                              boolean skipRelevance) {
+        if (skipRelevance || genericQuery || listMode || intent == null || filtered == null || filtered.isEmpty()) {
+            return false;
+        }
+        if (!hasText(intent.getMotivoReporte())) {
+            return false;
+        }
+        return isAmbiguousAppReportStatusMotivo(intent.getMotivoReporte())
+                || isAmbiguousAppReportStatusTemporal(intent.getTemporalExpression())
+                || selected == null || selected.isEmpty()
+                || hasCloseAppReportStatusScores(scoredCandidates);
+    }
+
+    private AppReportRerankOutcome applySemanticRerankForAppReportStatus(String requestId,
+                                                                         String consulta,
+                                                                         AiSearchIntentInternalResponseDTO intent,
+                                                                         List<AppReportStatusScoredCandidate> scoredCandidates,
+                                                                         List<AppReportStatusScoredCandidate> selected) {
+        if (scoredCandidates == null || scoredCandidates.isEmpty()) {
+            return null;
+        }
+        List<AppReportStatusScoredCandidate> rerankPool = new ArrayList<>(scoredCandidates);
+        rerankPool.sort(Comparator
+                .comparingInt(AppReportStatusScoredCandidate::relevancia).reversed()
+                .thenComparing(candidate -> candidate.reporte().getId(), Comparator.nullsLast(Comparator.reverseOrder())));
+        if (rerankPool.size() > MAX_APP_REPORT_STATUS_RERANK_CANDIDATES) {
+            rerankPool = new ArrayList<>(rerankPool.subList(0, MAX_APP_REPORT_STATUS_RERANK_CANDIDATES));
+        }
+
+        AiSemanticRerankInternalResponseDTO response = invokeSemanticRerank(
+                requestId,
+                "APP_REPORT_STATUS",
+                "APP_REPORT_STATUS",
+                consulta,
+                intent == null ? null : intent.getMotivoReporte(),
+                intent == null ? null : intent.getTipoReporte(),
+                intent == null ? null : intent.getOrden(),
+                selected == null || selected.isEmpty() ? 1 : selected.size(),
+                intent == null ? null : intent.getTemporalExpression(),
+                buildSemanticRerankCandidates(rerankPool)
+        );
+        if (response == null || !response.isSuccess()) {
+            return null;
+        }
+
+        Map<Long, AppReportStatusScoredCandidate> byId = new LinkedHashMap<>();
+        for (AppReportStatusScoredCandidate candidate : rerankPool) {
+            if (candidate != null && candidate.reporte() != null && candidate.reporte().getId() != null) {
+                byId.put(candidate.reporte().getId(), candidate);
+            }
+        }
+
+        List<Long> rerankedIds = resolveSemanticRerankSelectedIds(response);
+        Long selectedId = rerankedIds.isEmpty() ? null : rerankedIds.get(0);
+        Double confidence = response.getConfidence();
+        if (!rerankedIds.isEmpty()
+                && confidence != null
+                && confidence >= MIN_APP_REPORT_STATUS_RERANK_CONFIDENCE) {
+            List<AppReportStatusScoredCandidate> ordered = new ArrayList<>();
+            for (Long id : rerankedIds) {
+                AppReportStatusScoredCandidate candidate = byId.get(id);
+                if (candidate != null) {
+                    ordered.add(candidate);
+                }
+            }
+            if (ordered.isEmpty()) {
+                return null;
+            }
+            return new AppReportRerankOutcome(
+                    true,
+                    ordered,
+                    selectedId,
+                    rerankedIds,
+                    true,
+                    firstNonBlank(response.getMotivoCoincidencia(), "Coincidencia aproximada por reranking semantico")
+            );
+        }
+        return null;
+    }
+
+    private List<AiSemanticRerankCandidateDTO> buildSemanticRerankCandidates(List<AppReportStatusScoredCandidate> pool) {
+        List<AiSemanticRerankCandidateDTO> candidatos = new ArrayList<>();
+        if (pool == null) {
+            return candidatos;
+        }
+        for (AppReportStatusScoredCandidate candidate : pool) {
+            if (candidate == null || candidate.reporte() == null || candidate.reporte().getId() == null) {
+                continue;
+            }
+            SolicitudDesbaneoEntity reporte = candidate.reporte();
+            AiSemanticRerankCandidateDTO dto = new AiSemanticRerankCandidateDTO();
+            dto.setId(reporte.getId());
+            dto.setTipo(reporte.getTipoReporte() == null ? null : reporte.getTipoReporte().name());
+            dto.setEstado(reporte.getEstado() == null ? null : reporte.getEstado().name());
+            dto.setTitulo(truncate(reporte.getMotivo(), 250));
+            dto.setDescripcion(truncate(candidate.resolucionVisible(), 350));
+            dto.setFecha(reporte.getCreatedAt() == null ? null : reporte.getCreatedAt().toString());
+            dto.setMotivo(truncate(reporte.getMotivo(), 250));
+            dto.setResolucionMotivo(truncate(candidate.resolucionVisible(), 250));
+            dto.setFechaCreacion(reporte.getCreatedAt() == null ? null : reporte.getCreatedAt().toString());
+            dto.setFechaActualizacion(reporte.getUpdatedAt() == null ? null : reporte.getUpdatedAt().toString());
+            Map<String, Object> metadata = new LinkedHashMap<>();
+            metadata.put("chatNombreSnapshot", truncate(reporte.getChatNombreSnapshot(), 120));
+            metadata.put("chatCerradoMotivoSnapshot", truncate(reporte.getChatCerradoMotivoSnapshot(), 180));
+            dto.setMetadata(metadata);
+            candidatos.add(dto);
+        }
+        return candidatos;
+    }
+
+    private boolean isAmbiguousAppReportStatusMotivo(String motivo) {
+        String normalized = normalizeIntentText(motivo);
+        if (!hasText(normalized)) {
+            return false;
+        }
+        List<String> tokens = extractAppReportStatusTokens(normalized);
+        if (tokens.size() <= 2) {
+            return true;
+        }
+        return tokens.stream().allMatch(token -> Set.of("audio", "perfil", "buscador", "notificacion", "grupo", "sticker", "mensaje", "chat").contains(token));
+    }
+
+    private boolean isAmbiguousAppReportStatusTemporal(String temporalExpression) {
+        String normalized = normalizeIntentText(temporalExpression);
+        if (!hasText(normalized)) {
+            return false;
+        }
+        return normalized.contains("otro dia")
+                || normalized.contains("unos dia")
+                || normalized.contains("semana pasada")
+                || normalized.contains("hace poco");
+    }
+
+    private boolean hasCloseAppReportStatusScores(List<AppReportStatusScoredCandidate> scoredCandidates) {
+        if (scoredCandidates == null || scoredCandidates.size() < 2) {
+            return false;
+        }
+        return Math.abs(scoredCandidates.get(0).relevancia() - scoredCandidates.get(1).relevancia()) <= 8;
+    }
+
+    private String resolveAppReportStatusMotivoCoincidencia(String rerankMotivoCoincidencia, boolean aproximadoUsed) {
+        if (hasText(rerankMotivoCoincidencia)) {
+            return truncate(rerankMotivoCoincidencia, MAX_REASON_LENGTH);
+        }
+        return aproximadoUsed ? "Coincidencia aproximada" : "Coincide con tu consulta";
+    }
+
+    private Comparator<AppReportStatusScoredCandidate> resolveAppReportStatusOrderComparator(AiSearchIntentInternalResponseDTO intent,
+                                                                                              boolean listMode) {
+        String orden = intent == null ? null : intent.getOrden();
+        Comparator<AppReportStatusScoredCandidate> byCreatedAtAsc = Comparator
+                .comparing((AppReportStatusScoredCandidate candidate) -> candidate.reporte().getCreatedAt(), Comparator.nullsLast(Comparator.naturalOrder()))
+                .thenComparing(candidate -> candidate.reporte().getId(), Comparator.nullsLast(Comparator.naturalOrder()));
+        Comparator<AppReportStatusScoredCandidate> byCreatedAtDesc = Comparator
+                .comparing((AppReportStatusScoredCandidate candidate) -> candidate.reporte().getCreatedAt(), Comparator.nullsLast(Comparator.reverseOrder()))
+                .thenComparing(candidate -> candidate.reporte().getId(), Comparator.nullsLast(Comparator.reverseOrder()));
+        if ("FIRST".equalsIgnoreCase(orden)) {
+            return byCreatedAtAsc;
+        }
+        if ("LATEST".equalsIgnoreCase(orden) || !listMode) {
+            return byCreatedAtDesc;
+        }
+        return byCreatedAtDesc;
+    }
+
+    private Comparator<AiEncryptedMessageSearchResultDTO> resolveAppReportStatusResultOrderComparator(AiSearchIntentInternalResponseDTO intent,
+                                                                                                       boolean listMode) {
+        String orden = intent == null ? null : intent.getOrden();
+        Comparator<AiEncryptedMessageSearchResultDTO> byIdAsc = Comparator
+                .comparing(AiEncryptedMessageSearchResultDTO::getReporteId, Comparator.nullsLast(Comparator.naturalOrder()));
+        Comparator<AiEncryptedMessageSearchResultDTO> byIdDesc = Comparator
+                .comparing(AiEncryptedMessageSearchResultDTO::getReporteId, Comparator.nullsLast(Comparator.reverseOrder()));
+        if ("FIRST".equalsIgnoreCase(orden)) {
+            return byIdAsc;
+        }
+        if ("LATEST".equalsIgnoreCase(orden) || !listMode) {
+            return byIdDesc;
+        }
+        return byIdDesc;
+    }
+
+    private String resolveAppReportStatusOrderLabel(AiSearchIntentInternalResponseDTO intent, boolean listMode) {
+        String orden = intent == null ? null : intent.getOrden();
+        if ("FIRST".equalsIgnoreCase(orden)) {
+            return "createdAt_asc_reporteId_asc";
+        }
+        if ("LATEST".equalsIgnoreCase(orden)) {
+            return "createdAt_desc_reporteId_desc";
+        }
+        return listMode ? "createdAt_desc_reporteId_desc" : "createdAt_desc_reporteId_desc_limit_1";
+    }
+
+    private SemanticRerankDecision shouldUseSemanticRerank(SemanticRerankDecisionContext context) {
+        if (context == null || context.totalCandidatos() <= 0) {
+            return new SemanticRerankDecision(false, "NO_CANDIDATES");
+        }
+        if (context.offensiveContent()) {
+            return new SemanticRerankDecision(true, "OFFENSIVE_CONTENT");
+        }
+        if (context.sortOnlyQuery()) {
+            return new SemanticRerankDecision(false, "SORT_ONLY_QUERY");
+        }
+        if (context.listMode()) {
+            return new SemanticRerankDecision(false, "LIST_MODE");
+        }
+        boolean ambiguous = context.genericMotive()
+                || context.ambiguousTemporal()
+                || context.tie()
+                || context.scopeAmbiguous()
+                || context.singularAmbiguous();
+        if (context.totalFinales() > 0 && !ambiguous) {
+            return new SemanticRerankDecision(false, "CLEAR_RESULT");
+        }
+        if (context.totalFinales() == 0) {
+            return new SemanticRerankDecision(true, resolveSemanticRerankReason(context));
+        }
+        return ambiguous
+                ? new SemanticRerankDecision(true, resolveSemanticRerankReason(context))
+                : new SemanticRerankDecision(false, "CLEAR_RESULT");
+    }
+
+    private String resolveSemanticRerankReason(SemanticRerankDecisionContext context) {
+        if (context == null) {
+            return "ZERO_FINALS";
+        }
+        if (context.genericMotive()) {
+            return "GENERIC_MOTIVE";
+        }
+        if (context.ambiguousTemporal()) {
+            return "AMBIGUOUS_TEMPORAL";
+        }
+        if (context.tie()) {
+            return "TIE";
+        }
+        if (context.scopeAmbiguous()) {
+            return "SCOPE_AMBIGUOUS";
+        }
+        return "ZERO_FINALS";
+    }
+
+    private void logSemanticRerankDecision(String requestId, SemanticRerankDecision decision, int totalCandidatos) {
+        LOGGER.info("[AI][RERANK_DECISION] requestId={} enabled={} reason={} totalCandidatos={}",
+                requestId,
+                decision != null && decision.enabled(),
+                decision == null ? null : decision.reason(),
+                totalCandidatos);
+    }
+
+    private AiSemanticRerankInternalResponseDTO invokeSemanticRerank(String requestId,
+                                                                     String tipoBusqueda,
+                                                                     String target,
+                                                                     String consultaOriginal,
+                                                                     String motivoBuscado,
+                                                                     String tipoReporte,
+                                                                     String orden,
+                                                                     Integer limitSolicitado,
+                                                                     String temporalExpression,
+                                                                     List<AiSemanticRerankCandidateDTO> candidatos) {
+        if (candidatos == null || candidatos.isEmpty()) {
+            return null;
+        }
+        AiSemanticRerankInternalRequestDTO request = new AiSemanticRerankInternalRequestDTO();
+        request.setRequestId(requestId);
+        request.setTipoBusqueda(tipoBusqueda);
+        request.setTarget(target);
+        request.setConsultaOriginal(consultaOriginal);
+        request.setMotivoBuscado(motivoBuscado);
+        request.setTipoReporte(tipoReporte);
+        request.setOrden(orden);
+        request.setLimitSolicitado(limitSolicitado);
+        request.setTemporalExpression(temporalExpression);
+        request.setCandidatos(candidatos);
+        return aiSemanticRerankMicroserviceClient.rerank(requestId, request);
+    }
+
+    private List<Long> resolveSemanticRerankSelectedIds(AiSemanticRerankInternalResponseDTO response) {
+        LinkedHashSet<Long> ids = new LinkedHashSet<>();
+        if (response != null && response.getSelectedIds() != null) {
+            for (Long id : response.getSelectedIds()) {
+                if (id != null) {
+                    ids.add(id);
+                }
+            }
+        }
+        if (ids.isEmpty() && response != null && response.getSelectedId() != null) {
+            ids.add(response.getSelectedId());
+        }
+        return new ArrayList<>(ids);
+    }
+
+    private boolean isGenericSemanticMotive(String motivo) {
+        String normalized = normalizeIntentText(motivo);
+        if (!hasText(normalized)) {
+            return false;
+        }
+        List<String> tokens = extractSemanticTokens(normalized);
+        if (tokens.isEmpty()) {
+            return false;
+        }
+        if (tokens.size() <= 2) {
+            return true;
+        }
+        return tokens.stream().allMatch(GENERIC_SEMANTIC_MOTIVE_TOKENS::contains);
+    }
+
+    private boolean isAmbiguousTemporalExpression(String temporalExpression) {
+        String normalized = normalizeIntentText(temporalExpression);
+        if (!hasText(normalized)) {
+            return false;
+        }
+        return normalized.contains("otro dia")
+                || normalized.contains("hace unos dia")
+                || normalized.contains("unos dia")
+                || normalized.contains("semana pasada")
+                || normalized.contains("hace poco")
+                || normalized.contains("el otro dia");
+    }
+
+    private boolean hasCloseRelevanceScores(List<Integer> scores, int maxDelta) {
+        if (scores == null || scores.size() < 2) {
+            return false;
+        }
+        Integer first = scores.get(0);
+        Integer second = scores.get(1);
+        if (first == null || second == null) {
+            return false;
+        }
+        return Math.abs(first - second) <= maxDelta;
+    }
+
+    private int calculateSemanticPreselectionScore(String query, List<String> fields, int maxScore) {
+        if (!hasText(query) || fields == null || fields.isEmpty() || maxScore <= 0) {
+            return 0;
+        }
+        List<String> tokens = extractSemanticTokens(normalizeIntentText(query));
+        if (tokens.isEmpty()) {
+            return 0;
+        }
+        int best = 0;
+        for (String field : fields) {
+            if (!hasText(field)) {
+                continue;
+            }
+            String normalizedField = normalizeIntentText(field);
+            int matches = 0;
+            for (String token : tokens) {
+                if (normalizedField.contains(token)) {
+                    matches++;
+                }
+            }
+            if (matches == 0) {
+                continue;
+            }
+            int score = Math.min(maxScore, (int) Math.round(((double) matches / tokens.size()) * maxScore));
+            best = Math.max(best, score);
+        }
+        return best;
+    }
+
+    private List<String> extractSemanticTokens(String normalizedText) {
+        List<String> tokens = new ArrayList<>();
+        if (!hasText(normalizedText)) {
+            return tokens;
+        }
+        for (String token : normalizedText.split(" ")) {
+            if (token.length() >= 3 && !APP_REPORT_STATUS_QUERY_STOPWORDS.contains(token)) {
+                tokens.add(token);
+            }
+        }
+        return tokens;
+    }
+
+    private String safeRerankText(String text, int maxLength) {
+        String normalized = normalizeInput(text);
+        if (!hasText(normalized)) {
+            return null;
+        }
+        return truncate(normalized, maxLength);
+    }
+
+    private void addIfHasText(List<String> values, String value) {
+        if (values == null || !hasText(value)) {
+            return;
+        }
+        values.add(value.trim());
+    }
+
+    private List<String> nullableTexts(String... values) {
+        List<String> out = new ArrayList<>();
+        if (values == null) {
+            return out;
+        }
+        for (String value : values) {
+            out.add(value);
+        }
+        return out;
+    }
+
+    private boolean looksLikeSpecificAppReportStatusTopic(String normalized) {
+        if (!hasText(normalized)) {
+            return false;
+        }
+        return normalized.contains("perfil rojo")
+                || normalized.contains("buscador inteligente")
+                || normalized.contains("notificacion")
+                || normalized.contains("audio")
+                || normalized.contains("hover")
+                || normalized.contains("emoticono")
+                || normalized.contains("collapse")
+                || normalized.contains("programar mensaje")
+                || normalized.contains("buscar mensaje global")
+                || normalized.contains("listado");
     }
 
     private TemporalFilterOutcome applyTemporalFilterWithFallback(String requestId,
@@ -1669,6 +2558,34 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
             return relevancia;
         }
     }
+
+    private record AppReportRerankOutcome(boolean used,
+                                          List<AppReportStatusScoredCandidate> selected,
+                                          Long selectedId,
+                                          List<Long> selectedIds,
+                                          boolean aproximado,
+                                          String motivoCoincidencia) { }
+
+    private record SemanticRerankDecision(boolean enabled,
+                                          String reason) { }
+
+    private record SemanticRerankDecisionContext(int totalFinales,
+                                                 int totalCandidatos,
+                                                 boolean listMode,
+                                                 boolean sortOnlyQuery,
+                                                 boolean genericMotive,
+                                                 boolean ambiguousTemporal,
+                                                 boolean tie,
+                                                 boolean scopeAmbiguous,
+                                                 boolean singularAmbiguous,
+                                                 boolean offensiveContent) { }
+
+    private record GenericSemanticRerankOutcome(boolean used,
+                                                List<Long> selectedIds,
+                                                List<Long> idsOrdenados,
+                                                boolean mejorResultadoAproximado,
+                                                String motivoCoincidencia,
+                                                Double confidence) { }
 
     private List<AiAppReportHistoryDTO> buildReportHistoryTimeline(String requestId,
                                                                    SolicitudDesbaneoEntity reporte,
@@ -2522,6 +3439,55 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
             }
         }
 
+        boolean listModeIntent = Boolean.TRUE.equals(intent == null ? null : intent.getListMode());
+        boolean genericScheduledMotive = isAmbiguousScheduledQuery(values.consulta(), queryContext);
+        boolean ambiguousScheduledTemporal = isAmbiguousTemporalExpression(queryContext.temporalExpression());
+        boolean scheduledScopeAmbiguous = resultados.isEmpty()
+                && (hasText(queryContext.personaMencionada()) || hasText(queryContext.grupoMencionado()));
+        SemanticRerankDecision scheduledRerankDecision = shouldUseSemanticRerank(new SemanticRerankDecisionContext(
+                resultados.size(),
+                rows.size(),
+                listModeIntent,
+                isGenericScheduledOrderOnlyQuery(values.consulta(), queryContext),
+                genericScheduledMotive,
+                ambiguousScheduledTemporal,
+                false,
+                scheduledScopeAmbiguous,
+                !listModeIntent && genericScheduledMotive,
+                false
+        ));
+        logSemanticRerankDecision(requestId, scheduledRerankDecision, rows.size());
+        String scheduledRerankMotivo = null;
+        if (scheduledRerankDecision.enabled()) {
+            GenericSemanticRerankOutcome rerankOutcome = applySemanticRerankForScheduled(requestId, effectiveValues, queryContext, chatContexts, rows);
+            if (rerankOutcome != null && rerankOutcome.used()) {
+                List<AiEncryptedMessageSearchResultDTO> rerankedResults = buildResultsFromRerankedScheduled(
+                        rerankOutcome,
+                        rows,
+                        chatContexts,
+                        queryContext,
+                        huboFallbackTemporal
+                );
+                if (!rerankedResults.isEmpty()) {
+                    resultados = rerankedResults;
+                    summaryCandidates = new ArrayList<>();
+                    for (AiEncryptedMessageSearchResultDTO result : resultados) {
+                        MensajeProgramadoEntity row = result.getMensajeId() == null ? null : rows.stream()
+                                .filter(item -> item != null && result.getMensajeId().equals(item.getId()))
+                                .findFirst()
+                                .orElse(null);
+                        ScheduledChatContext chatContext = row == null ? null : chatContexts.get(resolveScheduledChatId(row));
+                        if (row != null && chatContext != null) {
+                            summaryCandidates.add(toScheduledSummaryCandidate(row, chatContext, result));
+                        }
+                    }
+                    scheduledRerankMotivo = rerankOutcome.motivoCoincidencia();
+                    LOGGER.info("[AI][RERANK_APPLIED] requestId={} selectedIds={} mejorResultadoAproximado=true",
+                            requestId, rerankOutcome.selectedIds());
+                }
+            }
+        }
+
         String resumenBusqueda = generarResumenMensajesProgramados(
                 requestId,
                 userId,
@@ -2530,6 +3496,9 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
                 huboFallbackTemporal,
                 summaryCandidates
         );
+        if (hasText(scheduledRerankMotivo) && !resultados.isEmpty()) {
+            resumenBusqueda = truncate("Usé una coincidencia aproximada: " + normalizeInput(scheduledRerankMotivo) + ". " + resumenBusqueda, 500);
+        }
 
         LOGGER.info("[AI][MESSAGE_SEARCH_ENCRYPTED] requestId={} target={} userId={} scheduledStatus={} orden={} persona={} grupo={} rangoTemporalDetectado={} huboFallbackTemporal={} totalProgramados={} totalResultados={}",
                 requestId,
@@ -2845,6 +3814,206 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
             return base + " en " + nombreChat + ".";
         }
         return base + ".";
+    }
+
+    private GenericSemanticRerankOutcome applySemanticRerankForScheduled(String requestId,
+                                                                         ValidationValues values,
+                                                                         ScheduledQueryContext queryContext,
+                                                                         Map<Long, ScheduledChatContext> chatContexts,
+                                                                         List<MensajeProgramadoEntity> rows) {
+        List<MensajeProgramadoEntity> rerankPool = selectScheduledCandidatesForRerank(values, queryContext, chatContexts, rows);
+        if (rerankPool.isEmpty()) {
+            return null;
+        }
+        AiSemanticRerankInternalResponseDTO response = invokeSemanticRerank(
+                requestId,
+                "SCHEDULED_MESSAGES",
+                "SCHEDULED_MESSAGES",
+                values == null ? null : values.consulta(),
+                null,
+                null,
+                queryContext == null ? null : queryContext.orden(),
+                1,
+                queryContext == null ? null : queryContext.temporalExpression(),
+                buildSemanticRerankCandidatesForScheduled(rerankPool, chatContexts)
+        );
+        List<Long> selectedIds = resolveSemanticRerankSelectedIds(response);
+        Double confidence = response == null ? null : response.getConfidence();
+        if (selectedIds.isEmpty() || confidence == null || confidence < MIN_GENERIC_SEMANTIC_RERANK_CONFIDENCE) {
+            return null;
+        }
+        return new GenericSemanticRerankOutcome(
+                true,
+                selectedIds,
+                response.getIdsOrdenados(),
+                true,
+                firstNonBlank(response.getMotivoCoincidencia(), "Coincidencia aproximada por reranking semantico"),
+                confidence
+        );
+    }
+
+    private List<MensajeProgramadoEntity> selectScheduledCandidatesForRerank(ValidationValues values,
+                                                                              ScheduledQueryContext queryContext,
+                                                                              Map<Long, ScheduledChatContext> chatContexts,
+                                                                              List<MensajeProgramadoEntity> rows) {
+        List<MensajeProgramadoEntity> pool = new ArrayList<>();
+        if (rows == null) {
+            return pool;
+        }
+        boolean strictTemporal = values != null && values.rangoTemporalDetectado() && !isAmbiguousTemporalExpression(queryContext == null ? null : queryContext.temporalExpression());
+        for (MensajeProgramadoEntity row : rows) {
+            if (row == null) {
+                continue;
+            }
+            Long chatId = resolveScheduledChatId(row);
+            ScheduledChatContext chatContext = chatId == null ? null : chatContexts.get(chatId);
+            if (chatContext == null) {
+                continue;
+            }
+            if (!matchesScheduledStatus(row, queryContext == null ? null : queryContext.scheduledStatus())) {
+                continue;
+            }
+            if (strictTemporal && !matchesScheduledTemporalRange(row, values)) {
+                continue;
+            }
+            pool.add(row);
+        }
+        Comparator<MensajeProgramadoEntity> comparator = Comparator
+                .comparingInt((MensajeProgramadoEntity row) -> scoreScheduledCandidateForRerank(row, queryContext, chatContexts, values == null ? null : values.consulta()))
+                .reversed()
+                .thenComparing(MensajeProgramadoEntity::getScheduledAt, Comparator.nullsLast(resolveInstantOrder(queryContext == null ? null : queryContext.orden())))
+                .thenComparing(MensajeProgramadoEntity::getId, Comparator.nullsLast(Comparator.reverseOrder()));
+        pool.sort(comparator);
+        if (pool.size() > MAX_GENERIC_SEMANTIC_RERANK_CANDIDATES) {
+            return new ArrayList<>(pool.subList(0, MAX_GENERIC_SEMANTIC_RERANK_CANDIDATES));
+        }
+        return pool;
+    }
+
+    private int scoreScheduledCandidateForRerank(MensajeProgramadoEntity row,
+                                                 ScheduledQueryContext queryContext,
+                                                 Map<Long, ScheduledChatContext> chatContexts,
+                                                 String consulta) {
+        ScheduledChatContext chatContext = row == null ? null : chatContexts.get(resolveScheduledChatId(row));
+        int score = calculateSemanticPreselectionScore(consulta, nullableTexts(
+                row == null ? null : row.getMessageContent(),
+                chatContext == null ? null : chatContext.nombreChat(),
+                queryContext == null ? null : queryContext.personaMencionada(),
+                queryContext == null ? null : queryContext.grupoMencionado(),
+                normalizeScheduledStatus(row == null ? null : row.getStatus())
+        ), 100);
+        if (chatContext != null && hasText(queryContext == null ? null : queryContext.personaMencionada())
+                && "INDIVIDUAL".equalsIgnoreCase(chatContext.tipoChat())
+                && normalizeIntentText(chatContext.nombreChat()).contains(normalizeIntentText(queryContext.personaMencionada()))) {
+            score += 15;
+        }
+        if (chatContext != null && hasText(queryContext == null ? null : queryContext.grupoMencionado())
+                && "GRUPAL".equalsIgnoreCase(chatContext.tipoChat())
+                && normalizeIntentText(chatContext.nombreChat()).contains(normalizeIntentText(queryContext.grupoMencionado()))) {
+            score += 15;
+        }
+        return score;
+    }
+
+    private List<AiSemanticRerankCandidateDTO> buildSemanticRerankCandidatesForScheduled(List<MensajeProgramadoEntity> rows,
+                                                                                          Map<Long, ScheduledChatContext> chatContexts) {
+        List<AiSemanticRerankCandidateDTO> candidatos = new ArrayList<>();
+        if (rows == null) {
+            return candidatos;
+        }
+        for (MensajeProgramadoEntity row : rows) {
+            if (row == null || row.getId() == null) {
+                continue;
+            }
+            ScheduledChatContext chatContext = chatContexts.get(resolveScheduledChatId(row));
+            AiSemanticRerankCandidateDTO dto = new AiSemanticRerankCandidateDTO();
+            dto.setId(row.getId());
+            dto.setTipo("SCHEDULED_MESSAGE");
+            dto.setEstado(normalizeScheduledStatus(row.getStatus()));
+            dto.setTitulo(safeRerankText(row.getMessageContent(), 250));
+            dto.setDescripcion(safeRerankText(row.getMessageContent(), 350));
+            dto.setFecha(row.getScheduledAt() == null ? null : row.getScheduledAt().toString());
+            Map<String, Object> metadata = new LinkedHashMap<>();
+            metadata.put("chatId", chatContext == null ? null : chatContext.chatId());
+            metadata.put("receptorNombre", chatContext == null ? null : chatContext.nombreChat());
+            metadata.put("scheduledStatus", normalizeScheduledStatus(row.getStatus()));
+            dto.setMetadata(metadata);
+            candidatos.add(dto);
+        }
+        return candidatos;
+    }
+
+    private List<AiEncryptedMessageSearchResultDTO> buildResultsFromRerankedScheduled(GenericSemanticRerankOutcome outcome,
+                                                                                      List<MensajeProgramadoEntity> rows,
+                                                                                      Map<Long, ScheduledChatContext> chatContexts,
+                                                                                      ScheduledQueryContext queryContext,
+                                                                                      boolean huboFallbackTemporal) {
+        List<AiEncryptedMessageSearchResultDTO> resultados = new ArrayList<>();
+        if (outcome == null || rows == null) {
+            return resultados;
+        }
+        Map<Long, MensajeProgramadoEntity> byId = new LinkedHashMap<>();
+        for (MensajeProgramadoEntity row : rows) {
+            if (row != null && row.getId() != null) {
+                byId.put(row.getId(), row);
+            }
+        }
+        int relevancia = Math.max(55, Math.min(99, (int) Math.round((outcome.confidence() == null ? 0.55d : outcome.confidence()) * 100)));
+        for (Long id : outcome.selectedIds()) {
+            MensajeProgramadoEntity row = byId.get(id);
+            ScheduledChatContext chatContext = row == null ? null : chatContexts.get(resolveScheduledChatId(row));
+            AiEncryptedMessageSearchResultDTO result = toScheduledPublicResult(row, chatContext, queryContext, huboFallbackTemporal);
+            if (result == null) {
+                continue;
+            }
+            result.setMotivoCoincidencia(truncate(firstNonBlank(outcome.motivoCoincidencia(), result.getMotivoCoincidencia()), MAX_REASON_LENGTH));
+            result.setMejorResultadoAproximado(true);
+            result.setRelevancia(relevancia);
+            resultados.add(result);
+        }
+        return resultados;
+    }
+
+    private boolean isAmbiguousScheduledQuery(String consulta, ScheduledQueryContext queryContext) {
+        String normalized = normalizeIntentText(consulta);
+        if (!hasText(normalized)) {
+            return false;
+        }
+        if (containsAny(normalized,
+                "lo que programe",
+                "mensaje automatico",
+                "para luego",
+                "programado para",
+                "lo que deje programado")) {
+            return true;
+        }
+        return hasText(queryContext == null ? null : queryContext.personaMencionada())
+                || hasText(queryContext == null ? null : queryContext.grupoMencionado())
+                || isAmbiguousTemporalExpression(queryContext == null ? null : queryContext.temporalExpression());
+    }
+
+    private boolean isGenericScheduledOrderOnlyQuery(String consulta, ScheduledQueryContext queryContext) {
+        String normalized = normalizeIntentText(consulta);
+        if (!hasText(normalized)) {
+            return false;
+        }
+        if (hasText(queryContext == null ? null : queryContext.personaMencionada())
+                || hasText(queryContext == null ? null : queryContext.grupoMencionado())) {
+            return false;
+        }
+        return containsAny(normalized,
+                "proximo mensaje",
+                "ultimo programado",
+                "primer programado",
+                "mensaje que se enviara",
+                "proximo que se enviara");
+    }
+
+    private Comparator<Instant> resolveInstantOrder(String orden) {
+        if ("FIRST".equalsIgnoreCase(orden) || "NEXT".equalsIgnoreCase(orden)) {
+            return Comparator.naturalOrder();
+        }
+        return Comparator.reverseOrder();
     }
 
     private String buildScheduledReason(ScheduledQueryContext queryContext,
@@ -3442,14 +4611,16 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
                                                                   String requestedType,
                                                                   SenderResolution senderResolution) {
         AiMessageSearchInternalRequestDTO request = new AiMessageSearchInternalRequestDTO();
+        boolean offensiveIntent = isOffensiveMessageSearchIntent(null, values == null ? null : values.analysis());
         request.setConsulta(values.consulta());
         request.setConsultaOriginal(values.consulta());
         request.setUsuarioActualNombre(resolveUserDisplayName(userId));
         request.setMaxResultados(values.maxResultados());
         request.setSenderScope(senderResolution.senderScope().name());
-        request.setSearchTarget(isGlobalOffensiveContentSearch(values, senderResolution)
+        request.setSearchTarget((isGlobalOffensiveContentSearch(values, senderResolution) || offensiveIntent)
                 ? "OFFENSIVE_CONTENT_SEARCH"
                 : "MESSAGES");
+        request.setMotivoDetectado(offensiveIntent ? mapMotivoDenuncia(values == null || values.analysis() == null ? null : values.analysis().getMotivoDenunciaDetectado()) : null);
 
         AiMessageSearchScopeType type = scope == null || scope.getTipoScope() == null ? AiMessageSearchScopeType.GLOBAL : scope.getTipoScope();
         request.setTipoScopeInicial(scopeInicialType == null ? AiMessageSearchScopeType.GLOBAL.name() : scopeInicialType.name());
@@ -3588,6 +4759,20 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
         return isGlobalOffensiveContentSearch(values.analysis(), personTargetDetected)
                 && senderResolution.senderScope() == AiMessageSearchSenderScope.AUTHENTICATED_USER
                 && !senderResolution.busquedaEnMensajesDeOtroUsuario();
+    }
+
+    private boolean isOffensiveMessageSearchIntent(AiSearchIntentInternalResponseDTO intent,
+                                                   AiMessageSearchNaturalQueryAnalysis analysis) {
+        if (analysis != null && analysis.isIntencionContenidoOfensivo()) {
+            return true;
+        }
+        if (intent == null) {
+            return false;
+        }
+        if ("OFFENSIVE_CONTENT_SEARCH".equalsIgnoreCase(intent.getTarget())) {
+            return true;
+        }
+        return hasText(mapMotivoDenuncia(intent.getMotivoDenuncia()));
     }
 
     private boolean isGlobalOffensiveContentSearch(AiMessageSearchNaturalQueryAnalysis analysis,
@@ -4173,6 +5358,266 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
         return out;
     }
 
+    private GenericSemanticRerankOutcome applySemanticRerankForMessages(String requestId,
+                                                                        ValidationValues values,
+                                                                        AiSearchIntentInternalResponseDTO intent,
+                                                                        String requestedType,
+                                                                        Map<Long, CandidateMessage> candidates,
+                                                                        boolean offensiveIntent) {
+        List<CandidateMessage> rerankPool = selectMessageCandidatesForRerank(values, intent, requestedType, candidates, offensiveIntent);
+        if (rerankPool.isEmpty()) {
+            return null;
+        }
+        String motivoBuscado = offensiveIntent
+                ? mapMotivoDenuncia(intent == null ? null : intent.getMotivoDenuncia())
+                : null;
+        AiSemanticRerankInternalResponseDTO response = invokeSemanticRerank(
+                requestId,
+                "MESSAGES",
+                hasText(requestedType) ? requestedType : "MESSAGES",
+                values == null ? null : values.consulta(),
+                motivoBuscado,
+                null,
+                intent == null ? null : intent.getOrden(),
+                Boolean.TRUE.equals(intent == null ? null : intent.getListMode())
+                        ? Math.max(1, Math.min(values == null ? 1 : values.maxResultados(), MAX_MAX_RESULTADOS))
+                        : 1,
+                firstNonBlank(intent == null ? null : intent.getTemporalExpression(), values == null ? null : values.descripcionRangoTemporal()),
+                buildSemanticRerankCandidatesForMessages(rerankPool)
+        );
+        List<Long> selectedIds = resolveSemanticRerankSelectedIds(response);
+        Double confidence = response == null ? null : response.getConfidence();
+        if (selectedIds.isEmpty() || confidence == null || confidence < MIN_GENERIC_SEMANTIC_RERANK_CONFIDENCE) {
+            return null;
+        }
+        return new GenericSemanticRerankOutcome(
+                true,
+                selectedIds,
+                response.getIdsOrdenados(),
+                true,
+                firstNonBlank(response.getMotivoCoincidencia(), "Coincidencia aproximada por reranking semantico"),
+                confidence
+        );
+    }
+
+    private List<CandidateMessage> selectMessageCandidatesForRerank(ValidationValues values,
+                                                                    AiSearchIntentInternalResponseDTO intent,
+                                                                    String requestedType,
+                                                                    Map<Long, CandidateMessage> candidates,
+                                                                    boolean offensiveIntent) {
+        List<CandidateMessage> preferred = new ArrayList<>();
+        List<CandidateMessage> fallback = new ArrayList<>();
+        if (candidates != null) {
+            for (CandidateMessage candidate : candidates.values()) {
+                if (candidate == null || candidate.mensajeId() == null) {
+                    continue;
+                }
+                if (offensiveIntent && !matchesOffensiveContentPrefilter(candidate)) {
+                    continue;
+                }
+                if (hasText(requestedType) && requestedType.equals(candidate.tipoMensaje())) {
+                    preferred.add(candidate);
+                } else {
+                    fallback.add(candidate);
+                }
+            }
+        }
+        if (offensiveIntent && preferred.isEmpty() && fallback.isEmpty() && candidates != null) {
+            for (CandidateMessage candidate : candidates.values()) {
+                if (candidate == null || candidate.mensajeId() == null) {
+                    continue;
+                }
+                if (hasText(requestedType) && requestedType.equals(candidate.tipoMensaje())) {
+                    preferred.add(candidate);
+                } else {
+                    fallback.add(candidate);
+                }
+            }
+        }
+        List<CandidateMessage> pool = preferred.isEmpty() ? fallback : preferred;
+        Comparator<CandidateMessage> comparator = Comparator
+                .comparingInt((CandidateMessage candidate) -> scoreMessageCandidateForRerank(candidate, values == null ? null : values.consulta(), requestedType, offensiveIntent))
+                .reversed()
+                .thenComparing(CandidateMessage::fechaEnvio, Comparator.nullsLast(resolveDateOrder(intent)))
+                .thenComparing(CandidateMessage::mensajeId, Comparator.nullsLast(Comparator.reverseOrder()));
+        pool.sort(comparator);
+        if (pool.size() > MAX_GENERIC_SEMANTIC_RERANK_CANDIDATES) {
+            return new ArrayList<>(pool.subList(0, MAX_GENERIC_SEMANTIC_RERANK_CANDIDATES));
+        }
+        return pool;
+    }
+
+    private int scoreMessageCandidateForRerank(CandidateMessage candidate, String consulta, String requestedType, boolean offensiveIntent) {
+        if (candidate == null) {
+            return 0;
+        }
+        int score = calculateSemanticPreselectionScore(consulta, nullableTexts(
+                resolveMessageRerankTitle(candidate),
+                resolveMessageRerankDescription(candidate),
+                candidate.chatNombre(),
+                candidate.nombreEmisor(),
+                candidate.nombreReceptor(),
+                candidate.nombreChatGrupal()
+        ), 100);
+        if (hasText(requestedType) && requestedType.equals(candidate.tipoMensaje())) {
+            score += 20;
+        }
+        if (offensiveIntent && matchesOffensiveContentPrefilter(candidate)) {
+            score += 35;
+        }
+        return score;
+    }
+
+    private List<AiSemanticRerankCandidateDTO> buildSemanticRerankCandidatesForMessages(List<CandidateMessage> pool) {
+        List<AiSemanticRerankCandidateDTO> candidatos = new ArrayList<>();
+        if (pool == null) {
+            return candidatos;
+        }
+        for (CandidateMessage candidate : pool) {
+            if (candidate == null || candidate.mensajeId() == null) {
+                continue;
+            }
+            AiSemanticRerankCandidateDTO dto = new AiSemanticRerankCandidateDTO();
+            dto.setId(candidate.mensajeId());
+            dto.setTipo(candidate.tipoMensaje());
+            dto.setTitulo(resolveMessageRerankTitle(candidate));
+            dto.setDescripcion(resolveMessageRerankDescription(candidate));
+            dto.setFecha(candidate.fechaEnvio() == null ? null : candidate.fechaEnvio().toString());
+            Map<String, Object> metadata = new LinkedHashMap<>();
+            metadata.put("chatId", candidate.chatId());
+            metadata.put("tipoChat", candidate.tipoChat());
+            metadata.put("nombreChat", candidate.chatNombre());
+            metadata.put("emisorNombre", truncate(candidate.nombreEmisor(), 120));
+            metadata.put("receptorNombre", truncate(firstNonBlank(candidate.nombreReceptor(), candidate.nombreChatGrupal()), 120));
+            metadata.put("tipoMensaje", candidate.tipoMensaje());
+            metadata.put("mimeType", truncate(candidate.mimeType(), 120));
+            metadata.put("nombreArchivo", truncate(candidate.nombreArchivo(), 180));
+            metadata.put("imageNombre", truncate(candidate.imageNombre(), 180));
+            metadata.put("stickerId", candidate.stickerId());
+            metadata.put("contentKind", truncate(candidate.contentKind(), 120));
+            metadata.put("audioTranscrito", candidate.audioTranscrito());
+            dto.setMetadata(metadata);
+            candidatos.add(dto);
+        }
+        return candidatos;
+    }
+
+    private String resolveMessageRerankTitle(CandidateMessage candidate) {
+        if (candidate == null) {
+            return null;
+        }
+        return switch (candidate.tipoMensaje()) {
+            case "TEXT" -> safeRerankText(firstNonBlank(candidate.contenidoVisible(), candidate.contenido()), 250);
+            case "AUDIO" -> safeRerankText(firstNonBlank(candidate.contenido(), candidate.contenidoVisible(), "[Audio]"), 250);
+            case "IMAGE" -> safeRerankText(firstNonBlank(candidate.imageNombre(), candidate.contenidoVisible(), "[Imagen]"), 250);
+            case "STICKER" -> safeRerankText(firstNonBlank(candidate.contentKind(),
+                    candidate.contenidoVisible(),
+                    candidate.stickerId() == null ? "[Sticker]" : "sticker " + candidate.stickerId()), 250);
+            case "FILE" -> safeRerankText(firstNonBlank(candidate.nombreArchivo(), candidate.contenidoVisible(), "[Archivo]"), 250);
+            default -> safeRerankText(candidate.contenidoVisible(), 250);
+        };
+    }
+
+    private String resolveMessageRerankDescription(CandidateMessage candidate) {
+        if (candidate == null) {
+            return null;
+        }
+        List<String> parts = new ArrayList<>();
+        String textual = switch (candidate.tipoMensaje()) {
+            case "TEXT" -> candidate.contenido();
+            case "AUDIO" -> candidate.audioTranscrito() ? candidate.contenido() : candidate.contenidoVisible();
+            default -> candidate.contenidoVisible();
+        };
+        addIfHasText(parts, safeRerankText(textual, 260));
+        addIfHasText(parts, candidate.chatNombre());
+        addIfHasText(parts, firstNonBlank(candidate.nombreReceptor(), candidate.nombreChatGrupal()));
+        addIfHasText(parts, candidate.nombreEmisor());
+        addIfHasText(parts, candidate.mimeType());
+        return parts.isEmpty() ? null : truncate(String.join(" | ", parts), 350);
+    }
+
+    private Comparator<LocalDateTime> resolveDateOrder(AiSearchIntentInternalResponseDTO intent) {
+        String orden = intent == null ? null : intent.getOrden();
+        if ("FIRST".equalsIgnoreCase(orden)) {
+            return Comparator.naturalOrder();
+        }
+        return Comparator.reverseOrder();
+    }
+
+    private List<AiEncryptedMessageSearchResultDTO> buildResultsFromRerankedMessages(GenericSemanticRerankOutcome outcome,
+                                                                                     Map<Long, CandidateMessage> candidates) {
+        List<AiEncryptedMessageSearchResultDTO> results = new ArrayList<>();
+        if (outcome == null || candidates == null) {
+            return results;
+        }
+        int relevancia = Math.max(55, Math.min(99, (int) Math.round((outcome.confidence() == null ? 0.55d : outcome.confidence()) * 100)));
+        for (Long id : outcome.selectedIds()) {
+            CandidateMessage candidate = candidates.get(id);
+            if (candidate == null) {
+                continue;
+            }
+            AiEncryptedMessageSearchResultDTO dto = toPublicResult(candidate,
+                    truncate(firstNonBlank(outcome.motivoCoincidencia(), "Coincidencia aproximada por reranking semantico"), MAX_REASON_LENGTH),
+                    relevancia);
+            dto.setMejorResultadoAproximado(true);
+            results.add(dto);
+        }
+        return results;
+    }
+
+    private boolean isAmbiguousMessageQuery(String consulta, String requestedType) {
+        String normalized = normalizeIntentText(consulta);
+        if (!hasText(normalized)) {
+            return false;
+        }
+        if (esConsultaDeUltimoMensaje(normalized) || esConsultaDePrimerMensaje(normalized)) {
+            return false;
+        }
+        if (containsAny(normalized,
+                "mensaje ese",
+                "foto esa",
+                "imagen esa",
+                "sticker ese",
+                "audio donde",
+                "lo del otro dia",
+                "lo que me dijo",
+                "cuando dije",
+                "esa que mande",
+                "ese que mande",
+                "esa que envie",
+                "ese que envie")) {
+            return true;
+        }
+        return hasText(requestedType) && normalized.contains("esa");
+    }
+
+    private String buildMessageSemanticRerankSummary(List<AiEncryptedMessageSearchResultDTO> resultados,
+                                                     String requestedType,
+                                                     AiMessageSearchScopeDTO scope,
+                                                     String motivoCoincidencia) {
+        if (resultados == null || resultados.isEmpty()) {
+            return null;
+        }
+        String base = buildMinimalDirectSummary(resultados.get(0), requestedType, scope);
+        if (!hasText(motivoCoincidencia)) {
+            return base;
+        }
+        return truncate("Usé una coincidencia aproximada: " + normalizeInput(motivoCoincidencia) + ". " + base, 500);
+    }
+
+    private boolean isOffensiveMessageResult(AiEncryptedMessageSearchResultDTO result) {
+        if (result == null) {
+            return false;
+        }
+        String normalizedContent = normalizeIntentText(firstNonBlank(result.getContenido(), result.getContenidoVisible()));
+        if (!hasText(normalizedContent)) {
+            return false;
+        }
+        return THREAT_PATTERN.matcher(normalizedContent).find()
+                || OFFENSIVE_PHRASE_PATTERN.matcher(normalizedContent).find()
+                || OFFENSIVE_TERM_PATTERN.matcher(normalizedContent).find();
+    }
+
     private AiEncryptedMessageSearchResultDTO toPublicResult(CandidateMessage candidate, String motivoCoincidencia, Integer relevancia) {
         AiEncryptedMessageSearchResultDTO dto = new AiEncryptedMessageSearchResultDTO();
         dto.setMensajeId(candidate.mensajeId());
@@ -4405,9 +5850,18 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
                 || normalized.equals("[sticker]");
     }
 
-    private SearchIntent resolveSearchIntent(String consulta, AiMessageSearchNaturalQueryAnalysis analysis) {
+    private SearchIntent resolveSearchIntent(String consulta,
+                                             AiMessageSearchNaturalQueryAnalysis analysis,
+                                             AiSearchIntentInternalResponseDTO intent) {
         String normalized = normalizeIntentText(consulta);
-        String requestedType = detectRequestedMessageType(normalized, analysis);
+        String requestedType = normalizeRequestedMessageType(detectRequestedMessageType(normalized, analysis));
+        if (requestedType == null) {
+            requestedType = normalizeRequestedMessageType(intent == null ? null : intent.getTipoMensajeSolicitado());
+        }
+
+        if (isLockedMessagesListMode(intent)) {
+            return SearchIntent.semantic(requestedType);
+        }
 
         if ((analysis != null && analysis.isIntencionUltimoMensaje()) || esConsultaDeUltimoMensaje(consulta)) {
             return new SearchIntent(true, SearchDirection.LAST, requestedType);
@@ -4493,6 +5947,42 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
             return "FILE";
         }
         return null;
+    }
+
+    private String normalizeRequestedMessageType(String raw) {
+        if (!hasText(raw)) {
+            return null;
+        }
+        String normalized = raw.trim().toUpperCase(Locale.ROOT);
+        return "ANY".equals(normalized) ? null : normalized;
+    }
+
+    private boolean isSemanticContentConstrainedMessageQuery(String consulta,
+                                                             AiMessageSearchNaturalQueryAnalysis analysis) {
+        if (analysis != null && analysis.isIntencionLocalizacion()) {
+            return true;
+        }
+        String normalized = normalizeIntentText(consulta);
+        if (!hasText(normalized)) {
+            return false;
+        }
+        return containsAny(normalized,
+                "donde dije",
+                "mensaje donde",
+                "mensajes donde",
+                "que dije",
+                "que dijiste",
+                "que puse",
+                "que puso",
+                "que escribi",
+                "que escribio",
+                "que contenga",
+                "que contengan",
+                "con la palabra",
+                "esa frase",
+                "ese texto",
+                "texto exacto",
+                "palabra exacta");
     }
 
     private boolean containsAny(String text, String... patterns) {
@@ -5312,7 +6802,7 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
 
     // ── Intent enrichment (LLM-based) ──────────────────────────────────────────
 
-    private static final double MIN_INTENT_CONFIDENCE = 0.5d;
+    private static final double MIN_INTENT_CONFIDENCE = 0.7d;
 
     private void enrichAnalysisWithIntent(String requestId,
                                           AiMessageSearchNaturalQueryAnalysis analysis,
@@ -5333,15 +6823,18 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
         String target = intent.getTarget();
         String complaintDirection = intent.getComplaintDirection();
         String senderScope = intent.getSenderScope();
+        boolean complaintTargetReceived = "COMPLAINTS_RECEIVED".equals(target);
+        boolean complaintTargetCreated = "COMPLAINTS_CREATED".equals(target);
+        boolean mixedComplaintTarget = "MIXED".equals(target);
 
         // Target → complaint flags (overlay, do not clear deterministic flags)
-        if ("COMPLAINTS_RECEIVED".equals(target) || "RECEIVED".equals(complaintDirection)) {
+        if (complaintTargetReceived) {
             analysis.setIntencionDenunciaRecibida(true);
         }
-        if ("COMPLAINTS_CREATED".equals(target) || "CREATED".equals(complaintDirection)) {
+        if (complaintTargetCreated) {
             analysis.setIntencionDenunciaCreada(true);
         }
-        if ("MIXED".equals(target)) {
+        if (mixedComplaintTarget) {
             analysis.setIntencionDenunciaRecibida(true);
             analysis.setIntencionDenunciaCreada(true);
         }
@@ -5372,7 +6865,7 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
         }
 
         // Person mentioned for COMPLAINTS_CREATED → set persona denunciada
-        if (analysis.isIntencionDenunciaCreada()
+        if ((complaintTargetCreated || (mixedComplaintTarget && "CREATED".equals(complaintDirection)))
                 && hasText(intent.getPersonaMencionada())) {
             analysis.setPersonaDenunciadaSolicitada(intent.getPersonaMencionada());
         }
@@ -5394,7 +6887,10 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
         // Motivo
         if (hasText(intent.getMotivoDenuncia()) && !hasText(analysis.getMotivoDenunciaDetectado())) {
             String motivo = mapMotivoDenuncia(intent.getMotivoDenuncia());
-            if (motivo != null) analysis.setMotivoDenunciaDetectado(motivo);
+            if (motivo != null) {
+                analysis.setMotivoDenunciaDetectado(motivo);
+                analysis.setIntencionContenidoOfensivo(true);
+            }
         }
 
         // Sender scope (LLM is now authoritative when present)
@@ -5454,10 +6950,11 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
 
         // Orden
         String orden = intent.getOrden();
-        if ("LATEST".equals(orden) && !analysis.isIntencionUltimoMensaje()) {
+        boolean listMode = Boolean.TRUE.equals(intent.getListMode());
+        if (!listMode && "LATEST".equals(orden) && !analysis.isIntencionUltimoMensaje()) {
             analysis.setIntencionUltimoMensaje(true);
         }
-        if ("FIRST".equals(orden) && !analysis.isIntencionPrimerMensaje()) {
+        if (!listMode && "FIRST".equals(orden) && !analysis.isIntencionPrimerMensaje()) {
             analysis.setIntencionPrimerMensaje(true);
         }
 
@@ -5537,11 +7034,13 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
 
             List<UserComplaintEntity> all = loadDenuncias(userId, esCreada, values.withTemporalRange(null, null, null), pageable);
             UserComplaintEstado estadoFiltro = parseComplaintEstadoFilter(complaintStatus);
+            List<UserComplaintEntity> statusFiltered = new ArrayList<>();
             List<UserComplaintEntity> baseFiltered = new ArrayList<>();
             for (UserComplaintEntity denuncia : all) {
                 if (estadoFiltro != null && denuncia.getEstado() != estadoFiltro) {
                     continue;
                 }
+                statusFiltered.add(denuncia);
                 if (hasText(personaFiltro) && !matchesComplaintPersona(denuncia, personaFiltro, esCreada)) {
                     continue;
                 }
@@ -5558,34 +7057,53 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
                     analysis,
                     intent == null ? null : intent.getTemporalExpression());
             List<UserComplaintEntity> filtered = temporalOutcome.denuncias();
+            ComplaintTemporalFilterOutcome rerankTemporalOutcome = applyComplaintTemporalFilterWithFallback(
+                    requestId,
+                    statusFiltered,
+                    values,
+                    analysis,
+                    intent == null ? null : intent.getTemporalExpression());
+            List<UserComplaintEntity> rerankSource = filtered.isEmpty() ? rerankTemporalOutcome.denuncias() : filtered;
             LOGGER.info("[AI][COMPLAINTS_SEARCH] requestId={} direction={} listMode={} totalCandidatos={}",
                     requestId, complaintDirection, listMode, filtered.size());
 
-            if (filtered.isEmpty()) {
-                aiSearchProgressNotifier.notifyCompleted(userEmail, requestId, AiSearchProgressStep.ANALYZING_MESSAGES);
-                aiSearchProgressNotifier.notifyComplaintsSearchCompleted(userEmail, requestId, complaintsTarget, complaintsDirection, temporalOutcome.aproximado());
-                return success(requestId, List.of(), null,
-                        esCreada ? "No he encontrado denuncias creadas por tu cuenta con esos criterios."
-                                : "No he encontrado denuncias contra tu cuenta con esos criterios.",
-                        userId);
-            }
-
             DateTimeFormatter dateFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm");
-            List<Long> complaintIds = filtered.stream().map(UserComplaintEntity::getId).filter(Objects::nonNull).toList();
-            Map<Long, List<UserComplaintHistoryEntity>> historiesByComplaintId = loadComplaintHistoriesByIds(complaintIds);
+            LinkedHashSet<Long> complaintIds = new LinkedHashSet<>();
+            for (UserComplaintEntity denuncia : filtered) {
+                if (denuncia != null && denuncia.getId() != null) {
+                    complaintIds.add(denuncia.getId());
+                }
+            }
+            for (UserComplaintEntity denuncia : rerankSource) {
+                if (denuncia != null && denuncia.getId() != null) {
+                    complaintIds.add(denuncia.getId());
+                }
+            }
+            Map<Long, List<UserComplaintHistoryEntity>> historiesByComplaintId = loadComplaintHistoriesByIds(new ArrayList<>(complaintIds));
             List<ComplaintSearchCandidate> scored = new ArrayList<>();
             for (UserComplaintEntity denuncia : filtered) {
                 List<AiComplaintHistoryDTO> historial = buildComplaintHistoryTimeline(requestId, denuncia, historiesByComplaintId.get(denuncia.getId()), dateFormatter);
                 int relevancia = calculateComplaintRelevance(values.consulta(), personaFiltro, motivoFiltro, complaintStatus, denuncia, historial, listMode);
                 scored.add(new ComplaintSearchCandidate(denuncia, historial, relevancia));
             }
+            List<ComplaintSearchCandidate> rerankPool = new ArrayList<>();
+            for (UserComplaintEntity denuncia : rerankSource) {
+                List<AiComplaintHistoryDTO> historial = buildComplaintHistoryTimeline(requestId, denuncia, historiesByComplaintId.get(denuncia.getId()), dateFormatter);
+                int relevancia = calculateComplaintRelevance(values.consulta(), personaFiltro, motivoFiltro, complaintStatus, denuncia, historial, false);
+                rerankPool.add(new ComplaintSearchCandidate(denuncia, historial, relevancia));
+            }
 
             scored.sort(Comparator
                     .comparingInt(ComplaintSearchCandidate::relevancia).reversed()
                     .thenComparing(candidate -> candidate.denuncia().getId(), Comparator.nullsLast(Comparator.reverseOrder())));
 
+            rerankPool.sort(Comparator
+                    .comparingInt(ComplaintSearchCandidate::relevancia).reversed()
+                    .thenComparing(candidate -> candidate.denuncia().getId(), Comparator.nullsLast(Comparator.reverseOrder())));
+
             List<ComplaintSearchCandidate> selected = new ArrayList<>();
             boolean aproximadoUsed = temporalOutcome.aproximado();
+            String rerankMotivoCoincidencia = null;
             if (listMode && !hasText(motivoFiltro)) {
                 List<ComplaintSearchCandidate> orderedByIdDesc = new ArrayList<>(scored);
                 orderedByIdDesc.sort(Comparator.comparing(candidate -> candidate.denuncia().getId(), Comparator.nullsLast(Comparator.reverseOrder())));
@@ -5604,6 +7122,61 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
                     selected.add(scored.get(0));
                     aproximadoUsed = true;
                 }
+            }
+
+            SemanticRerankDecision complaintRerankDecision = shouldUseSemanticRerank(new SemanticRerankDecisionContext(
+                    selected.size(),
+                    rerankPool.size(),
+                    listMode,
+                    !hasText(motivoFiltro) && !hasText(personaFiltro) && !hasText(intent == null ? null : intent.getTemporalExpression()),
+                    isGenericSemanticMotive(motivoFiltro),
+                    isAmbiguousTemporalExpression(intent == null ? null : intent.getTemporalExpression()),
+                    hasCloseRelevanceScores(scored.stream().map(ComplaintSearchCandidate::relevancia).toList(), 8),
+                    hasText(personaFiltro) && filtered.isEmpty(),
+                    !listMode && isAmbiguousComplaintQuery(values.consulta(), personaFiltro, motivoFiltro, intent == null ? null : intent.getTemporalExpression()),
+                    false
+            ));
+            logSemanticRerankDecision(requestId, complaintRerankDecision, rerankPool.size());
+            if (complaintRerankDecision.enabled()) {
+                GenericSemanticRerankOutcome rerankOutcome = applySemanticRerankForComplaints(
+                        requestId,
+                        values,
+                        intent,
+                        complaintDirection,
+                        motivoFiltro,
+                        rerankPool
+                );
+                if (rerankOutcome != null && rerankOutcome.used()) {
+                    Map<Long, ComplaintSearchCandidate> byId = new LinkedHashMap<>();
+                    for (ComplaintSearchCandidate candidate : rerankPool) {
+                        if (candidate != null && candidate.denuncia() != null && candidate.denuncia().getId() != null) {
+                            byId.put(candidate.denuncia().getId(), candidate);
+                        }
+                    }
+                    List<ComplaintSearchCandidate> rerankedSelected = new ArrayList<>();
+                    for (Long id : rerankOutcome.selectedIds()) {
+                        ComplaintSearchCandidate candidate = byId.get(id);
+                        if (candidate != null) {
+                            rerankedSelected.add(candidate);
+                        }
+                    }
+                    if (!rerankedSelected.isEmpty()) {
+                        selected = rerankedSelected;
+                        aproximadoUsed = true;
+                        rerankMotivoCoincidencia = rerankOutcome.motivoCoincidencia();
+                        LOGGER.info("[AI][RERANK_APPLIED] requestId={} selectedIds={} mejorResultadoAproximado=true",
+                                requestId, rerankOutcome.selectedIds());
+                    }
+                }
+            }
+
+            if (filtered.isEmpty() && selected.isEmpty()) {
+                aiSearchProgressNotifier.notifyCompleted(userEmail, requestId, AiSearchProgressStep.ANALYZING_MESSAGES);
+                aiSearchProgressNotifier.notifyComplaintsSearchCompleted(userEmail, requestId, complaintsTarget, complaintsDirection, rerankTemporalOutcome.aproximado());
+                return success(requestId, List.of(), null,
+                        esCreada ? "No he encontrado denuncias creadas por tu cuenta con esos criterios."
+                                : "No he encontrado denuncias contra tu cuenta con esos criterios.",
+                        userId);
             }
 
             List<Long> selectedIds = selected.stream().map(candidate -> candidate.denuncia().getId()).toList();
@@ -5678,12 +7251,24 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
                 LOGGER.info("[AI][COMPLAINT_SUMMARY] requestId={} summaryByIA=false fallback=true resumenLength={}",
                         requestId, resumenBusquedaNatural == null ? 0 : resumenBusquedaNatural.length());
             }
+            if (hasText(rerankMotivoCoincidencia)) {
+                resumenBusquedaNatural = truncate("Usé una coincidencia aproximada: " + normalizeInput(rerankMotivoCoincidencia) + ". " + resumenBusquedaNatural, 500);
+            }
 
             List<AiEncryptedMessageSearchResultDTO> resultados = enforceComplaintOnlyResults(
                     requestId,
                     buildComplaintResults(requestId, selected, dateFormatter, complaintDirection, aproximadoUsed),
                     complaintDirection
             );
+            if (hasText(rerankMotivoCoincidencia)) {
+                for (AiEncryptedMessageSearchResultDTO resultado : resultados) {
+                    if (resultado == null) {
+                        continue;
+                    }
+                    resultado.setMotivoCoincidencia(truncate(rerankMotivoCoincidencia, MAX_REASON_LENGTH));
+                    resultado.setMejorResultadoAproximado(true);
+                }
+            }
             String tipoPrimerResultado = resultados.isEmpty() ? null : resultados.get(0).getTipoResultado();
             LOGGER.info("[AI][MESSAGE_SEARCH_ENCRYPTED] requestId={} ramaEjecutada={} totalDenunciasEncontradas={} totalMensajesBuscados=0 totalResultadosFinales={} tipoResultadoPrimerResultado={}",
                     requestId,
@@ -5691,7 +7276,7 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
                     selected.size(),
                     resultados.size(),
                     tipoPrimerResultado);
-            logSemanticResults(requestId, filtered.size(), resultados.size());
+            logSemanticResults(requestId, Math.max(filtered.size(), rerankSource.size()), resultados.size());
 
             aiSearchProgressNotifier.notifyCompleted(userEmail, requestId, AiSearchProgressStep.ANALYZING_MESSAGES);
             aiSearchProgressNotifier.notifyComplaintsSearchCompleted(userEmail, requestId, complaintsTarget, complaintsDirection, aproximadoUsed);
@@ -5800,6 +7385,91 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
             return "Encontré la denuncia " + relacion + ". Ahora mismo sigue en revisión, así que administración todavía está viendo si hay base para actuar; de momento, la pelota sigue en su tejado.";
         }
         return "Encontré la denuncia " + relacion + ". Sigue pendiente, así que todavía no ha pasado por revisión administrativa; básicamente, está esperando su turno en la cola.";
+    }
+
+    private GenericSemanticRerankOutcome applySemanticRerankForComplaints(String requestId,
+                                                                          ValidationValues values,
+                                                                          AiSearchIntentInternalResponseDTO intent,
+                                                                          String complaintDirection,
+                                                                          String motivoFiltro,
+                                                                          List<ComplaintSearchCandidate> pool) {
+        if (pool == null || pool.isEmpty()) {
+            return null;
+        }
+        AiSemanticRerankInternalResponseDTO response = invokeSemanticRerank(
+                requestId,
+                "COMPLAINT_STATUS",
+                complaintDirection,
+                values == null ? null : values.consulta(),
+                motivoFiltro,
+                null,
+                intent == null ? null : intent.getOrden(),
+                1,
+                intent == null ? null : intent.getTemporalExpression(),
+                buildSemanticRerankCandidatesForComplaints(pool, complaintDirection)
+        );
+        List<Long> selectedIds = resolveSemanticRerankSelectedIds(response);
+        Double confidence = response == null ? null : response.getConfidence();
+        if (selectedIds.isEmpty() || confidence == null || confidence < MIN_GENERIC_SEMANTIC_RERANK_CONFIDENCE) {
+            return null;
+        }
+        return new GenericSemanticRerankOutcome(
+                true,
+                selectedIds,
+                response.getIdsOrdenados(),
+                true,
+                firstNonBlank(response.getMotivoCoincidencia(), "Coincidencia aproximada por reranking semantico"),
+                confidence
+        );
+    }
+
+    private List<AiSemanticRerankCandidateDTO> buildSemanticRerankCandidatesForComplaints(List<ComplaintSearchCandidate> pool,
+                                                                                           String complaintDirection) {
+        List<AiSemanticRerankCandidateDTO> candidatos = new ArrayList<>();
+        if (pool == null) {
+            return candidatos;
+        }
+        for (ComplaintSearchCandidate candidate : pool) {
+            if (candidate == null || candidate.denuncia() == null || candidate.denuncia().getId() == null) {
+                continue;
+            }
+            UserComplaintEntity denuncia = candidate.denuncia();
+            AiSemanticRerankCandidateDTO dto = new AiSemanticRerankCandidateDTO();
+            dto.setId(denuncia.getId());
+            dto.setTipo("DENUNCIA");
+            dto.setEstado(denuncia.getEstado() == null ? null : denuncia.getEstado().name());
+            dto.setTitulo(safeRerankText(denuncia.getMotivo(), 250));
+            dto.setDescripcion(safeRerankText(firstNonBlank(denuncia.getDetalle(), denuncia.getMotivo()), 350));
+            dto.setFecha(denuncia.getCreatedAt() == null ? null : denuncia.getCreatedAt().toString());
+            Map<String, Object> metadata = new LinkedHashMap<>();
+            metadata.put("denuncianteNombre", truncate(denuncia.getDenuncianteNombre(), 120));
+            metadata.put("denunciadoNombre", truncate(denuncia.getDenunciadoNombre(), 120));
+            metadata.put("chatNombreSnapshot", truncate(denuncia.getChatNombreSnapshot(), 180));
+            metadata.put("complaintDirection", complaintDirection);
+            dto.setMetadata(metadata);
+            candidatos.add(dto);
+        }
+        return candidatos;
+    }
+
+    private boolean isAmbiguousComplaintQuery(String consulta,
+                                              String personaFiltro,
+                                              String motivoFiltro,
+                                              String temporalExpression) {
+        String normalized = normalizeIntentText(consulta);
+        if (!hasText(normalized)) {
+            return false;
+        }
+        if (containsAny(normalized,
+                "denuncia esa",
+                "la que puse",
+                "me denunciaron",
+                "contra daniel del otro dia")) {
+            return true;
+        }
+        return hasText(personaFiltro)
+                || isGenericSemanticMotive(motivoFiltro)
+                || isAmbiguousTemporalExpression(temporalExpression);
     }
 
     private boolean containsSensitiveComplaintTerms(String motivo, String detalle) {
@@ -6766,8 +8436,11 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
         response.setConfidenceScope(scope == null || scope.getConfidence() == null ? 0 : scope.getConfidence());
     }
 
-    private boolean shouldUseDirectResolution(AiMessageSearchScopeDTO scope, SearchIntent intent) {
+    private boolean shouldUseDirectResolution(AiMessageSearchScopeDTO scope, SearchIntent intent, boolean offensiveIntent) {
         if (intent == null || !intent.directResolution()) {
+            return false;
+        }
+        if (offensiveIntent) {
             return false;
         }
         if (scope == null) {
@@ -6924,6 +8597,14 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
 
         private ValidationValues withTemporalRange(LocalDateTime inicio, LocalDateTime fin, String descripcion) {
             return new ValidationValues(valid, errorMessage, consulta, maxResultados, maxMensajesAnalizar, inicio, fin, incluirGrupales, incluirIndividuales, analysis, true, descripcion, confidenceTemporal);
+        }
+
+        private ValidationValues withTemporalRange(LocalDateTime inicio, LocalDateTime fin, String descripcion, Integer newConfidenceTemporal) {
+            return new ValidationValues(valid, errorMessage, consulta, maxResultados, maxMensajesAnalizar, inicio, fin, incluirGrupales, incluirIndividuales, analysis, true, descripcion, newConfidenceTemporal);
+        }
+
+        private ValidationValues withMaxResultados(int newMaxResultados) {
+            return new ValidationValues(valid, errorMessage, consulta, newMaxResultados, maxMensajesAnalizar, fechaInicio, fechaFin, incluirGrupales, incluirIndividuales, analysis, rangoTemporalDetectado, descripcionRangoTemporal, confidenceTemporal);
         }
 
         private ValidationValues withIncluir(boolean newIncluirGrupales, boolean newIncluirIndividuales) {

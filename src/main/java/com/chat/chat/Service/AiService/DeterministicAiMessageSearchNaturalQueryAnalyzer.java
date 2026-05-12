@@ -36,12 +36,20 @@ public class DeterministicAiMessageSearchNaturalQueryAnalyzer implements AiMessa
     };
     private static final Pattern YEAR_PATTERN = Pattern.compile("\\b(20\\d{2})\\b");
     private static final Pattern IN_MONTH_PATTERN = Pattern.compile("\\ben\\s+(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|setiembre|octubre|noviembre|diciembre)(?:\\s+de\\s+(20\\d{2}))?\\b", Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
+    private static final Pattern RELATIVE_RANGE_PATTERN = Pattern.compile(
+            "\\bultim(?:o|os|a|as)\\s+(\\d+|un|una|uno|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)\\s+(hora|horas|dia|dias|semana|semanas)\\b",
+            Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
 
     private static final Map<String, Month> MONTHS = Map.ofEntries(
             Map.entry("enero", Month.JANUARY), Map.entry("febrero", Month.FEBRUARY), Map.entry("marzo", Month.MARCH), Map.entry("abril", Month.APRIL),
             Map.entry("mayo", Month.MAY), Map.entry("junio", Month.JUNE), Map.entry("julio", Month.JULY), Map.entry("agosto", Month.AUGUST),
             Map.entry("septiembre", Month.SEPTEMBER), Map.entry("setiembre", Month.SEPTEMBER), Map.entry("octubre", Month.OCTOBER),
             Map.entry("noviembre", Month.NOVEMBER), Map.entry("diciembre", Month.DECEMBER)
+    );
+    private static final Map<String, Integer> NUMBER_WORDS = Map.ofEntries(
+            Map.entry("un", 1), Map.entry("una", 1), Map.entry("uno", 1), Map.entry("dos", 2),
+            Map.entry("tres", 3), Map.entry("cuatro", 4), Map.entry("cinco", 5), Map.entry("seis", 6),
+            Map.entry("siete", 7), Map.entry("ocho", 8), Map.entry("nueve", 9), Map.entry("diez", 10)
     );
 
     @Override
@@ -177,6 +185,24 @@ public class DeterministicAiMessageSearchNaturalQueryAnalyzer implements AiMessa
 
     private void applyTemporalDetection(AiMessageSearchNaturalQueryAnalysis out, String normalized) {
         LocalDateTime now = LocalDateTime.now(ZONE_ID);
+        Matcher relativeRangeMatcher = RELATIVE_RANGE_PATTERN.matcher(normalized);
+        if (relativeRangeMatcher.find()) {
+            Integer amount = parseTemporalAmount(relativeRangeMatcher.group(1));
+            String unit = relativeRangeMatcher.group(2).toLowerCase(Locale.ROOT);
+            if (amount != null && amount > 0) {
+                String description = "ultimos " + amount + " " + unit;
+                if (unit.startsWith("hora")) {
+                    applyRange(out, now.minusHours(amount), now, description, 92);
+                } else if (unit.startsWith("dia")) {
+                    applyRange(out, now.minusDays(amount), now, description, 92);
+                } else if (unit.startsWith("semana")) {
+                    applyRange(out, now.minusWeeks(amount), now, description, 92);
+                }
+                if (out.isRangoTemporalDetectado()) {
+                    return;
+                }
+            }
+        }
         if (containsAny(normalized, "hoy")) { applyRange(out, atStart(now.toLocalDate()), atEnd(now.toLocalDate()), "hoy", 95); return; }
         if (containsAny(normalized, "anteayer")) { LocalDate d = now.toLocalDate().minusDays(2); applyRange(out, atStart(d), atEnd(d), "anteayer", 95); return; }
         if (containsAny(normalized, "ayer")) { LocalDate d = now.toLocalDate().minusDays(1); applyRange(out, atStart(d), atEnd(d), "ayer", 95); return; }
@@ -206,6 +232,21 @@ public class DeterministicAiMessageSearchNaturalQueryAnalyzer implements AiMessa
             applyRange(out, LocalDate.of(year, 1, 1).atStartOfDay(), LocalDate.of(year, 12, 31).atTime(23, 59, 59), "en " + year, 80);
             return;
         }
+    }
+
+    private Integer parseTemporalAmount(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        String normalized = raw.trim().toLowerCase(Locale.ROOT);
+        if (normalized.chars().allMatch(Character::isDigit)) {
+            try {
+                return Integer.parseInt(normalized);
+            } catch (NumberFormatException ignored) {
+                return null;
+            }
+        }
+        return NUMBER_WORDS.get(normalized);
     }
 
     private void applyPartOfMonth(AiMessageSearchNaturalQueryAnalysis out, String normalized) {

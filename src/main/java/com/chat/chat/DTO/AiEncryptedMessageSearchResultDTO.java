@@ -34,6 +34,13 @@ public class AiEncryptedMessageSearchResultDTO {
     private String gravedadDenuncia;
     private String estadoDenuncia;
     private String fechaDenuncia;
+    private Long denuncianteId;
+    private String denuncianteNombre;
+    private Long denunciadoId;
+    private String denunciadoNombre;
+    private String detalleDenuncia;
+    private String chatNombreSnapshotDenuncia;
+    private List<AiComplaintHistoryDTO> historialDenuncia;
     private Long reporteId;
     private String tipoReporte;
     private String estadoReporte;
@@ -255,6 +262,27 @@ public class AiEncryptedMessageSearchResultDTO {
 
     public String getFechaDenuncia() { return fechaDenuncia; }
     public void setFechaDenuncia(String fechaDenuncia) { this.fechaDenuncia = fechaDenuncia; }
+
+    public Long getDenuncianteId() { return denuncianteId; }
+    public void setDenuncianteId(Long denuncianteId) { this.denuncianteId = denuncianteId; }
+
+    public String getDenuncianteNombre() { return denuncianteNombre; }
+    public void setDenuncianteNombre(String denuncianteNombre) { this.denuncianteNombre = denuncianteNombre; }
+
+    public Long getDenunciadoId() { return denunciadoId; }
+    public void setDenunciadoId(Long denunciadoId) { this.denunciadoId = denunciadoId; }
+
+    public String getDenunciadoNombre() { return denunciadoNombre; }
+    public void setDenunciadoNombre(String denunciadoNombre) { this.denunciadoNombre = denunciadoNombre; }
+
+    public String getDetalleDenuncia() { return detalleDenuncia; }
+    public void setDetalleDenuncia(String detalleDenuncia) { this.detalleDenuncia = detalleDenuncia; }
+
+    public String getChatNombreSnapshotDenuncia() { return chatNombreSnapshotDenuncia; }
+    public void setChatNombreSnapshotDenuncia(String chatNombreSnapshotDenuncia) { this.chatNombreSnapshotDenuncia = chatNombreSnapshotDenuncia; }
+
+    public List<AiComplaintHistoryDTO> getHistorialDenuncia() { return historialDenuncia; }
+    public void setHistorialDenuncia(List<AiComplaintHistoryDTO> historialDenuncia) { this.historialDenuncia = historialDenuncia; }
 
     public Long getReporteId() { return reporteId; }
     public void setReporteId(Long reporteId) { this.reporteId = reporteId; }

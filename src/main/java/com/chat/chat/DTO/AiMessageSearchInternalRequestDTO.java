@@ -34,9 +34,11 @@ public class AiMessageSearchInternalRequestDTO {
     private List<AiComplaintCandidateDTO> denunciasCandidatas;
     private Integer totalDenunciasEncontradas;
     private String complaintDirection;
+    private String complaintStatus;
     private String personaDenunciadaSolicitada;
     private String motivoDetectado;
     private Boolean huboFallbackTemporalExpandido;
+    private Boolean mejorResultadoAproximado;
 
     public String getConsulta() {
         return consulta;
@@ -270,6 +272,14 @@ public class AiMessageSearchInternalRequestDTO {
         this.complaintDirection = complaintDirection;
     }
 
+    public String getComplaintStatus() {
+        return complaintStatus;
+    }
+
+    public void setComplaintStatus(String complaintStatus) {
+        this.complaintStatus = complaintStatus;
+    }
+
     public String getPersonaDenunciadaSolicitada() {
         return personaDenunciadaSolicitada;
     }
@@ -292,5 +302,13 @@ public class AiMessageSearchInternalRequestDTO {
 
     public void setHuboFallbackTemporalExpandido(Boolean huboFallbackTemporalExpandido) {
         this.huboFallbackTemporalExpandido = huboFallbackTemporalExpandido;
+    }
+
+    public Boolean getMejorResultadoAproximado() {
+        return mejorResultadoAproximado;
+    }
+
+    public void setMejorResultadoAproximado(Boolean mejorResultadoAproximado) {
+        this.mejorResultadoAproximado = mejorResultadoAproximado;
     }
 }

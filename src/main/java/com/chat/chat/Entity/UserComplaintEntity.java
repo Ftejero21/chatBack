@@ -74,6 +74,9 @@ public class UserComplaintEntity {
     @Column(name = "chat_nombre_snapshot", length = 190)
     private String chatNombreSnapshot;
 
+    @Column(name = "reviewed_by_admin_id")
+    private Long reviewedByAdminId;
+
     @PrePersist
     public void prePersist() {
         LocalDateTime now = LocalDateTime.now();
@@ -201,5 +204,13 @@ public class UserComplaintEntity {
 
     public void setChatNombreSnapshot(String chatNombreSnapshot) {
         this.chatNombreSnapshot = chatNombreSnapshot;
+    }
+
+    public Long getReviewedByAdminId() {
+        return reviewedByAdminId;
+    }
+
+    public void setReviewedByAdminId(Long reviewedByAdminId) {
+        this.reviewedByAdminId = reviewedByAdminId;
     }
 }

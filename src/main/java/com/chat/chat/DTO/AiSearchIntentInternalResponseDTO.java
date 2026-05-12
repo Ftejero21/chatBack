@@ -18,6 +18,7 @@ public class AiSearchIntentInternalResponseDTO {
     private String tipoReporte;
     private String motivoReporte;
     private String reportStatus;
+    private String complaintStatus;
     private String temporalExpression;
     private String orden;
     private String rangoTemporalSugerido;
@@ -73,6 +74,9 @@ public class AiSearchIntentInternalResponseDTO {
 
     public String getReportStatus() { return reportStatus; }
     public void setReportStatus(String reportStatus) { this.reportStatus = reportStatus; }
+
+    public String getComplaintStatus() { return complaintStatus; }
+    public void setComplaintStatus(String complaintStatus) { this.complaintStatus = complaintStatus; }
 
     public String getTemporalExpression() { return temporalExpression; }
     public void setTemporalExpression(String temporalExpression) { this.temporalExpression = temporalExpression; }

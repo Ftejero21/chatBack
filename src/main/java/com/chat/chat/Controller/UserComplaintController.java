@@ -2,6 +2,7 @@ package com.chat.chat.Controller;
 
 import com.chat.chat.DTO.UserComplaintCreateDTO;
 import com.chat.chat.DTO.UserComplaintDTO;
+import com.chat.chat.DTO.UserComplaintEstadoUpdateDTO;
 import com.chat.chat.DTO.UserComplaintStatsDTO;
 import com.chat.chat.DTO.UserExpedienteDTO;
 import com.chat.chat.Service.UserComplaintService.UserComplaintService;
@@ -21,6 +22,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 
 @RestController
@@ -63,6 +65,15 @@ public class UserComplaintController {
     @Operation(summary = "Marcar denuncia leida (admin)")
     public ResponseEntity<UserComplaintDTO> markAsRead(@PathVariable("id") Long id) {
         return ResponseEntity.ok(userComplaintService.markAsRead(id));
+    }
+
+    @PatchMapping(Constantes.ADMIN_USER_COMPLAINT_STATUS)
+    @PreAuthorize("hasRole('ADMIN')")
+    @Operation(summary = "Actualizar estado de denuncia (admin)")
+    public ResponseEntity<UserComplaintDTO> updateStatus(@PathVariable("id") Long id,
+                                                         @Valid @RequestBody UserComplaintEstadoUpdateDTO request,
+                                                         HttpServletRequest httpRequest) {
+        return ResponseEntity.ok(userComplaintService.updateStatus(id, request, httpRequest));
     }
 
     @GetMapping(Constantes.ADMIN_USER_COMPLAINT_EXPEDIENTE)

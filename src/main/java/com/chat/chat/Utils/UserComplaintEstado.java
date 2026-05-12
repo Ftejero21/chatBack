@@ -1,5 +1,8 @@
 package com.chat.chat.Utils;
 
 public enum UserComplaintEstado {
-    PENDIENTE
+    PENDIENTE,
+    EN_REVISION,
+    RESUELTA,
+    DESCARTADA
 }

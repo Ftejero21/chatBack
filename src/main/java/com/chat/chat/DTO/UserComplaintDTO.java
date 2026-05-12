@@ -3,6 +3,7 @@ package com.chat.chat.DTO;
 import com.chat.chat.Utils.UserComplaintEstado;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 public class UserComplaintDTO {
     private Long id;
@@ -19,6 +20,8 @@ public class UserComplaintDTO {
     private String denuncianteNombre;
     private String denunciadoNombre;
     private String chatNombreSnapshot;
+    private Long reviewedByAdminId;
+    private List<UserComplaintHistoryItemDTO> historialDenuncia;
 
     public Long getId() {
         return id;
@@ -130,5 +133,21 @@ public class UserComplaintDTO {
 
     public void setChatNombreSnapshot(String chatNombreSnapshot) {
         this.chatNombreSnapshot = chatNombreSnapshot;
+    }
+
+    public Long getReviewedByAdminId() {
+        return reviewedByAdminId;
+    }
+
+    public void setReviewedByAdminId(Long reviewedByAdminId) {
+        this.reviewedByAdminId = reviewedByAdminId;
+    }
+
+    public List<UserComplaintHistoryItemDTO> getHistorialDenuncia() {
+        return historialDenuncia;
+    }
+
+    public void setHistorialDenuncia(List<UserComplaintHistoryItemDTO> historialDenuncia) {
+        this.historialDenuncia = historialDenuncia;
     }
 }

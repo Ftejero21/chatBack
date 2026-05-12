@@ -20,6 +20,7 @@ public class UserComplaintWsDTO {
     private String denuncianteNombre;
     private String denunciadoNombre;
     private String chatNombreSnapshot;
+    private Long reviewedByAdminId;
 
     public String getEvent() {
         return event;
@@ -139,5 +140,13 @@ public class UserComplaintWsDTO {
 
     public void setChatNombreSnapshot(String chatNombreSnapshot) {
         this.chatNombreSnapshot = chatNombreSnapshot;
+    }
+
+    public Long getReviewedByAdminId() {
+        return reviewedByAdminId;
+    }
+
+    public void setReviewedByAdminId(Long reviewedByAdminId) {
+        this.reviewedByAdminId = reviewedByAdminId;
     }
 }

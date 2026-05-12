@@ -6,6 +6,7 @@ import com.chat.chat.DTO.AiEncryptedMessageSearchResponseDTO;
 import com.chat.chat.DTO.AiEncryptedMessageSearchResultDTO;
 import com.chat.chat.DTO.AiEncryptedResponseDTO;
 import com.chat.chat.DTO.AiAppReportHistoryDTO;
+import com.chat.chat.DTO.AiComplaintHistoryDTO;
 import com.chat.chat.DTO.AudioTranscriptionResultDTO;
 import com.chat.chat.DTO.AiMessageSearchCandidateDTO;
 import com.chat.chat.DTO.AiMessageSearchInternalRequestDTO;
@@ -33,12 +34,15 @@ import com.chat.chat.Entity.SolicitudDesbaneoEntity;
 import com.chat.chat.Entity.SolicitudReporteAdjuntoEntity;
 import com.chat.chat.Entity.SolicitudReporteHistorialEntity;
 import com.chat.chat.Entity.UserComplaintEntity;
+import com.chat.chat.Entity.UserComplaintHistoryEntity;
 import com.chat.chat.Repository.SolicitudDesbaneoRepository;
 import com.chat.chat.Repository.SolicitudReporteAdjuntoRepository;
 import com.chat.chat.Repository.SolicitudReporteHistorialRepository;
+import com.chat.chat.Repository.UserComplaintHistoryRepository;
 import com.chat.chat.Service.SolicitudDesbaneoService.SolicitudDesbaneoService;
 import com.chat.chat.Utils.ReporteTipo;
 import com.chat.chat.Utils.SolicitudDesbaneoEstado;
+import com.chat.chat.Utils.UserComplaintEstado;
 import com.chat.chat.Entity.MensajeProgramadoEntity;
 import com.chat.chat.Repository.ChatGrupalRepository;
 import com.chat.chat.Repository.ChatIndividualRepository;
@@ -144,6 +148,7 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
     private final MensajeProgramadoRepository mensajeProgramadoRepository;
     private final UsuarioRepository usuarioRepository;
     private final UserComplaintRepository userComplaintRepository;
+    private final UserComplaintHistoryRepository userComplaintHistoryRepository;
     private final AiEncryptedContextService aiEncryptedContextService;
     private final AdminAuditCrypto adminAuditCrypto;
     private final AudioTranscriptionService audioTranscriptionService;
@@ -173,6 +178,7 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
                                                        MensajeProgramadoRepository mensajeProgramadoRepository,
                                                        UsuarioRepository usuarioRepository,
                                                        UserComplaintRepository userComplaintRepository,
+                                                       UserComplaintHistoryRepository userComplaintHistoryRepository,
                                                        AiEncryptedContextService aiEncryptedContextService,
                                                        AdminAuditCrypto adminAuditCrypto,
                                                        AudioTranscriptionService audioTranscriptionService,
@@ -203,6 +209,7 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
         this.mensajeProgramadoRepository = mensajeProgramadoRepository;
         this.usuarioRepository = usuarioRepository;
         this.userComplaintRepository = userComplaintRepository;
+        this.userComplaintHistoryRepository = userComplaintHistoryRepository;
         this.aiEncryptedContextService = aiEncryptedContextService;
         this.adminAuditCrypto = adminAuditCrypto;
         this.audioTranscriptionService = audioTranscriptionService;
@@ -249,12 +256,37 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
             intentReq.setConsulta(values.consulta());
             intentReq.setUsuarioActualNombre(resolveUserDisplayName(userId));
             intentResp = aiSearchIntentMicroserviceClient.classifyIntent(requestId, intentReq);
+            if (intentResp != null) {
+                LOGGER.info("[AI][INTENT_RAW] requestId={} success={} target={} senderScope={} tipoScopeSolicitado={} tipoMensajeSolicitado={} tipoReporte={} motivoReporte=\"{}\" reportStatus={} complaintDirection={} complaintStatus={} motivoDenuncia=\"{}\" scheduledStatus={} readStatus={} listMode={} orden={} personaMencionada=\"{}\" grupoMencionado=\"{}\" temporalExpression=\"{}\" confidence={}",
+                        requestId, intentResp.isSuccess(), intentResp.getTarget(), intentResp.getSenderScope(),
+                        intentResp.getTipoScopeSolicitado(), intentResp.getTipoMensajeSolicitado(),
+                        intentResp.getTipoReporte(), safeForLog(intentResp.getMotivoReporte()),
+                        intentResp.getReportStatus(), intentResp.getComplaintDirection(),
+                        intentResp.getComplaintStatus(), safeForLog(intentResp.getMotivoDenuncia()),
+                        intentResp.getScheduledStatus(), intentResp.getReadStatus(),
+                        intentResp.getListMode(), intentResp.getOrden(),
+                        safeForLog(intentResp.getPersonaMencionada()), safeForLog(intentResp.getGrupoMencionado()),
+                        safeForLog(intentResp.getTemporalExpression()), intentResp.getConfidence());
+            } else {
+                LOGGER.info("[AI][INTENT_RAW] requestId={} response=null fallback=deterministic", requestId);
+            }
             logIntentTargetTrace(requestId, "received", intentResp == null ? null : intentResp.getTarget());
             logIntentClassifierOutcome(requestId, values.consulta(), analysis, intentResp);
             logIntentTargetTrace(requestId, "after-normalize", intentResp == null ? null : intentResp.getTarget());
             logIntentApply(requestId, intentResp);
             enrichAnalysisWithIntent(requestId, analysis, intentResp);
             logIntentTargetTrace(requestId, "after-apply", intentResp == null ? null : intentResp.getTarget());
+            if (intentResp != null) {
+                LOGGER.info("[AI][INTENT_APPLY] requestId={} target={} confidence={} appliedSenderScope={} appliedTipoScope={} intencionDenunciaCreada={} intencionDenunciaRecibida={} intencionMensajesNoLeidos={} intencionContenidoOfensivo={} listMode={}",
+                        requestId, intentResp.getTarget(), intentResp.getConfidence(),
+                        analysis == null || analysis.getSenderScope() == null ? null : analysis.getSenderScope().name(),
+                        analysis != null && analysis.isIntencionGrupo() ? "GLOBAL_GRUPOS|GRUPO" : (analysis != null && analysis.isIntencionIndividual() ? "GLOBAL_INDIVIDUALES|INDIVIDUAL" : "GLOBAL"),
+                        analysis != null && analysis.isIntencionDenunciaCreada(),
+                        analysis != null && analysis.isIntencionDenunciaRecibida(),
+                        analysis != null && analysis.isIntencionMensajesNoLeidos(),
+                        analysis != null && analysis.isIntencionContenidoOfensivo(),
+                        intentResp.getListMode());
+            }
         } catch (RuntimeException ex) {
             LOGGER.warn("[AI][MESSAGE_SEARCH_ENCRYPTED] requestId={} intent-classification-error errorClass={} fallback=deterministic",
                     requestId, ex.getClass().getSimpleName());
@@ -3286,6 +3318,20 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
 
         MediaMeta mediaMeta = extractMediaMeta(mensaje);
         ImageCompatibilityMeta imageCompatibilityMeta = extractImageCompatibilityMeta(mensaje, tipoMensaje, mediaMeta);
+
+        // IMAGE/STICKER: preserve original E2E content JSON + force relative media URLs so frontend can decrypt and render via same path as chat
+        boolean isImageOrSticker = "IMAGE".equals(tipoMensaje) || "STICKER".equals(tipoMensaje);
+        String outMediaUrl = mediaMeta.mediaUrl();
+        String outImageUrl = imageCompatibilityMeta.imageUrl();
+        if (isImageOrSticker) {
+            responseContent = mensaje.getContenido();
+            outMediaUrl = toRelativeMediaUrl(outMediaUrl);
+            outImageUrl = toRelativeMediaUrl(outImageUrl);
+            LOGGER.info("[AI][MESSAGE_MEDIA_MAP] mensajeId={} tipo={} stickerId={} contentPreserved={} imageUrlRelative={}",
+                    mensaje.getId(), tipoMensaje, imageCompatibilityMeta.stickerId(),
+                    hasText(responseContent), outImageUrl != null && outImageUrl.startsWith("/"));
+        }
+
         return new CandidateMessage(
                 mensaje.getId(),
                 chatScopeMetadata.chatId(),
@@ -3303,10 +3349,10 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
                 tipoMensaje,
                 resolverDescripcionTipoMensaje(tipoMensaje),
                 !"TEXT".equals(tipoMensaje),
-                mediaMeta.mediaUrl(),
+                outMediaUrl,
                 mediaMeta.mimeType(),
                 mediaMeta.nombreArchivo(),
-                imageCompatibilityMeta.imageUrl(),
+                outImageUrl,
                 imageCompatibilityMeta.imageMime(),
                 imageCompatibilityMeta.imageNombre(),
                 imageCompatibilityMeta.stickerId(),
@@ -3314,6 +3360,31 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
                 "AUDIO".equals(tipoMensaje) && transcribeAudioForSearch,
                 mensaje
         );
+    }
+
+    /**
+     * Strip backend public root + context path → returns relative path (/uploads/... or /api/...).
+     * Frontend MensajeDTO consumes relative paths for E2E_IMAGE/E2E_STICKER decryption.
+     */
+    private String toRelativeMediaUrl(String url) {
+        if (!hasText(url)) return url;
+        String s = url.trim();
+        if (hasText(backendPublicRootUrl) && s.startsWith(backendPublicRootUrl)) {
+            s = s.substring(backendPublicRootUrl.length());
+        } else if (s.startsWith("http://") || s.startsWith("https://")) {
+            int schemeEnd = s.indexOf("://");
+            int pathStart = s.indexOf('/', schemeEnd + 3);
+            if (pathStart > 0) {
+                s = s.substring(pathStart);
+            }
+        }
+        if (hasText(applicationContextPath) && s.startsWith(applicationContextPath + "/")) {
+            s = s.substring(applicationContextPath.length());
+        }
+        if (!s.startsWith("/")) {
+            s = "/" + s;
+        }
+        return s;
     }
 
     private ChatScopeMetadata resolveChatScopeMetadata(MensajeEntity mensaje,
@@ -5121,6 +5192,9 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
         }
 
         response.setResultados(resultados == null ? List.of() : resultados);
+        if (isComplaintResultResponse(response.getResultados())) {
+            response.setCodigo("COMPLAINT_STATUS_OK");
+        }
         response.setResumenBusqueda(null); // Nunca devolver en claro: viaja dentro de encryptedPayload
         response.setEncryptedPayload(encryptedPayload);
         LOGGER.info("[AI][SUMMARY_RESPONSE] requestId={} resumenBusquedaPublicLength={} encryptedPayloadPresent={} truncated=false",
@@ -5132,6 +5206,16 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
                 hasText(response.getResumenBusqueda()),
                 encryptedPayload != null);
         return response;
+    }
+
+    private boolean isComplaintResultResponse(List<AiEncryptedMessageSearchResultDTO> resultados) {
+        if (resultados == null || resultados.isEmpty()) {
+            return false;
+        }
+        return resultados.stream()
+                .filter(Objects::nonNull)
+                .map(AiEncryptedMessageSearchResultDTO::getTipoResultado)
+                .allMatch("COMPLAINT_STATUS"::equals);
     }
 
     private String buildAndApplyEncryptedPayload(String requestId,
@@ -5198,6 +5282,9 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
         LOGGER.info("[AI][SUMMARY_ENCRYPTION] requestId={} plainLength={} encrypted={}",
                 requestId,
                 resumenBusqueda == null ? 0 : resumenBusqueda.length(),
+                encrypted != null && hasText(encrypted.getEncryptedPayload()));
+        LOGGER.info("[AI][SUMMARY_ENCRYPTION] requestId={} encrypted={} type=E2E_AI_SUMMARY",
+                requestId,
                 encrypted != null && hasText(encrypted.getEncryptedPayload()));
         return encrypted == null ? null : encrypted.getEncryptedPayload();
     }
@@ -5428,107 +5515,157 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
             AiMessageSearchNaturalQueryAnalysis analysis = values.analysis();
             boolean esCreada = complaintBranch == ComplaintBranch.CREATED;
             String complaintDirection = esCreada ? "COMPLAINT_CREATED" : "COMPLAINT_RECEIVED";
-            String personaDenunciada = analysis != null ? analysis.getPersonaDenunciadaSolicitada() : null;
-            String motivoFiltro = analysis != null ? analysis.getMotivoDenunciaDetectado() : null;
+            String personaFiltro = firstNonBlank(
+                    intent == null ? null : intent.getPersonaMencionada(),
+                    analysis == null ? null : analysis.getPersonaDenunciadaSolicitada());
+            String motivoFiltro = firstNonBlank(
+                    intent == null ? null : intent.getMotivoDenuncia(),
+                    analysis == null ? null : analysis.getMotivoDenunciaDetectado());
+            String complaintStatus = intent == null ? null : intent.getComplaintStatus();
+            boolean listMode = Boolean.TRUE.equals(intent == null ? null : intent.getListMode()) || isBroadComplaintQuery(values.consulta(), intent);
             logSemanticFilters(requestId, "complaintDirection=" + complaintDirection
-                    + ",persona=" + safeForLog(personaDenunciada)
+                    + ",persona=" + safeForLog(personaFiltro)
                     + ",grupo=" + safeForLog(intent == null ? null : intent.getGrupoMencionado())
                     + ",motivo=" + safeForLog(motivoFiltro)
-                    + ",temporalExpression=" + safeForLog(intent == null ? null : intent.getTemporalExpression()));
+                    + ",temporalExpression=" + safeForLog(intent == null ? null : intent.getTemporalExpression())
+                    + ",complaintStatus=" + complaintStatus
+                    + ",listMode=" + listMode);
 
             int maxResults = values.maxResultados() > 0 ? Math.min(values.maxResultados(), 20) : 10;
-            Pageable pageable = PageRequest.of(0, maxResults * 3);
+            int fetchSize = Math.max(30, Math.min(100, maxResults * 6));
+            Pageable pageable = PageRequest.of(0, fetchSize);
 
-            List<UserComplaintEntity> denuncias = loadDenuncias(userId, esCreada, values, pageable);
+            List<UserComplaintEntity> all = loadDenuncias(userId, esCreada, values.withTemporalRange(null, null, null), pageable);
+            UserComplaintEstado estadoFiltro = parseComplaintEstadoFilter(complaintStatus);
+            List<UserComplaintEntity> baseFiltered = new ArrayList<>();
+            for (UserComplaintEntity denuncia : all) {
+                if (estadoFiltro != null && denuncia.getEstado() != estadoFiltro) {
+                    continue;
+                }
+                if (hasText(personaFiltro) && !matchesComplaintPersona(denuncia, personaFiltro, esCreada)) {
+                    continue;
+                }
+                if (hasText(motivoFiltro) && !matchesComplaintMotivo(denuncia, motivoFiltro)) {
+                    continue;
+                }
+                baseFiltered.add(denuncia);
+            }
 
-            // Temporal expansion fallback
-            boolean huboFallbackTemporalExpandido = false;
-            if (denuncias.isEmpty() && values.rangoTemporalDetectado() && analysis != null && analysis.getFechaInicioExpandida() != null) {
-                ValidationValues expandedValues = values.withTemporalRange(
-                        analysis.getFechaInicioExpandida(), analysis.getFechaFinExpandida(), analysis.getDescripcionRangoExpandido());
-                List<UserComplaintEntity> expandedDenuncias = loadDenuncias(userId, esCreada, expandedValues, pageable);
-                if (!expandedDenuncias.isEmpty()) {
-                    huboFallbackTemporalExpandido = true;
-                    values = expandedValues;
-                    denuncias = expandedDenuncias;
+            ComplaintTemporalFilterOutcome temporalOutcome = applyComplaintTemporalFilterWithFallback(
+                    requestId,
+                    baseFiltered,
+                    values,
+                    analysis,
+                    intent == null ? null : intent.getTemporalExpression());
+            List<UserComplaintEntity> filtered = temporalOutcome.denuncias();
+            LOGGER.info("[AI][COMPLAINTS_SEARCH] requestId={} direction={} listMode={} totalCandidatos={}",
+                    requestId, complaintDirection, listMode, filtered.size());
+
+            if (filtered.isEmpty()) {
+                aiSearchProgressNotifier.notifyCompleted(userEmail, requestId, AiSearchProgressStep.ANALYZING_MESSAGES);
+                aiSearchProgressNotifier.notifyComplaintsSearchCompleted(userEmail, requestId, complaintsTarget, complaintsDirection, temporalOutcome.aproximado());
+                return success(requestId, List.of(), null,
+                        esCreada ? "No he encontrado denuncias creadas por tu cuenta con esos criterios."
+                                : "No he encontrado denuncias contra tu cuenta con esos criterios.",
+                        userId);
+            }
+
+            DateTimeFormatter dateFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm");
+            List<Long> complaintIds = filtered.stream().map(UserComplaintEntity::getId).filter(Objects::nonNull).toList();
+            Map<Long, List<UserComplaintHistoryEntity>> historiesByComplaintId = loadComplaintHistoriesByIds(complaintIds);
+            List<ComplaintSearchCandidate> scored = new ArrayList<>();
+            for (UserComplaintEntity denuncia : filtered) {
+                List<AiComplaintHistoryDTO> historial = buildComplaintHistoryTimeline(requestId, denuncia, historiesByComplaintId.get(denuncia.getId()), dateFormatter);
+                int relevancia = calculateComplaintRelevance(values.consulta(), personaFiltro, motivoFiltro, complaintStatus, denuncia, historial, listMode);
+                scored.add(new ComplaintSearchCandidate(denuncia, historial, relevancia));
+            }
+
+            scored.sort(Comparator
+                    .comparingInt(ComplaintSearchCandidate::relevancia).reversed()
+                    .thenComparing(candidate -> candidate.denuncia().getId(), Comparator.nullsLast(Comparator.reverseOrder())));
+
+            List<ComplaintSearchCandidate> selected = new ArrayList<>();
+            boolean aproximadoUsed = temporalOutcome.aproximado();
+            if (listMode && !hasText(motivoFiltro)) {
+                List<ComplaintSearchCandidate> orderedByIdDesc = new ArrayList<>(scored);
+                orderedByIdDesc.sort(Comparator.comparing(candidate -> candidate.denuncia().getId(), Comparator.nullsLast(Comparator.reverseOrder())));
+                selected.addAll(orderedByIdDesc.subList(0, Math.min(maxResults, orderedByIdDesc.size())));
+            } else {
+                int minRelevancia = listMode ? 35 : 50;
+                for (ComplaintSearchCandidate candidate : scored) {
+                    if (candidate.relevancia() >= minRelevancia) {
+                        selected.add(candidate);
+                    }
+                    if (selected.size() >= maxResults) {
+                        break;
+                    }
+                }
+                if (selected.isEmpty() && !scored.isEmpty()) {
+                    selected.add(scored.get(0));
+                    aproximadoUsed = true;
                 }
             }
 
-            // In-memory filter by motivo
-            if (hasText(motivoFiltro) && !denuncias.isEmpty()) {
-                String motivoLower = motivoFiltro.toLowerCase(Locale.ROOT);
-                List<UserComplaintEntity> filtradas = denuncias.stream()
-                        .filter(d -> d.getMotivo() != null && d.getMotivo().toLowerCase(Locale.ROOT).contains(motivoLower))
-                        .toList();
-                if (!filtradas.isEmpty()) denuncias = filtradas;
-            }
-
-            // In-memory filter by person name (for CREATED: filter by denunciado name)
-            if (hasText(personaDenunciada) && !denuncias.isEmpty() && esCreada) {
-                String personaNorm = Normalizer.normalize(personaDenunciada, Normalizer.Form.NFD)
-                        .replaceAll("\\p{M}+", "").toLowerCase(Locale.ROOT);
-                List<UserComplaintEntity> filtradas = denuncias.stream()
-                        .filter(d -> {
-                            if (d.getDenunciadoNombre() == null) return false;
-                            String nombreNorm = Normalizer.normalize(d.getDenunciadoNombre(), Normalizer.Form.NFD)
-                                    .replaceAll("\\p{M}+", "").toLowerCase(Locale.ROOT);
-                            return nombreNorm.contains(personaNorm);
-                        })
-                        .toList();
-                if (!filtradas.isEmpty()) denuncias = filtradas;
-            }
-
-            // Limit to maxResults
-            if (denuncias.size() > maxResults) {
-                denuncias = denuncias.subList(0, maxResults);
-            }
-
-            LOGGER.info("[AI][MESSAGE_SEARCH_ENCRYPTED] requestId={} intentTargetRecibido={} complaintDirection={} confidence={} ramaEjecutada={} userId={} totalDenunciasEncontradas={} totalMensajesBuscados=0 rangoTemporalDetectado={} huboFallbackTemporalExpandido={} personaDenunciadaFiltro={} motivoFiltro={} llamadaMicroservicioIA={}",
+            List<Long> selectedIds = selected.stream().map(candidate -> candidate.denuncia().getId()).toList();
+            LOGGER.info("[AI][COMPLAINTS_SEARCH] requestId={} selectedIds={}", requestId, selectedIds);
+            LOGGER.info("[AI][MESSAGE_SEARCH_ENCRYPTED] requestId={} intentTargetRecibido={} complaintDirection={} confidence={} ramaEjecutada={} userId={} totalDenunciasEncontradas={} totalMensajesBuscados=0 rangoTemporalDetectado={} huboFallbackTemporalExpandido={} personaDenunciadaFiltro={} motivoFiltro={} complaintStatus={} llamadaMicroservicioIA={}",
                     requestId,
                     intent == null ? null : intent.getTarget(),
                     intent == null ? null : intent.getComplaintDirection(),
                     intent == null ? null : intent.getConfidence(),
                     complaintDirection,
                     userId,
-                    denuncias.size(),
+                    selected.size(),
                     values.rangoTemporalDetectado(),
-                    huboFallbackTemporalExpandido,
-                    personaDenunciada,
+                    temporalOutcome.expandido(),
+                    personaFiltro,
                     motivoFiltro,
-                    !denuncias.isEmpty());
+                    complaintStatus,
+                    !selected.isEmpty());
 
-            DateTimeFormatter dateFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm");
             final boolean esCreatedFinal = esCreada;
             final String directionFinal = complaintDirection;
-            List<AiComplaintCandidateDTO> candidatas = denuncias.stream()
-                    .map(d -> {
+            List<AiComplaintCandidateDTO> candidatas = selected.stream()
+                    .map(candidate -> {
+                        UserComplaintEntity d = candidate.denuncia();
                         AiComplaintCandidateDTO dto = new AiComplaintCandidateDTO();
                         dto.setDenunciaId(d.getId());
                         dto.setMotivo(d.getMotivo());
                         dto.setEstado(d.getEstado() != null ? d.getEstado().name() : "PENDIENTE");
                         dto.setFechaCreacion(d.getCreatedAt() != null ? d.getCreatedAt().format(dateFormatter) : null);
-                        dto.setNombreDenunciado(esCreatedFinal ? d.getDenunciadoNombre() : d.getDenuncianteNombre());
+                        dto.setFechaActualizacion(d.getUpdatedAt() != null ? d.getUpdatedAt().format(dateFormatter) : null);
+                        dto.setNombreDenunciado(d.getDenunciadoNombre());
+                        dto.setNombreDenunciante(d.getDenuncianteNombre());
                         dto.setComplaintDirection(directionFinal);
+                        dto.setDetalle(truncate(d.getDetalle(), 500));
+                        dto.setDenuncianteId(d.getDenuncianteId());
+                        dto.setDenunciadoId(d.getDenunciadoId());
+                        dto.setChatId(d.getChatId());
+                        dto.setChatNombreSnapshot(d.getChatNombreSnapshot());
+                        dto.setComplaintStatus(d.getEstado() == null ? "PENDIENTE" : d.getEstado().name());
+                        dto.setHistorialDenuncia(candidate.historial());
                         return dto;
                     })
                     .toList();
 
             String usuarioNombre;
             if (esCreada) {
-                usuarioNombre = denuncias.isEmpty() ? null : denuncias.get(0).getDenuncianteNombre();
+                usuarioNombre = selected.isEmpty() ? null : selected.get(0).denuncia().getDenuncianteNombre();
             } else {
-                usuarioNombre = denuncias.isEmpty() ? null : denuncias.get(0).getDenunciadoNombre();
+                usuarioNombre = selected.isEmpty() ? null : selected.get(0).denuncia().getDenunciadoNombre();
             }
             String resumenBusquedaNatural = null;
 
             if (!candidatas.isEmpty()) {
                 try {
                     AiMessageSearchInternalRequestDTO aiRequest =
-                            buildComplaintInternalRequest(values, candidatas, usuarioNombre, complaintDirection, personaDenunciada, motivoFiltro, huboFallbackTemporalExpandido);
+                            buildComplaintInternalRequest(values, candidatas, usuarioNombre, complaintDirection, complaintStatus, personaFiltro, motivoFiltro, temporalOutcome.expandido(), aproximadoUsed);
                     AiMessageSearchInternalResponseDTO internalResponse =
                             aiMessageSearchMicroserviceClient.buscarMensajesConIA(requestId, aiRequest);
                     if (isValidInternalResponse(internalResponse) && internalResponse.isSuccess()) {
                         resumenBusquedaNatural = internalResponse.getResumenBusquedaNatural();
+                        LOGGER.info("[AI][COMPLAINT_SUMMARY] requestId={} summaryByIA={} resumenLength={}",
+                                requestId, hasText(resumenBusquedaNatural), resumenBusquedaNatural == null ? 0 : resumenBusquedaNatural.length());
                     }
                 } catch (AiMessageSearchMicroserviceUnavailableException | AiMessageSearchMicroserviceException ex) {
                     LOGGER.warn("[AI][MESSAGE_SEARCH_ENCRYPTED] requestId={} complaint-ai-summary-error userId={} errorClass={}",
@@ -5537,34 +5674,27 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
             }
 
             if (!hasText(resumenBusquedaNatural)) {
-                int n = denuncias.size();
-                if (n == 0) {
-                    resumenBusquedaNatural = esCreada
-                            ? "No he encontrado denuncias creadas por tu cuenta."
-                            : "No he encontrado denuncias contra tu cuenta.";
-                } else if (esCreada) {
-                    resumenBusquedaNatural = "He encontrado " + n + " denuncia" + (n > 1 ? "s" : "") + " que has puesto.";
-                } else {
-                    resumenBusquedaNatural = "He encontrado " + n + " denuncia" + (n > 1 ? "s" : "") + " contra tu cuenta.";
-                }
+                resumenBusquedaNatural = buildComplaintFallbackSummary(selected, complaintDirection);
+                LOGGER.info("[AI][COMPLAINT_SUMMARY] requestId={} summaryByIA=false fallback=true resumenLength={}",
+                        requestId, resumenBusquedaNatural == null ? 0 : resumenBusquedaNatural.length());
             }
 
             List<AiEncryptedMessageSearchResultDTO> resultados = enforceComplaintOnlyResults(
                     requestId,
-                    buildComplaintResults(denuncias, dateFormatter, complaintDirection),
+                    buildComplaintResults(requestId, selected, dateFormatter, complaintDirection, aproximadoUsed),
                     complaintDirection
             );
             String tipoPrimerResultado = resultados.isEmpty() ? null : resultados.get(0).getTipoResultado();
             LOGGER.info("[AI][MESSAGE_SEARCH_ENCRYPTED] requestId={} ramaEjecutada={} totalDenunciasEncontradas={} totalMensajesBuscados=0 totalResultadosFinales={} tipoResultadoPrimerResultado={}",
                     requestId,
                     complaintDirection,
-                    denuncias.size(),
+                    selected.size(),
                     resultados.size(),
                     tipoPrimerResultado);
-            logSemanticResults(requestId, denuncias.size(), resultados.size());
+            logSemanticResults(requestId, filtered.size(), resultados.size());
 
             aiSearchProgressNotifier.notifyCompleted(userEmail, requestId, AiSearchProgressStep.ANALYZING_MESSAGES);
-            aiSearchProgressNotifier.notifyComplaintsSearchCompleted(userEmail, requestId, complaintsTarget, complaintsDirection, false);
+            aiSearchProgressNotifier.notifyComplaintsSearchCompleted(userEmail, requestId, complaintsTarget, complaintsDirection, aproximadoUsed);
             LOGGER.info("[AI][COMPLAINTS_WS] requestId={} status=COMPLETED direction={} totalResultados={}",
                     requestId, complaintsDirection, resultados.size());
             if (!resultados.isEmpty()) {
@@ -5575,7 +5705,12 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
                 aiSearchProgressNotifier.notifyCompleted(userEmail, requestId, AiSearchProgressStep.MESSAGE_NOT_FOUND, false);
             }
 
-            return success(requestId, resultados, null, resumenBusquedaNatural, userId);
+            AiEncryptedMessageSearchResponseDTO response = success(requestId, resultados, null, resumenBusquedaNatural, userId);
+            response.setCodigo(resultados.isEmpty() ? "COMPLAINT_STATUS_EMPTY" : "COMPLAINT_STATUS_OK");
+            response.setMensaje(resultados.isEmpty() ? "No se encontraron denuncias." : "Denuncias localizadas.");
+            LOGGER.info("[AI][COMPLAINT_STATUS] requestId={} codigo={} totalResultados={}",
+                    requestId, response.getCodigo(), resultados.size());
+            return response;
 
         } catch (RuntimeException ex) {
             LOGGER.warn("[AI][MESSAGE_SEARCH_ENCRYPTED] requestId={} complaint-runtime-error userId={} errorClass={}",
@@ -5593,17 +5728,21 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
             List<AiComplaintCandidateDTO> candidatas,
             String usuarioNombre,
             String complaintDirection,
+            String complaintStatus,
             String personaDenunciadaSolicitada,
             String motivoDetectado,
-            boolean huboFallbackTemporalExpandido) {
+            boolean huboFallbackTemporalExpandido,
+            boolean mejorResultadoAproximado) {
         AiMessageSearchInternalRequestDTO req = new AiMessageSearchInternalRequestDTO();
         req.setConsulta(values.consulta());
         req.setConsultaOriginal(values.consulta());
         req.setSearchTarget("COMPLAINTS");
         req.setComplaintDirection(complaintDirection);
+        req.setComplaintStatus(complaintStatus);
         req.setPersonaDenunciadaSolicitada(personaDenunciadaSolicitada);
         req.setMotivoDetectado(motivoDetectado);
         req.setHuboFallbackTemporalExpandido(huboFallbackTemporalExpandido);
+        req.setMejorResultadoAproximado(mejorResultadoAproximado);
         req.setDenunciasCandidatas(candidatas);
         req.setTotalDenunciasEncontradas(candidatas.size());
         req.setMaxResultados(Math.max(1, candidatas.size()));
@@ -5613,13 +5752,74 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
         return req;
     }
 
+    private String buildComplaintFallbackSummary(List<ComplaintSearchCandidate> selected, String complaintDirection) {
+        int total = selected == null ? 0 : selected.size();
+        boolean esCreada = "COMPLAINT_CREATED".equals(complaintDirection);
+        if (total == 0) {
+            return esCreada
+                    ? "No encontré denuncias que hayas puesto con esos criterios."
+                    : "No encontré denuncias contra tu cuenta con esos criterios.";
+        }
+
+        ComplaintSearchCandidate principal = selected.get(0);
+        UserComplaintEntity denuncia = principal == null ? null : principal.denuncia();
+        String estado = denuncia == null || denuncia.getEstado() == null ? "PENDIENTE" : denuncia.getEstado().name();
+        String nombreObjetivo = esCreada
+                ? firstNonBlank(denuncia == null ? null : denuncia.getDenunciadoNombre(), "esa persona")
+                : firstNonBlank(denuncia == null ? null : denuncia.getDenuncianteNombre(), "esa persona");
+        String motivo = denuncia == null ? null : denuncia.getMotivo();
+        boolean delicada = containsSensitiveComplaintTerms(motivo, denuncia == null ? null : denuncia.getDetalle());
+
+        if (total > 1) {
+            String direccion = esCreada ? "que has puesto" : "asociadas a tu cuenta";
+            String matiz = switch (estado) {
+                case "RESUELTA" -> delicada
+                        ? "la principal ya fue resuelta y administración vio base para tomársela en serio"
+                        : "la principal ya fue resuelta, así que no iba precisamente de adorno";
+                case "DESCARTADA" -> delicada
+                        ? "la principal acabó descartada porque administración no vio base suficiente para actuar"
+                        : "la principal acabó descartada; sonaba intensa, pero no encontró mucho recorrido";
+                case "EN_REVISION" -> "la principal sigue en revisión, así que la pelota todavía está en el tejado de administración";
+                default -> "la principal sigue pendiente, todavía guardando turno en la cola";
+            };
+            return "Encontré " + total + " denuncias " + direccion + "; hay un poco de todo, pero " + matiz + ".";
+        }
+
+        String relacion = esCreada ? "contra " + nombreObjetivo : "puesta por " + nombreObjetivo;
+        if ("RESUELTA".equals(estado)) {
+            return delicada
+                    ? "Encontré la denuncia " + relacion + ". Pasó de pendiente a revisión y terminó resuelta; por lo que aparece, administración vio indicios suficientes para tomársela en serio."
+                    : "Encontré la denuncia " + relacion + ". Pasó de pendiente a revisión y terminó resuelta; vamos, que no parecía precisamente una queja al aire.";
+        }
+        if ("DESCARTADA".equals(estado)) {
+            return delicada
+                    ? "Encontré la denuncia " + relacion + ". Fue revisada y acabó descartada porque administración no encontró base suficiente para aplicar medidas."
+                    : "Encontré la denuncia " + relacion + ". Fue revisada y acabó descartada; la alarma sonó, pero no había demasiado fuego detrás.";
+        }
+        if ("EN_REVISION".equals(estado)) {
+            return "Encontré la denuncia " + relacion + ". Ahora mismo sigue en revisión, así que administración todavía está viendo si hay base para actuar; de momento, la pelota sigue en su tejado.";
+        }
+        return "Encontré la denuncia " + relacion + ". Sigue pendiente, así que todavía no ha pasado por revisión administrativa; básicamente, está esperando su turno en la cola.";
+    }
+
+    private boolean containsSensitiveComplaintTerms(String motivo, String detalle) {
+        String joined = (firstNonBlank(motivo, "") + " " + firstNonBlank(detalle, "")).toLowerCase(Locale.ROOT);
+        return joined.contains("amenaza")
+                || joined.contains("acoso")
+                || joined.contains("intimid")
+                || joined.contains("agresi");
+    }
+
     private List<AiEncryptedMessageSearchResultDTO> buildComplaintResults(
-            List<UserComplaintEntity> denuncias,
+            String requestId,
+            List<ComplaintSearchCandidate> denuncias,
             DateTimeFormatter dateFormatter,
-            String complaintDirection) {
+            String complaintDirection,
+            boolean aproximadoUsed) {
         List<AiEncryptedMessageSearchResultDTO> results = new ArrayList<>();
-        String tipoResultado = "COMPLAINT_CREATED".equals(complaintDirection) ? "COMPLAINT_CREATED" : "COMPLAINT_RECEIVED";
-        for (UserComplaintEntity d : denuncias) {
+        String tipoResultado = "COMPLAINT_STATUS";
+        for (ComplaintSearchCandidate candidate : denuncias) {
+            UserComplaintEntity d = candidate.denuncia();
             AiEncryptedMessageSearchResultDTO r = new AiEncryptedMessageSearchResultDTO();
             r.setTipoResultado(tipoResultado);
             r.setDenunciaId(d.getId());
@@ -5628,10 +5828,23 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
             r.setGravedadDenuncia(null);
             r.setEstadoDenuncia(d.getEstado() != null ? d.getEstado().name() : null);
             r.setFechaDenuncia(d.getCreatedAt() != null ? d.getCreatedAt().format(dateFormatter) : null);
+            r.setDenuncianteId(d.getDenuncianteId());
+            r.setDenuncianteNombre(d.getDenuncianteNombre());
+            r.setDenunciadoId(d.getDenunciadoId());
+            r.setDenunciadoNombre(d.getDenunciadoNombre());
+            r.setChatId(d.getChatId());
+            r.setChatNombreSnapshotDenuncia(d.getChatNombreSnapshot());
+            r.setDetalleDenuncia(truncate(d.getDetalle(), 500));
+            r.setHistorialDenuncia(candidate.historial());
             r.setContenidoVisible("[Denuncia]");
             r.setMotivoCoincidencia("Denuncia por: " + d.getMotivo());
+            r.setRelevancia(candidate.relevancia());
+            r.setMejorResultadoAproximado(aproximadoUsed);
+            LOGGER.info("[AI][COMPLAINT_STATUS] requestId={} denunciaId={} historialSize={}",
+                    requestId, d.getId(), candidate.historial() == null ? 0 : candidate.historial().size());
             results.add(r);
         }
+        results.sort(Comparator.comparing(AiEncryptedMessageSearchResultDTO::getDenunciaId, Comparator.nullsLast(Comparator.reverseOrder())));
         return results;
     }
 
@@ -5658,6 +5871,430 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
             filtrados.add(resultado);
         }
         return filtrados;
+    }
+
+    private boolean isBroadComplaintQuery(String consulta, AiSearchIntentInternalResponseDTO intent) {
+        String normalized = normalizeIntentText(consulta);
+        if (!hasText(normalized)) {
+            return false;
+        }
+        if (normalized.contains("dame todas")
+                || normalized.contains("todas las denuncias")
+                || normalized.contains("mis denuncias")
+                || normalized.contains("que denuncias")
+                || normalized.contains("lista las denuncias")
+                || normalized.contains("muestrame las denuncias")) {
+            return true;
+        }
+        return !hasText(intent == null ? null : intent.getMotivoDenuncia())
+                && !hasText(intent == null ? null : intent.getTemporalExpression())
+                && parseComplaintEstadoFilter(intent == null ? null : intent.getComplaintStatus()) == null
+                && normalized.contains("denuncia");
+    }
+
+    private UserComplaintEstado parseComplaintEstadoFilter(String raw) {
+        if (!hasText(raw) || "ANY".equalsIgnoreCase(raw)) {
+            return null;
+        }
+        try {
+            return UserComplaintEstado.valueOf(raw.trim().toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException ex) {
+            return null;
+        }
+    }
+
+    private boolean matchesComplaintPersona(UserComplaintEntity denuncia, String personaFiltro, boolean esCreada) {
+        if (denuncia == null || !hasText(personaFiltro)) {
+            return true;
+        }
+        String targetName = esCreada ? denuncia.getDenunciadoNombre() : denuncia.getDenuncianteNombre();
+        return hasText(targetName) && normalizeForFilter(targetName).contains(normalizeForFilter(personaFiltro));
+    }
+
+    private boolean matchesComplaintMotivo(UserComplaintEntity denuncia, String motivoFiltro) {
+        if (denuncia == null || !hasText(motivoFiltro)) {
+            return true;
+        }
+        String needle = normalizeForFilter(motivoFiltro);
+        return normalizeForFilter(denuncia.getMotivo()).contains(needle)
+                || normalizeForFilter(denuncia.getDetalle()).contains(needle);
+    }
+
+    private ComplaintTemporalFilterOutcome applyComplaintTemporalFilterWithFallback(String requestId,
+                                                                                   List<UserComplaintEntity> denuncias,
+                                                                                   ValidationValues values,
+                                                                                   AiMessageSearchNaturalQueryAnalysis analysis,
+                                                                                   String temporalExpression) {
+        if (!values.rangoTemporalDetectado() || denuncias == null || denuncias.isEmpty()) {
+            return new ComplaintTemporalFilterOutcome(denuncias == null ? List.of() : denuncias, false, false);
+        }
+        List<UserComplaintEntity> exact = filterComplaintsByTemporalRange(denuncias, values.fechaInicio(), values.fechaFin());
+        if (!exact.isEmpty()) {
+            return new ComplaintTemporalFilterOutcome(exact, false, false);
+        }
+        if (analysis != null && analysis.getFechaInicioExpandida() != null) {
+            List<UserComplaintEntity> expanded = filterComplaintsByTemporalRange(denuncias, analysis.getFechaInicioExpandida(), analysis.getFechaFinExpandida());
+            if (!expanded.isEmpty()) {
+                LOGGER.info("[AI][COMPLAINTS_SEARCH] requestId={} temporalFallback=expanded total={}", requestId, expanded.size());
+                return new ComplaintTemporalFilterOutcome(expanded, true, true);
+            }
+        }
+        LOGGER.info("[AI][COMPLAINTS_SEARCH] requestId={} temporalFallback=without_temporal_filter total={} temporalExpression={}",
+                requestId, denuncias.size(), safeForLog(temporalExpression));
+        return new ComplaintTemporalFilterOutcome(denuncias, true, false);
+    }
+
+    private List<UserComplaintEntity> filterComplaintsByTemporalRange(List<UserComplaintEntity> denuncias,
+                                                                      LocalDateTime from,
+                                                                      LocalDateTime to) {
+        if (denuncias == null || denuncias.isEmpty() || from == null) {
+            return denuncias == null ? List.of() : denuncias;
+        }
+        LocalDateTime safeTo = to == null ? LocalDateTime.now() : to;
+        List<UserComplaintEntity> filtered = new ArrayList<>();
+        for (UserComplaintEntity denuncia : denuncias) {
+            if (denuncia == null || denuncia.getCreatedAt() == null) {
+                continue;
+            }
+            LocalDateTime createdAt = denuncia.getCreatedAt();
+            if ((createdAt.isEqual(from) || createdAt.isAfter(from))
+                    && (createdAt.isEqual(safeTo) || createdAt.isBefore(safeTo))) {
+                filtered.add(denuncia);
+            }
+        }
+        return filtered;
+    }
+
+    private Map<Long, List<UserComplaintHistoryEntity>> loadComplaintHistoriesByIds(List<Long> complaintIds) {
+        if (complaintIds == null || complaintIds.isEmpty()) {
+            return Map.of();
+        }
+        Map<Long, List<UserComplaintHistoryEntity>> grouped = new LinkedHashMap<>();
+        for (UserComplaintHistoryEntity row : userComplaintHistoryRepository.findByComplaintIdInOrderByCreatedAtAsc(complaintIds)) {
+            if (row == null || row.getComplaintId() == null) {
+                continue;
+            }
+            grouped.computeIfAbsent(row.getComplaintId(), ignored -> new ArrayList<>()).add(row);
+        }
+        return grouped;
+    }
+
+    private List<AiComplaintHistoryDTO> buildComplaintHistoryTimeline(String requestId,
+                                                                      UserComplaintEntity denuncia,
+                                                                      List<UserComplaintHistoryEntity> persistedHistory,
+                                                                      DateTimeFormatter dateFormatter) {
+        int dbSize = persistedHistory == null ? 0 : persistedHistory.size();
+        LOGGER.info("[AI][COMPLAINTS_HISTORY] requestId={} denunciaId={} historialDbSize={}",
+                requestId, denuncia == null ? null : denuncia.getId(), dbSize);
+        List<AiComplaintHistoryDTO> out = buildPersistedComplaintHistory(persistedHistory, dateFormatter);
+        boolean synthetic = ensureCompleteComplaintHistoryTimeline(denuncia, out, dateFormatter);
+        out.sort(Comparator
+                .comparingInt((AiComplaintHistoryDTO item) -> resolveComplaintHistoryRank(item == null ? null : item.getEstadoNuevo()))
+                .thenComparing((AiComplaintHistoryDTO item) -> parseDateTime(item == null ? null : item.getFecha(), dateFormatter), Comparator.nullsLast(Comparator.reverseOrder())));
+        LOGGER.info("[AI][COMPLAINTS_HISTORY] requestId={} denunciaId={} historialMappedSize={} synthetic={}",
+                requestId, denuncia == null ? null : denuncia.getId(), out.size(), synthetic);
+        LOGGER.info("[AI][COMPLAINTS_HISTORY] requestId={} denunciaId={} order={}",
+                requestId, denuncia == null ? null : denuncia.getId(), out.stream().map(AiComplaintHistoryDTO::getEstadoNuevo).toList());
+        return out;
+    }
+
+    private List<AiComplaintHistoryDTO> buildPersistedComplaintHistory(List<UserComplaintHistoryEntity> persistedHistory,
+                                                                       DateTimeFormatter dateFormatter) {
+        List<AiComplaintHistoryDTO> out = new ArrayList<>();
+        if (persistedHistory == null) {
+            return out;
+        }
+        for (UserComplaintHistoryEntity row : persistedHistory) {
+            if (row == null) {
+                continue;
+            }
+            out.add(toComplaintHistoryDto(
+                    row.getEstadoAnterior() == null ? null : row.getEstadoAnterior().name(),
+                    row.getEstadoNuevo() == null ? null : row.getEstadoNuevo().name(),
+                    row.getEstadoLabel(),
+                    row.getMotivoSnapshot(),
+                    row.getDetalleSnapshot(),
+                    row.getResolucionMotivo(),
+                    row.getCreatedAt(),
+                    row.getAdminId(),
+                    row.getAccion(),
+                    dateFormatter
+            ));
+        }
+        return out;
+    }
+
+    private List<AiComplaintHistoryDTO> buildSyntheticComplaintHistory(UserComplaintEntity denuncia,
+                                                                       DateTimeFormatter dateFormatter) {
+        List<AiComplaintHistoryDTO> out = new ArrayList<>();
+        if (denuncia == null) {
+            return out;
+        }
+        out.add(toComplaintHistoryDto(
+                null,
+                UserComplaintEstado.PENDIENTE.name(),
+                resolveComplaintEstadoLabel(UserComplaintEstado.PENDIENTE),
+                denuncia.getMotivo(),
+                denuncia.getDetalle(),
+                "Denuncia registrada y pendiente de revisión por administración.",
+                denuncia.getCreatedAt(),
+                null,
+                "CREACION",
+                dateFormatter
+        ));
+        if (denuncia.getEstado() != null && denuncia.getEstado() != UserComplaintEstado.PENDIENTE) {
+            UserComplaintEstado previous = denuncia.getEstado() == UserComplaintEstado.EN_REVISION
+                    ? UserComplaintEstado.PENDIENTE
+                    : UserComplaintEstado.EN_REVISION;
+            out.add(toComplaintHistoryDto(
+                    previous.name(),
+                    denuncia.getEstado().name(),
+                    resolveComplaintEstadoLabel(denuncia.getEstado()),
+                    denuncia.getMotivo(),
+                    denuncia.getDetalle(),
+                    null,
+                    denuncia.getUpdatedAt() == null ? denuncia.getCreatedAt() : denuncia.getUpdatedAt(),
+                    null,
+                    "CAMBIO_ESTADO",
+                    dateFormatter
+            ));
+        }
+        return out;
+    }
+
+    private boolean ensureCompleteComplaintHistoryTimeline(UserComplaintEntity denuncia,
+                                                           List<AiComplaintHistoryDTO> out,
+                                                           DateTimeFormatter dateFormatter) {
+        boolean synthetic = false;
+        if (!containsComplaintEstado(out, UserComplaintEstado.PENDIENTE.name())) {
+            out.add(buildSyntheticComplaintHistoryItem(
+                    denuncia,
+                    null,
+                    UserComplaintEstado.PENDIENTE,
+                    "Denuncia registrada y pendiente de revision por administracion.",
+                    denuncia == null ? null : denuncia.getCreatedAt(),
+                    null,
+                    "CREACION",
+                    dateFormatter
+            ));
+            synthetic = true;
+        }
+        if (denuncia == null || denuncia.getEstado() == null) {
+            return synthetic;
+        }
+        if (denuncia.getEstado() == UserComplaintEstado.EN_REVISION
+                && !containsComplaintEstado(out, UserComplaintEstado.EN_REVISION.name())) {
+            out.add(buildSyntheticComplaintHistoryItem(
+                    denuncia,
+                    UserComplaintEstado.PENDIENTE,
+                    UserComplaintEstado.EN_REVISION,
+                    "Denuncia en revision: administracion esta analizando el caso reportado.",
+                    denuncia.getUpdatedAt(),
+                    denuncia.getReviewedByAdminId(),
+                    "CAMBIO_ESTADO",
+                    dateFormatter
+            ));
+            return true;
+        }
+        if ((denuncia.getEstado() == UserComplaintEstado.RESUELTA || denuncia.getEstado() == UserComplaintEstado.DESCARTADA)
+                && !containsComplaintEstado(out, UserComplaintEstado.EN_REVISION.name())) {
+            out.add(buildSyntheticComplaintHistoryItem(
+                    denuncia,
+                    UserComplaintEstado.PENDIENTE,
+                    UserComplaintEstado.EN_REVISION,
+                    "Denuncia en revision: administracion esta analizando el caso reportado.",
+                    denuncia.getCreatedAt(),
+                    denuncia.getReviewedByAdminId(),
+                    "CAMBIO_ESTADO",
+                    dateFormatter
+            ));
+            synthetic = true;
+        }
+        if ((denuncia.getEstado() == UserComplaintEstado.RESUELTA || denuncia.getEstado() == UserComplaintEstado.DESCARTADA)
+                && !containsComplaintEstado(out, denuncia.getEstado().name())) {
+            out.add(buildSyntheticComplaintHistoryItem(
+                    denuncia,
+                    UserComplaintEstado.EN_REVISION,
+                    denuncia.getEstado(),
+                    denuncia.getEstado() == UserComplaintEstado.RESUELTA
+                            ? "Denuncia resuelta: administracion ha revisado el caso y lo marca como atendido."
+                            : "Denuncia descartada: administracion ha revisado el caso y no aplicara medidas adicionales por ahora.",
+                    denuncia.getUpdatedAt(),
+                    denuncia.getReviewedByAdminId(),
+                    "CAMBIO_ESTADO",
+                    dateFormatter
+            ));
+            synthetic = true;
+        }
+        return synthetic;
+    }
+
+    private boolean containsComplaintEstado(List<AiComplaintHistoryDTO> history, String estadoNuevo) {
+        if (history == null || estadoNuevo == null) {
+            return false;
+        }
+        return history.stream().anyMatch(item -> item != null && estadoNuevo.equals(item.getEstadoNuevo()));
+    }
+
+    private AiComplaintHistoryDTO buildSyntheticComplaintHistoryItem(UserComplaintEntity denuncia,
+                                                                     UserComplaintEstado estadoAnterior,
+                                                                     UserComplaintEstado estadoNuevo,
+                                                                     String resolucionMotivo,
+                                                                     LocalDateTime fecha,
+                                                                     Long adminId,
+                                                                     String accion,
+                                                                     DateTimeFormatter dateFormatter) {
+        LocalDateTime effectiveDate = fecha;
+        if (effectiveDate == null && denuncia != null) {
+            effectiveDate = denuncia.getUpdatedAt() == null ? denuncia.getCreatedAt() : denuncia.getUpdatedAt();
+        }
+        return toComplaintHistoryDto(
+                estadoAnterior == null ? null : estadoAnterior.name(),
+                estadoNuevo == null ? null : estadoNuevo.name(),
+                resolveComplaintEstadoLabel(estadoNuevo),
+                denuncia == null ? null : denuncia.getMotivo(),
+                denuncia == null ? null : denuncia.getDetalle(),
+                resolucionMotivo,
+                effectiveDate,
+                adminId,
+                accion,
+                dateFormatter
+        );
+    }
+
+    private AiComplaintHistoryDTO toComplaintHistoryDto(String estadoAnterior,
+                                                        String estadoNuevo,
+                                                        String estadoLabel,
+                                                        String motivo,
+                                                        String detalle,
+                                                        String resolucionMotivo,
+                                                        LocalDateTime fecha,
+                                                        Long adminId,
+                                                        String accion,
+                                                        DateTimeFormatter dateFormatter) {
+        AiComplaintHistoryDTO dto = new AiComplaintHistoryDTO();
+        dto.setEstadoAnterior(estadoAnterior);
+        dto.setEstadoNuevo(estadoNuevo);
+        dto.setEstadoLabel(estadoLabel);
+        dto.setMotivo(truncate(motivo, 500));
+        dto.setDetalle(truncate(detalle, 500));
+        dto.setResolucionMotivo(truncate(resolucionMotivo, 500));
+        dto.setFecha(fecha == null ? null : fecha.format(dateFormatter));
+        dto.setAdminId(adminId);
+        dto.setAccion(accion);
+        return dto;
+    }
+
+    private int calculateComplaintRelevance(String consulta,
+                                            String personaFiltro,
+                                            String motivoFiltro,
+                                            String complaintStatus,
+                                            UserComplaintEntity denuncia,
+                                            List<AiComplaintHistoryDTO> historial,
+                                            boolean broadQuery) {
+        if (denuncia == null) {
+            return 0;
+        }
+        int relevancia = broadQuery ? 75 : 0;
+        List<String> mainTexts = new ArrayList<>();
+        mainTexts.add(denuncia.getMotivo());
+        mainTexts.add(denuncia.getDetalle());
+        mainTexts.add(denuncia.getDenuncianteNombre());
+        mainTexts.add(denuncia.getDenunciadoNombre());
+        mainTexts.add(denuncia.getChatNombreSnapshot());
+        relevancia += calculateComplaintTextMatchScore(consulta, mainTexts, 50);
+        relevancia += calculateComplaintTextMatchScore(motivoFiltro, mainTexts, 25);
+        relevancia += calculateComplaintTextMatchScore(personaFiltro, List.of(denuncia.getDenuncianteNombre(), denuncia.getDenunciadoNombre()), 20);
+        relevancia += calculateComplaintTextMatchScore(consulta, collectComplaintSecondaryTexts(historial), 15);
+        UserComplaintEstado estadoFiltro = parseComplaintEstadoFilter(complaintStatus);
+        if (estadoFiltro != null && estadoFiltro == denuncia.getEstado()) {
+            relevancia += 15;
+        }
+        return Math.max(0, Math.min(100, relevancia));
+    }
+
+    private List<String> collectComplaintSecondaryTexts(List<AiComplaintHistoryDTO> historial) {
+        List<String> out = new ArrayList<>();
+        if (historial == null) {
+            return out;
+        }
+        for (AiComplaintHistoryDTO item : historial) {
+            if (item == null) {
+                continue;
+            }
+            out.add(item.getMotivo());
+            out.add(item.getDetalle());
+            out.add(item.getResolucionMotivo());
+        }
+        return out;
+    }
+
+    private int calculateComplaintTextMatchScore(String query, List<String> fields, int maxScore) {
+        if (!hasText(query) || fields == null || fields.isEmpty() || maxScore <= 0) {
+            return 0;
+        }
+        String normalizedQuery = normalizeIntentText(query);
+        List<String> tokens = new ArrayList<>();
+        for (String token : normalizedQuery.split(" ")) {
+            if (token.length() >= 3 && !APP_REPORT_STATUS_QUERY_STOPWORDS.contains(token)) {
+                tokens.add(token);
+            }
+        }
+        if (tokens.isEmpty()) {
+            return 0;
+        }
+        int best = 0;
+        for (String field : fields) {
+            if (!hasText(field)) {
+                continue;
+            }
+            String normalizedField = normalizeIntentText(field);
+            int matches = 0;
+            for (String token : tokens) {
+                if (normalizedField.contains(token)) {
+                    matches++;
+                }
+            }
+            if (matches == 0) {
+                continue;
+            }
+            int score = Math.min(maxScore, (int) Math.round(((double) matches / tokens.size()) * maxScore));
+            best = Math.max(best, score);
+        }
+        return best;
+    }
+
+    private int resolveComplaintHistoryRank(String estadoNuevo) {
+        if ("RESUELTA".equals(estadoNuevo) || "DESCARTADA".equals(estadoNuevo)) {
+            return 1;
+        }
+        if ("EN_REVISION".equals(estadoNuevo)) {
+            return 2;
+        }
+        return 3;
+    }
+
+    private String resolveComplaintEstadoLabel(UserComplaintEstado estado) {
+        if (estado == null) {
+            return null;
+        }
+        return switch (estado) {
+            case PENDIENTE -> "Pendiente";
+            case EN_REVISION -> "En revisión";
+            case RESUELTA -> "Resuelta";
+            case DESCARTADA -> "Descartada";
+        };
+    }
+
+    private LocalDateTime parseDateTime(String value, DateTimeFormatter formatter) {
+        if (!hasText(value)) {
+            return null;
+        }
+        try {
+            return LocalDateTime.parse(value, formatter);
+        } catch (RuntimeException ex) {
+            return null;
+        }
     }
 
     // ── End complaint search ───────────────────────────────────────────────────
@@ -6237,6 +6874,16 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
 
     private record TemporalFilterOutcome(List<SolicitudDesbaneoEntity> reportes,
                                          boolean aproximado) {
+    }
+
+    private record ComplaintTemporalFilterOutcome(List<UserComplaintEntity> denuncias,
+                                                  boolean aproximado,
+                                                  boolean expandido) {
+    }
+
+    private record ComplaintSearchCandidate(UserComplaintEntity denuncia,
+                                            List<AiComplaintHistoryDTO> historial,
+                                            int relevancia) {
     }
 
     private record ValidationValues(boolean valid,

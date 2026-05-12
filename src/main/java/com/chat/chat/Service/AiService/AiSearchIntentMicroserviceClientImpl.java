@@ -67,9 +67,9 @@ public class AiSearchIntentMicroserviceClientImpl implements AiSearchIntentMicro
             AiSearchIntentInternalResponseDTO body = mapResponseBody(requestId, rawBody);
             if (body != null) {
                 body.setTarget(normalizeTarget(body.getTarget()));
-                LOGGER.info("[AI][SEARCH_INTENT_CLIENT][MAPPED_DTO] requestId={} target={} tipoReporte={} reportStatus={} temporalExpression={} confidence={} listMode={}",
-                        requestId, body.getTarget(), body.getTipoReporte(), body.getReportStatus(), safe(body.getTemporalExpression()), body.getConfidence(), body.getListMode());
-                LOGGER.info("[AI][SEARCH_INTENT_CLIENT] requestId={} inbound success={} codigo={} target={} tipoReporte={} motivoReporte=\"{}\" reportStatus={} complaintDirection={} senderScope={} tipoScopeSolicitado={} tipoMensajeSolicitado={} readStatus={} personaMencionada=\"{}\" grupoMencionado=\"{}\" temporalExpression=\"{}\" orden={} confidence={} listMode={}",
+                LOGGER.info("[AI][SEARCH_INTENT_CLIENT][MAPPED_DTO] requestId={} target={} tipoReporte={} reportStatus={} complaintStatus={} temporalExpression={} confidence={} listMode={}",
+                        requestId, body.getTarget(), body.getTipoReporte(), body.getReportStatus(), body.getComplaintStatus(), safe(body.getTemporalExpression()), body.getConfidence(), body.getListMode());
+                LOGGER.info("[AI][SEARCH_INTENT_CLIENT] requestId={} inbound success={} codigo={} target={} tipoReporte={} motivoReporte=\"{}\" reportStatus={} complaintStatus={} complaintDirection={} senderScope={} tipoScopeSolicitado={} tipoMensajeSolicitado={} readStatus={} personaMencionada=\"{}\" grupoMencionado=\"{}\" temporalExpression=\"{}\" orden={} confidence={} listMode={}",
                         requestId,
                         body.isSuccess(),
                         body.getCodigo(),
@@ -77,6 +77,7 @@ public class AiSearchIntentMicroserviceClientImpl implements AiSearchIntentMicro
                         body.getTipoReporte(),
                         safe(body.getMotivoReporte()),
                         body.getReportStatus(),
+                        body.getComplaintStatus(),
                         body.getComplaintDirection(),
                         body.getSenderScope(),
                         body.getTipoScopeSolicitado(),

@@ -250,63 +250,89 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
 
     @Override
     public AiEncryptedMessageSearchResponseDTO buscarMensajes(AiEncryptedMessageSearchRequestDTO request) {
+        return buscarMensajes(request, UUID.randomUUID().toString(), null, false);
+    }
+
+    @Override
+    public AiEncryptedMessageSearchResponseDTO buscarMensajes(AiEncryptedMessageSearchRequestDTO request,
+                                                              String requestId,
+                                                              AiSearchIntentInternalResponseDTO providedIntent,
+                                                              boolean authoritativeIntentRouting) {
         Long userId = securityUtils.getAuthenticatedUserId();
-        String requestId = UUID.randomUUID().toString();
 
         ValidationValues values = validateAndResolve(request);
         if (!values.valid()) {
             return failure("AI_MESSAGE_SEARCH_INVALID_REQUEST", values.errorMessage(), null);
         }
 
+        AiMessageSearchNaturalQueryAnalysis analysis = values.analysis();
         String userEmail = securityUtils.getAuthenticatedUserEmail();
+        aiSearchProgressNotifier.registerSearchContext(
+                requestId,
+                inferProgressTargetFromAnalysis(analysis),
+                inferProgressTipoFromAnalysis(analysis),
+                inferProgressComplaintDirectionFromAnalysis(analysis)
+        );
         aiSearchProgressNotifier.notifyStarted(userEmail, requestId, AiSearchProgressStep.ANALYZING_CONTEXT);
 
-        AiMessageSearchNaturalQueryAnalysis analysis = values.analysis();
-
         // LLM-based intent classification (overlay over deterministic analysis)
-        AiSearchIntentInternalResponseDTO intentResp = null;
+        AiSearchIntentInternalResponseDTO intentResp = providedIntent;
         String personaDeterministicaAntesLlm = analysis == null ? null
                 : firstNonBlank(analysis.getEmisorObjetivoDetectado(), analysis.getPersonaObjetivoDetectada(), analysis.getNombrePersonaDetectado());
-        try {
-            AiSearchIntentInternalRequestDTO intentReq = new AiSearchIntentInternalRequestDTO();
-            intentReq.setRequestId(requestId);
-            intentReq.setConsulta(values.consulta());
-            intentReq.setUsuarioActualNombre(resolveUserDisplayName(userId));
-            intentResp = aiSearchIntentMicroserviceClient.classifyIntent(requestId, intentReq);
-            if (intentResp != null) {
-                LOGGER.info("[AI][INTENT_RAW] requestId={} success={} target={} senderScope={} tipoScopeSolicitado={} tipoMensajeSolicitado={} tipoReporte={} motivoReporte=\"{}\" reportStatus={} complaintDirection={} complaintStatus={} motivoDenuncia=\"{}\" scheduledStatus={} readStatus={} listMode={} limitSolicitado={} orden={} personaMencionada=\"{}\" grupoMencionado=\"{}\" temporalExpression=\"{}\" confidence={}",
-                        requestId, intentResp.isSuccess(), intentResp.getTarget(), intentResp.getSenderScope(),
-                        intentResp.getTipoScopeSolicitado(), intentResp.getTipoMensajeSolicitado(),
-                        intentResp.getTipoReporte(), safeForLog(intentResp.getMotivoReporte()),
-                        intentResp.getReportStatus(), intentResp.getComplaintDirection(),
-                        intentResp.getComplaintStatus(), safeForLog(intentResp.getMotivoDenuncia()),
-                        intentResp.getScheduledStatus(), intentResp.getReadStatus(),
-                        intentResp.getListMode(), intentResp.getLimitSolicitado(), intentResp.getOrden(),
-                        safeForLog(intentResp.getPersonaMencionada()), safeForLog(intentResp.getGrupoMencionado()),
-                        safeForLog(intentResp.getTemporalExpression()), intentResp.getConfidence());
-            } else {
-                LOGGER.info("[AI][INTENT_RAW] requestId={} response=null fallback=deterministic", requestId);
+        if (intentResp == null) {
+            try {
+                AiSearchIntentInternalRequestDTO intentReq = new AiSearchIntentInternalRequestDTO();
+                intentReq.setRequestId(requestId);
+                intentReq.setConsulta(values.consulta());
+                intentReq.setUsuarioActualNombre(resolveUserDisplayName(userId));
+                intentResp = aiSearchIntentMicroserviceClient.classifyIntent(requestId, intentReq);
+                if (intentResp != null) {
+                    LOGGER.info("[AI][INTENT_RAW] requestId={} success={} target={} senderScope={} tipoScopeSolicitado={} tipoMensajeSolicitado={} tipoReporte={} motivoReporte=\"{}\" reportStatus={} complaintDirection={} complaintStatus={} motivoDenuncia=\"{}\" scheduledStatus={} readStatus={} listMode={} limitSolicitado={} orden={} personaMencionada=\"{}\" grupoMencionado=\"{}\" temporalExpression=\"{}\" confidence={}",
+                            requestId, intentResp.isSuccess(), intentResp.getTarget(), intentResp.getSenderScope(),
+                            intentResp.getTipoScopeSolicitado(), intentResp.getTipoMensajeSolicitado(),
+                            intentResp.getTipoReporte(), safeForLog(intentResp.getMotivoReporte()),
+                            intentResp.getReportStatus(), intentResp.getComplaintDirection(),
+                            intentResp.getComplaintStatus(), safeForLog(intentResp.getMotivoDenuncia()),
+                            intentResp.getScheduledStatus(), intentResp.getReadStatus(),
+                            intentResp.getListMode(), intentResp.getLimitSolicitado(), intentResp.getOrden(),
+                            safeForLog(intentResp.getPersonaMencionada()), safeForLog(intentResp.getGrupoMencionado()),
+                            safeForLog(intentResp.getTemporalExpression()), intentResp.getConfidence());
+                } else {
+                    LOGGER.info("[AI][INTENT_RAW] requestId={} response=null fallback=deterministic", requestId);
+                }
+            } catch (RuntimeException ex) {
+                LOGGER.warn("[AI][MESSAGE_SEARCH_ENCRYPTED] requestId={} intent-classification-error errorClass={} fallback=deterministic",
+                        requestId, ex.getClass().getSimpleName());
             }
-            logIntentTargetTrace(requestId, "received", intentResp == null ? null : intentResp.getTarget());
-            logIntentClassifierOutcome(requestId, values.consulta(), analysis, intentResp);
-            logIntentTargetTrace(requestId, "after-normalize", intentResp == null ? null : intentResp.getTarget());
-            logIntentApply(requestId, intentResp);
-            enrichAnalysisWithIntent(requestId, analysis, intentResp);
-            logIntentTargetTrace(requestId, "after-apply", intentResp == null ? null : intentResp.getTarget());
-            if (intentResp != null) {
-                LOGGER.info("[AI][INTENT_APPLY] requestId={} target={} confidence={} appliedSenderScope={} appliedTipoScope={} intencionDenunciaCreada={} intencionDenunciaRecibida={} intencionMensajesNoLeidos={} intencionContenidoOfensivo={} listMode={}",
-                        requestId, intentResp.getTarget(), intentResp.getConfidence(),
-                        analysis == null || analysis.getSenderScope() == null ? null : analysis.getSenderScope().name(),
-                        analysis != null && analysis.isIntencionGrupo() ? "GLOBAL_GRUPOS|GRUPO" : (analysis != null && analysis.isIntencionIndividual() ? "GLOBAL_INDIVIDUALES|INDIVIDUAL" : "GLOBAL"),
-                        analysis != null && analysis.isIntencionDenunciaCreada(),
-                        analysis != null && analysis.isIntencionDenunciaRecibida(),
-                        analysis != null && analysis.isIntencionMensajesNoLeidos(),
-                        analysis != null && analysis.isIntencionContenidoOfensivo(),
-                        intentResp.getListMode());
-            }
-        } catch (RuntimeException ex) {
-            LOGGER.warn("[AI][MESSAGE_SEARCH_ENCRYPTED] requestId={} intent-classification-error errorClass={} fallback=deterministic",
-                    requestId, ex.getClass().getSimpleName());
+        } else {
+            LOGGER.info("[AI][INTENT_RAW] requestId={} success={} target={} senderScope={} tipoScopeSolicitado={} tipoMensajeSolicitado={} tipoReporte={} motivoReporte=\"{}\" reportStatus={} complaintDirection={} complaintStatus={} motivoDenuncia=\"{}\" scheduledStatus={} readStatus={} listMode={} limitSolicitado={} orden={} personaMencionada=\"{}\" grupoMencionado=\"{}\" temporalExpression=\"{}\" confidence={} source=SMART_ACTION",
+                    requestId, intentResp.isSuccess(), intentResp.getTarget(), intentResp.getSenderScope(),
+                    intentResp.getTipoScopeSolicitado(), intentResp.getTipoMensajeSolicitado(),
+                    intentResp.getTipoReporte(), safeForLog(intentResp.getMotivoReporte()),
+                    intentResp.getReportStatus(), intentResp.getComplaintDirection(),
+                    intentResp.getComplaintStatus(), safeForLog(intentResp.getMotivoDenuncia()),
+                    intentResp.getScheduledStatus(), intentResp.getReadStatus(),
+                    intentResp.getListMode(), intentResp.getLimitSolicitado(), intentResp.getOrden(),
+                    safeForLog(intentResp.getPersonaMencionada()), safeForLog(intentResp.getGrupoMencionado()),
+                    safeForLog(intentResp.getTemporalExpression()), intentResp.getConfidence());
+        }
+        logIntentTargetTrace(requestId, "received", intentResp == null ? null : intentResp.getTarget());
+        logIntentClassifierOutcome(requestId, values.consulta(), analysis, intentResp);
+        logIntentTargetTrace(requestId, "after-normalize", intentResp == null ? null : intentResp.getTarget());
+        logIntentApply(requestId, intentResp, authoritativeIntentRouting);
+        enrichAnalysisWithIntent(requestId, analysis, intentResp, authoritativeIntentRouting);
+        logIntentTargetTrace(requestId, "after-apply", intentResp == null ? null : intentResp.getTarget());
+        if (intentResp != null) {
+            LOGGER.info("[AI][INTENT_APPLY] requestId={} target={} confidence={} appliedSenderScope={} appliedTipoScope={} intencionDenunciaCreada={} intencionDenunciaRecibida={} intencionMensajesNoLeidos={} intencionContenidoOfensivo={} listMode={} authoritativeIntentRouting={}",
+                    requestId, intentResp.getTarget(), intentResp.getConfidence(),
+                    analysis == null || analysis.getSenderScope() == null ? null : analysis.getSenderScope().name(),
+                    analysis != null && analysis.isIntencionGrupo() ? "GLOBAL_GRUPOS|GRUPO" : (analysis != null && analysis.isIntencionIndividual() ? "GLOBAL_INDIVIDUALES|INDIVIDUAL" : "GLOBAL"),
+                    analysis != null && analysis.isIntencionDenunciaCreada(),
+                    analysis != null && analysis.isIntencionDenunciaRecibida(),
+                    analysis != null && analysis.isIntencionMensajesNoLeidos(),
+                    analysis != null && analysis.isIntencionContenidoOfensivo(),
+                    intentResp.getListMode(),
+                    authoritativeIntentRouting);
         }
 
         // Refresh incluirGrupales/incluirIndividuales after enrichment (LLM may have flipped intencionGrupo/Individual)
@@ -331,14 +357,18 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
                     values.incluirIndividuales(), newIncluirIndividuales);
             values = values.withIncluir(newIncluirGrupales, newIncluirIndividuales);
         }
-        values = applyMessageIntentOverrides(requestId, values, intentResp);
+        values = applyMessageIntentOverrides(requestId, values, intentResp, authoritativeIntentRouting);
+        if (intentResp != null) {
+            aiSearchProgressNotifier.registerSearchContext(
+                    requestId,
+                    intentResp.getTarget(),
+                    intentResp.getTipoMensajeSolicitado(),
+                    intentResp.getComplaintDirection()
+            );
+        }
 
         // Fork: APP_REPORT_STATUS — query existing user reports, no semantic message search
-        if (intentResp != null
-                && intentResp.isSuccess()
-                && "APP_REPORT_STATUS".equals(intentResp.getTarget())
-                && intentResp.getConfidence() != null
-                && intentResp.getConfidence() >= MIN_INTENT_CONFIDENCE) {
+        if (shouldRouteByProvidedTarget(intentResp, "APP_REPORT_STATUS", authoritativeIntentRouting)) {
             logIntentFinal(requestId, intentResp.getTarget(), intentResp.getSenderScope(), intentResp.getTipoScopeSolicitado(),
                     intentResp.getPersonaMencionada(), intentResp.getGrupoMencionado(), intentResp.getTipoReporte(), intentResp.getMotivoReporte());
             logSemanticRouting(requestId, "APP_REPORT_STATUS");
@@ -347,11 +377,7 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
         }
 
         // Fork: APP_REPORT — create administrative report and return immediately, no semantic search
-        if (intentResp != null
-                && intentResp.isSuccess()
-                && "APP_REPORT".equals(intentResp.getTarget())
-                && intentResp.getConfidence() != null
-                && intentResp.getConfidence() >= MIN_INTENT_CONFIDENCE) {
+        if (shouldRouteByProvidedTarget(intentResp, "APP_REPORT", authoritativeIntentRouting)) {
             logIntentFinal(requestId, intentResp.getTarget(), intentResp.getSenderScope(), intentResp.getTipoScopeSolicitado(),
                     intentResp.getPersonaMencionada(), intentResp.getGrupoMencionado(), intentResp.getTipoReporte(), intentResp.getMotivoReporte());
             logSemanticRouting(requestId, "APP_REPORT");
@@ -359,7 +385,7 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
             return crearReporteAplicacion(requestId, userId, userEmail, request, intentResp);
         }
 
-        if (shouldSearchScheduledMessages(intentResp, values.consulta(), analysis)) {
+        if (shouldSearchScheduledMessages(intentResp, values.consulta(), analysis, authoritativeIntentRouting)) {
             logIntentFinal(requestId,
                     intentResp == null ? "SCHEDULED_MESSAGES" : firstNonBlank(intentResp.getTarget(), "SCHEDULED_MESSAGES"),
                     intentResp == null ? null : intentResp.getSenderScope(),
@@ -392,7 +418,7 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
             return scheduledResponse;
         }
 
-        ComplaintBranch complaintBranch = resolveComplaintBranch(intentResp, analysis);
+        ComplaintBranch complaintBranch = resolveComplaintBranch(intentResp, analysis, authoritativeIntentRouting);
         if (complaintBranch != ComplaintBranch.NONE) {
             String complaintsTarget = resolveComplaintWsTarget(intentResp, complaintBranch);
             String complaintsDirection = resolveComplaintWsDirection(intentResp, complaintBranch);
@@ -436,7 +462,7 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
         }
 
         boolean offensiveIntent = isOffensiveMessageSearchIntent(intentResp, analysis);
-        boolean directSingularDisabledByListMode = isLockedMessagesListMode(intentResp);
+        boolean directSingularDisabledByListMode = isLockedMessagesListMode(intentResp, authoritativeIntentRouting);
         if (directSingularDisabledByListMode) {
             LOGGER.info("[AI][MESSAGE_SEARCH_ENCRYPTED] requestId={} listMode=true directSingularDisabled=true reason=LIST_MODE",
                     requestId);
@@ -1226,8 +1252,9 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
 
     private boolean shouldSearchScheduledMessages(AiSearchIntentInternalResponseDTO intent,
                                                   String consulta,
-                                                  AiMessageSearchNaturalQueryAnalysis analysis) {
-        if (isUsableSemanticIntent(intent)) {
+                                                  AiMessageSearchNaturalQueryAnalysis analysis,
+                                                  boolean authoritativeIntentRouting) {
+        if (isUsableSemanticIntent(intent, authoritativeIntentRouting)) {
             return AiGlobalSearchTarget.SCHEDULED_MESSAGES.name().equalsIgnoreCase(intent.getTarget());
         }
         if (analysis != null && analysis.isIntencionDenuncia()) {
@@ -1258,7 +1285,12 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
                 intent == null ? null : intent.getConfidence());
     }
 
-    private boolean isUsableSemanticIntent(AiSearchIntentInternalResponseDTO intent) {
+    private boolean isUsableSemanticIntent(AiSearchIntentInternalResponseDTO intent, boolean authoritativeIntentRouting) {
+        if (authoritativeIntentRouting) {
+            return intent != null
+                    && intent.isSuccess()
+                    && hasText(intent.getTarget());
+        }
         return intent != null
                 && intent.isSuccess()
                 && intent.getConfidence() != null
@@ -1266,12 +1298,28 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
                 && hasText(intent.getTarget());
     }
 
-    private void logIntentApply(String requestId, AiSearchIntentInternalResponseDTO intent) {
-        if (!isUsableSemanticIntent(intent)) {
+    private boolean isUsableSemanticIntent(AiSearchIntentInternalResponseDTO intent) {
+        return isUsableSemanticIntent(intent, false);
+    }
+
+    private boolean shouldRouteByProvidedTarget(AiSearchIntentInternalResponseDTO intent,
+                                                String target,
+                                                boolean authoritativeIntentRouting) {
+        return isUsableSemanticIntent(intent, authoritativeIntentRouting)
+                && target != null
+                && target.equalsIgnoreCase(intent.getTarget());
+    }
+
+    private void logIntentApply(String requestId, AiSearchIntentInternalResponseDTO intent, boolean authoritativeIntentRouting) {
+        if (!isUsableSemanticIntent(intent, authoritativeIntentRouting)) {
             return;
         }
-        LOGGER.info("[AI][INTENT_APPLY] requestId={} source=LLM target={} confidence={}",
-                requestId, intent.getTarget(), intent.getConfidence());
+        LOGGER.info("[AI][INTENT_APPLY] requestId={} source={} target={} confidence={}",
+                requestId, authoritativeIntentRouting ? "SMART_ACTION" : "LLM", intent.getTarget(), intent.getConfidence());
+    }
+
+    private void logIntentApply(String requestId, AiSearchIntentInternalResponseDTO intent) {
+        logIntentApply(requestId, intent, false);
     }
 
     private void logIntentTargetTrace(String requestId, String stage, String target) {
@@ -1305,8 +1353,9 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
     }
 
     private ComplaintBranch resolveComplaintBranch(AiSearchIntentInternalResponseDTO intent,
-                                                   AiMessageSearchNaturalQueryAnalysis analysis) {
-        if (isUsableSemanticIntent(intent)) {
+                                                   AiMessageSearchNaturalQueryAnalysis analysis,
+                                                   boolean authoritativeIntentRouting) {
+        if (isUsableSemanticIntent(intent, authoritativeIntentRouting)) {
             if (AiGlobalSearchTarget.COMPLAINTS_RECEIVED.name().equalsIgnoreCase(intent.getTarget())) {
                 return ComplaintBranch.RECEIVED;
             }
@@ -1324,6 +1373,11 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
             }
         }
         return ComplaintBranch.NONE;
+    }
+
+    private ComplaintBranch resolveComplaintBranch(AiSearchIntentInternalResponseDTO intent,
+                                                   AiMessageSearchNaturalQueryAnalysis analysis) {
+        return resolveComplaintBranch(intent, analysis, false);
     }
 
     private String resolveComplaintWsTarget(AiSearchIntentInternalResponseDTO intent, ComplaintBranch complaintBranch) {
@@ -1353,8 +1407,9 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
 
     private ValidationValues applyMessageIntentOverrides(String requestId,
                                                          ValidationValues values,
-                                                         AiSearchIntentInternalResponseDTO intent) {
-        if (values == null || !values.valid() || !isLockedMessagesListMode(intent)) {
+                                                         AiSearchIntentInternalResponseDTO intent,
+                                                         boolean authoritativeIntentRouting) {
+        if (values == null || !values.valid() || !isLockedMessagesListMode(intent, authoritativeIntentRouting)) {
             return values;
         }
 
@@ -1391,6 +1446,12 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
         return updated;
     }
 
+    private ValidationValues applyMessageIntentOverrides(String requestId,
+                                                         ValidationValues values,
+                                                         AiSearchIntentInternalResponseDTO intent) {
+        return applyMessageIntentOverrides(requestId, values, intent, false);
+    }
+
     private int resolveMessageListLimit(AiSearchIntentInternalResponseDTO intent, ValidationValues values) {
         Integer requested = intent == null ? null : intent.getLimitSolicitado();
         if (requested != null && requested > 0) {
@@ -1399,10 +1460,14 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
         return MAX_MAX_RESULTADOS;
     }
 
-    private boolean isLockedMessagesListMode(AiSearchIntentInternalResponseDTO intent) {
-        return isUsableSemanticIntent(intent)
+    private boolean isLockedMessagesListMode(AiSearchIntentInternalResponseDTO intent, boolean authoritativeIntentRouting) {
+        return isUsableSemanticIntent(intent, authoritativeIntentRouting)
                 && AiGlobalSearchTarget.MESSAGES.name().equalsIgnoreCase(intent.getTarget())
                 && Boolean.TRUE.equals(intent.getListMode());
+    }
+
+    private boolean isLockedMessagesListMode(AiSearchIntentInternalResponseDTO intent) {
+        return isLockedMessagesListMode(intent, false);
     }
 
     private boolean matchesScheduledFallback(String consulta) {
@@ -6806,7 +6871,8 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
 
     private void enrichAnalysisWithIntent(String requestId,
                                           AiMessageSearchNaturalQueryAnalysis analysis,
-                                          AiSearchIntentInternalResponseDTO intent) {
+                                          AiSearchIntentInternalResponseDTO intent,
+                                          boolean authoritativeIntentRouting) {
         if (analysis == null || intent == null || !intent.isSuccess()) {
             LOGGER.info("[AI][MESSAGE_SEARCH_ENCRYPTED] requestId={} intent-skipped reason={}",
                     requestId,
@@ -6814,7 +6880,7 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
             return;
         }
         Double confidence = intent.getConfidence();
-        if (confidence == null || confidence < MIN_INTENT_CONFIDENCE) {
+        if (!authoritativeIntentRouting && (confidence == null || confidence < MIN_INTENT_CONFIDENCE)) {
             LOGGER.info("[AI][MESSAGE_SEARCH_ENCRYPTED] requestId={} intent-low-confidence confidence={} target={}",
                     requestId, confidence, intent.getTarget());
             return;
@@ -8762,6 +8828,43 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
                     List.of()
             );
         }
+    }
+
+    private String inferProgressTargetFromAnalysis(AiMessageSearchNaturalQueryAnalysis analysis) {
+        if (analysis == null) {
+            return "MESSAGES";
+        }
+        if (analysis.isIntencionDenunciaRecibida()) {
+            return "COMPLAINTS_RECEIVED";
+        }
+        if (analysis.isIntencionDenunciaCreada()) {
+            return "COMPLAINTS_CREATED";
+        }
+        if (analysis.isIntencionDenuncia()) {
+            return "MIXED";
+        }
+        return "MESSAGES";
+    }
+
+    private String inferProgressTipoFromAnalysis(AiMessageSearchNaturalQueryAnalysis analysis) {
+        if (analysis == null) {
+            return null;
+        }
+        if (analysis.isIntencionImagen()) return "IMAGE";
+        if (analysis.isIntencionAudio()) return "AUDIO";
+        if (analysis.isIntencionSticker()) return "STICKER";
+        if (analysis.isIntencionArchivo()) return "FILE";
+        return "ANY";
+    }
+
+    private String inferProgressComplaintDirectionFromAnalysis(AiMessageSearchNaturalQueryAnalysis analysis) {
+        if (analysis == null) {
+            return null;
+        }
+        if (analysis.isIntencionDenunciaRecibida()) return "RECEIVED";
+        if (analysis.isIntencionDenunciaCreada()) return "CREATED";
+        if (analysis.isIntencionDenuncia()) return "ANY";
+        return null;
     }
 
     private record ImageCompatibilityMeta(String imageUrl,

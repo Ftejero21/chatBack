@@ -8,15 +8,38 @@ import org.slf4j.LoggerFactory;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+
 @Service
 public class AiSearchProgressNotifierImpl implements AiSearchProgressNotifier {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(AiSearchProgressNotifierImpl.class);
 
     private final SimpMessagingTemplate messagingTemplate;
+    private final AiSearchProgressMessageResolver messageResolver;
+    private final Map<String, SearchProgressContext> contextByRequestId = new ConcurrentHashMap<>();
 
-    public AiSearchProgressNotifierImpl(SimpMessagingTemplate messagingTemplate) {
+    public AiSearchProgressNotifierImpl(SimpMessagingTemplate messagingTemplate,
+                                        AiSearchProgressMessageResolver messageResolver) {
         this.messagingTemplate = messagingTemplate;
+        this.messageResolver = messageResolver;
+    }
+
+    @Override
+    public void registerSearchContext(String requestId, String target, String tipoMensajeSolicitado, String complaintDirection) {
+        if (requestId == null || requestId.isBlank()) {
+            return;
+        }
+        contextByRequestId.put(requestId, new SearchProgressContext(target, tipoMensajeSolicitado, complaintDirection));
+    }
+
+    @Override
+    public void clearSearchContext(String requestId) {
+        if (requestId == null || requestId.isBlank()) {
+            return;
+        }
+        contextByRequestId.remove(requestId);
     }
 
     @Override
@@ -59,41 +82,6 @@ public class AiSearchProgressNotifierImpl implements AiSearchProgressNotifier {
         sendAppReport(userEmail, requestId, "FAILED", tipoReporte, false);
     }
 
-    private void sendAppReport(String userEmail, String requestId, String status, String tipoReporte) {
-        sendAppReport(userEmail, requestId, status, tipoReporte, false);
-    }
-
-    private void sendAppReport(String userEmail, String requestId, String status, String tipoReporte, boolean hasImage) {
-        if (userEmail == null || requestId == null || status == null) {
-            return;
-        }
-        try {
-            String message = resolveAppReportMessage(status, hasImage);
-            AiSearchProgressWS payload = new AiSearchProgressWS(
-                    requestId,
-                    AiSearchProgressStep.APP_REPORT.name(),
-                    status,
-                    message,
-                    null,
-                    "APP_REPORT",
-                    tipoReporte
-            );
-            messagingTemplate.convertAndSendToUser(userEmail, Constantes.WS_QUEUE_AI_SEARCH_PROGRESS, payload);
-        } catch (Exception ex) {
-            LOGGER.warn("[AI][SEARCH_PROGRESS] ws-send-error step=APP_REPORT status={} userEmail={} errorClass={}",
-                    status, userEmail, ex.getClass().getSimpleName());
-        }
-    }
-
-    private String resolveAppReportMessage(String status, boolean hasImage) {
-        return switch (status) {
-            case "STARTED" -> "Generando reporte...";
-            case "COMPLETED" -> hasImage ? "Reporte generado con imagen adjunta" : "Reporte generado";
-            case "FAILED" -> "No se pudo generar el reporte";
-            default -> "Reporte";
-        };
-    }
-
     @Override
     public void notifyAppReportStatusStarted(String userEmail, String requestId, String tipoReporte) {
         sendAppReportStatus(userEmail, requestId, "STARTED", tipoReporte);
@@ -124,8 +112,36 @@ public class AiSearchProgressNotifierImpl implements AiSearchProgressNotifier {
         sendComplaintsSearch(userEmail, requestId, "FAILED", target, complaintDirection, null);
     }
 
+    private void sendAppReport(String userEmail, String requestId, String status, String tipoReporte) {
+        sendAppReport(userEmail, requestId, status, tipoReporte, false);
+    }
+
+    private void sendAppReport(String userEmail, String requestId, String status, String tipoReporte, boolean hasImage) {
+        if (userEmail == null || requestId == null || status == null) {
+            return;
+        }
+        try {
+            String message = resolveAppReportMessage(status, hasImage);
+            AiSearchProgressWS payload = new AiSearchProgressWS(
+                    requestId,
+                    AiSearchProgressStep.APP_REPORT.name(),
+                    status,
+                    message,
+                    null,
+                    "APP_REPORT",
+                    tipoReporte
+            );
+            messagingTemplate.convertAndSendToUser(userEmail, Constantes.WS_QUEUE_AI_SEARCH_PROGRESS, payload);
+        } catch (Exception ex) {
+            LOGGER.warn("[AI][SEARCH_PROGRESS] ws-send-error step=APP_REPORT status={} userEmail={} errorClass={}",
+                    status, userEmail, ex.getClass().getSimpleName());
+        }
+    }
+
     private void sendAppReportStatus(String userEmail, String requestId, String status, String tipoReporte) {
-        if (userEmail == null || requestId == null || status == null) return;
+        if (userEmail == null || requestId == null || status == null) {
+            return;
+        }
         try {
             String message = resolveAppReportStatusMessage(status);
             AiSearchProgressWS payload = new AiSearchProgressWS(
@@ -144,15 +160,6 @@ public class AiSearchProgressNotifierImpl implements AiSearchProgressNotifier {
         }
     }
 
-    private String resolveAppReportStatusMessage(String status) {
-        return switch (status) {
-            case "STARTED" -> "Buscando tus reportes...";
-            case "COMPLETED" -> "Búsqueda de reportes finalizada";
-            case "FAILED" -> "No se pudo consultar el estado del reporte";
-            default -> "Reporte";
-        };
-    }
-
     private void sendComplaintsSearch(String userEmail,
                                       String requestId,
                                       String status,
@@ -165,7 +172,10 @@ public class AiSearchProgressNotifierImpl implements AiSearchProgressNotifier {
         try {
             String normalizedDirection = normalizeComplaintDirection(complaintDirection);
             String normalizedTarget = normalizeComplaintTarget(target, normalizedDirection);
-            String message = resolveComplaintsSearchMessage(status, normalizedDirection);
+            registerSearchContext(requestId, normalizedTarget, null, normalizedDirection);
+            String message = messageResolver.resolve(AiSearchProgressStep.COMPLAINTS_SEARCH, status, normalizedTarget, null, normalizedDirection);
+            LOGGER.info("[AI][SEARCH_PROGRESS_MESSAGE] requestId={} target={} tipoMensaje={} step={} status={} message=\"{}\"",
+                    requestId, normalizedTarget, null, AiSearchProgressStep.COMPLAINTS_SEARCH.name(), status, message);
             AiSearchProgressWS payload = new AiSearchProgressWS(
                     requestId,
                     AiSearchProgressStep.COMPLAINTS_SEARCH.name(),
@@ -177,10 +187,64 @@ public class AiSearchProgressNotifierImpl implements AiSearchProgressNotifier {
                     normalizedDirection
             );
             messagingTemplate.convertAndSendToUser(userEmail, Constantes.WS_QUEUE_AI_SEARCH_PROGRESS, payload);
+            if ("FAILED".equals(status)) {
+                clearSearchContext(requestId);
+            }
         } catch (Exception ex) {
             LOGGER.warn("[AI][SEARCH_PROGRESS] ws-send-error step=COMPLAINTS_SEARCH status={} userEmail={} errorClass={}",
                     status, userEmail, ex.getClass().getSimpleName());
         }
+    }
+
+    private void send(String userEmail, String requestId, AiSearchProgressStep step, String status, Boolean hasApproximateResult) {
+        if (userEmail == null || requestId == null || step == null) {
+            return;
+        }
+        try {
+            SearchProgressContext context = contextByRequestId.get(requestId);
+            String target = context == null ? null : context.target();
+            String tipoMensaje = context == null ? null : context.tipoMensajeSolicitado();
+            String complaintDirection = context == null ? null : context.complaintDirection();
+            String message = messageResolver.resolve(step, status, target, tipoMensaje, complaintDirection);
+            LOGGER.info("[AI][SEARCH_PROGRESS_MESSAGE] requestId={} target={} tipoMensaje={} step={} status={} message=\"{}\"",
+                    requestId, target, tipoMensaje, step.name(), status, message);
+            AiSearchProgressWS payload = new AiSearchProgressWS(
+                    requestId,
+                    step.name(),
+                    status,
+                    message,
+                    hasApproximateResult,
+                    target,
+                    null,
+                    complaintDirection
+            );
+            messagingTemplate.convertAndSendToUser(userEmail, Constantes.WS_QUEUE_AI_SEARCH_PROGRESS, payload);
+            if ((step == AiSearchProgressStep.MESSAGE_FOUND || step == AiSearchProgressStep.MESSAGE_NOT_FOUND || step == AiSearchProgressStep.ERROR)
+                    && "COMPLETED".equals(status)) {
+                clearSearchContext(requestId);
+            }
+        } catch (Exception ex) {
+            LOGGER.warn("[AI][SEARCH_PROGRESS] ws-send-error step={} status={} userEmail={} errorClass={}",
+                    step, status, userEmail, ex.getClass().getSimpleName());
+        }
+    }
+
+    private String resolveAppReportMessage(String status, boolean hasImage) {
+        return switch (status) {
+            case "STARTED" -> "Generando reporte...";
+            case "COMPLETED" -> hasImage ? "Reporte generado con imagen adjunta" : "Reporte generado";
+            case "FAILED" -> "No se pudo generar el reporte";
+            default -> "Reporte";
+        };
+    }
+
+    private String resolveAppReportStatusMessage(String status) {
+        return switch (status) {
+            case "STARTED" -> "Buscando tus reportes...";
+            case "COMPLETED" -> "Busqueda de reportes finalizada";
+            case "FAILED" -> "No se pudo consultar el estado del reporte";
+            default -> "Reporte";
+        };
     }
 
     private String normalizeComplaintDirection(String complaintDirection) {
@@ -214,48 +278,5 @@ public class AiSearchProgressNotifierImpl implements AiSearchProgressNotifier {
         };
     }
 
-    private String resolveComplaintsSearchMessage(String status, String complaintDirection) {
-        return switch (status) {
-            case "STARTED" -> switch (complaintDirection) {
-                case "RECEIVED" -> "Buscando denuncias recibidas...";
-                case "CREATED" -> "Buscando denuncias realizadas...";
-                default -> "Buscando denuncias...";
-            };
-            case "COMPLETED" -> "BÃºsqueda de denuncias finalizada";
-            case "FAILED" -> "No se pudieron consultar las denuncias";
-            default -> "Denuncias";
-        };
-    }
-
-    private void send(String userEmail, String requestId, AiSearchProgressStep step, String status, Boolean hasApproximateResult) {
-        if (userEmail == null || requestId == null || step == null) {
-            return;
-        }
-        try {
-            AiSearchProgressWS payload = new AiSearchProgressWS(
-                    requestId,
-                    step.name(),
-                    status,
-                    resolveMessage(step, status),
-                    hasApproximateResult
-            );
-            messagingTemplate.convertAndSendToUser(userEmail, Constantes.WS_QUEUE_AI_SEARCH_PROGRESS, payload);
-        } catch (Exception ex) {
-            LOGGER.warn("[AI][SEARCH_PROGRESS] ws-send-error step={} status={} userEmail={} errorClass={}",
-                    step, status, userEmail, ex.getClass().getSimpleName());
-        }
-    }
-
-    private String resolveMessage(AiSearchProgressStep step, String status) {
-        return switch (step) {
-            case ANALYZING_CONTEXT -> "STARTED".equals(status) ? "Analizando contexto..." : "Contexto analizado";
-            case ANALYZING_MESSAGES -> "STARTED".equals(status) ? "Analizando mensajes..." : "Mensajes analizados";
-            case COMPLAINTS_SEARCH -> "STARTED".equals(status) ? "Buscando denuncias..." : "BÃºsqueda de denuncias finalizada";
-            case MESSAGE_FOUND -> "Mensaje encontrado";
-            case MESSAGE_NOT_FOUND -> "No se encontró una coincidencia clara";
-            case APP_REPORT -> "STARTED".equals(status) ? "Generando reporte..." : "Reporte generado";
-            case APP_REPORT_STATUS -> "STARTED".equals(status) ? "Buscando tus reportes..." : "Búsqueda de reportes finalizada";
-            case ERROR -> "Error al procesar la búsqueda";
-        };
-    }
+    private record SearchProgressContext(String target, String tipoMensajeSolicitado, String complaintDirection) {}
 }

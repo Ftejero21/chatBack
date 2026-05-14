@@ -40,6 +40,9 @@ public class TejechatAiServiceProperties {
     private String appReportStatusSummaryPath = "/internal/ai/app-report-status-summary";
 
     @NotBlank
+    private String uiCustomizationIntentPath = "/internal/ai/ui-customization/intent";
+
+    @NotBlank
     private String appReportResolutionNotePath = "/internal/ai/app-report-resolution-note";
 
     @NotBlank
@@ -124,6 +127,14 @@ public class TejechatAiServiceProperties {
         this.appReportStatusSummaryPath = appReportStatusSummaryPath;
     }
 
+    public String getUiCustomizationIntentPath() {
+        return uiCustomizationIntentPath;
+    }
+
+    public void setUiCustomizationIntentPath(String uiCustomizationIntentPath) {
+        this.uiCustomizationIntentPath = uiCustomizationIntentPath;
+    }
+
     public String getScheduledMessageSummaryPath() {
         return scheduledMessageSummaryPath;
     }
@@ -195,6 +206,12 @@ public class TejechatAiServiceProperties {
     public String buildAppReportStatusSummaryUrl() {
         String normalizedBaseUrl = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
         String normalizedPath = appReportStatusSummaryPath.startsWith("/") ? appReportStatusSummaryPath : "/" + appReportStatusSummaryPath;
+        return normalizedBaseUrl + normalizedPath;
+    }
+
+    public String buildUiCustomizationIntentUrl() {
+        String normalizedBaseUrl = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
+        String normalizedPath = uiCustomizationIntentPath.startsWith("/") ? uiCustomizationIntentPath : "/" + uiCustomizationIntentPath;
         return normalizedBaseUrl + normalizedPath;
     }
 

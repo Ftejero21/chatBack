@@ -1,5 +1,7 @@
 package com.chat.chat.DTO;
 
+import java.util.List;
+
 public class AiSearchIntentInternalResponseDTO {
 
     private boolean success;
@@ -24,7 +26,14 @@ public class AiSearchIntentInternalResponseDTO {
     private String orden;
     private String rangoTemporalSugerido;
     private Boolean listMode;
+    private String action;
+    private String area;
+    private String property;
+    private String value;
+    private String valuePreset;
+    private String label;
     private Double confidence;
+    private List<UiCustomizationChangeDTO> changes;
 
     public AiSearchIntentInternalResponseDTO() {}
 
@@ -94,6 +103,27 @@ public class AiSearchIntentInternalResponseDTO {
     public Boolean getListMode() { return listMode; }
     public void setListMode(Boolean listMode) { this.listMode = listMode; }
 
+    public String getAction() { return action; }
+    public void setAction(String action) { this.action = action; }
+
+    public String getArea() { return area; }
+    public void setArea(String area) { this.area = area; }
+
+    public String getProperty() { return property; }
+    public void setProperty(String property) { this.property = property; }
+
+    public String getValue() { return value; }
+    public void setValue(String value) { this.value = value; }
+
+    public String getValuePreset() { return valuePreset; }
+    public void setValuePreset(String valuePreset) { this.valuePreset = valuePreset; }
+
+    public String getLabel() { return label; }
+    public void setLabel(String label) { this.label = label; }
+
     public Double getConfidence() { return confidence; }
     public void setConfidence(Double confidence) { this.confidence = confidence; }
+
+    public List<UiCustomizationChangeDTO> getChanges() { return changes; }
+    public void setChanges(List<UiCustomizationChangeDTO> changes) { this.changes = changes; }
 }

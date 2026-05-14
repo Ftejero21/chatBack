@@ -5,6 +5,7 @@ public class AiSearchIntentInternalRequestDTO {
     private String requestId;
     private String consulta;
     private String usuarioActualNombre;
+    private UiCustomizationContextDTO uiContext;
 
     public AiSearchIntentInternalRequestDTO() {}
 
@@ -16,4 +17,7 @@ public class AiSearchIntentInternalRequestDTO {
 
     public String getUsuarioActualNombre() { return usuarioActualNombre; }
     public void setUsuarioActualNombre(String usuarioActualNombre) { this.usuarioActualNombre = usuarioActualNombre; }
+
+    public UiCustomizationContextDTO getUiContext() { return uiContext; }
+    public void setUiContext(UiCustomizationContextDTO uiContext) { this.uiContext = uiContext; }
 }

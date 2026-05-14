@@ -117,6 +117,7 @@ public class Constantes {
     public static final String AI_REPORT_ANALYSIS_PATH = "/analizar-denuncia";
     public static final String AI_SUMMARY_ENCRYPTED_PATH = "/resumir-conversacion/encrypted";
     public static final String AI_MESSAGE_SEARCH_ENCRYPTED_PATH = "/buscar-mensajes/encrypted";
+    public static final String AI_SMART_ACTION_PATH = "/smart-action";
 
     // Subrutas Restantes
     public static final String USUARIOS_SUB = "/usuarios";

@@ -67,9 +67,9 @@ public class AiSearchIntentMicroserviceClientImpl implements AiSearchIntentMicro
             AiSearchIntentInternalResponseDTO body = mapResponseBody(requestId, rawBody);
             if (body != null) {
                 body.setTarget(normalizeTarget(body.getTarget()));
-                LOGGER.info("[AI][SEARCH_INTENT_CLIENT][MAPPED_DTO] requestId={} target={} tipoReporte={} reportStatus={} complaintStatus={} temporalExpression={} confidence={} listMode={}",
-                        requestId, body.getTarget(), body.getTipoReporte(), body.getReportStatus(), body.getComplaintStatus(), safe(body.getTemporalExpression()), body.getConfidence(), body.getListMode());
-                LOGGER.info("[AI][SEARCH_INTENT_CLIENT] requestId={} inbound success={} codigo={} target={} tipoReporte={} motivoReporte=\"{}\" reportStatus={} complaintStatus={} complaintDirection={} senderScope={} tipoScopeSolicitado={} tipoMensajeSolicitado={} readStatus={} personaMencionada=\"{}\" grupoMencionado=\"{}\" temporalExpression=\"{}\" orden={} confidence={} listMode={}",
+                LOGGER.info("[AI][SEARCH_INTENT_CLIENT][MAPPED_DTO] requestId={} target={} tipoReporte={} reportStatus={} complaintStatus={} temporalExpression={} confidence={} listMode={} action={} area={} property={}",
+                        requestId, body.getTarget(), body.getTipoReporte(), body.getReportStatus(), body.getComplaintStatus(), safe(body.getTemporalExpression()), body.getConfidence(), body.getListMode(), body.getAction(), body.getArea(), body.getProperty());
+                LOGGER.info("[AI][SEARCH_INTENT_CLIENT] requestId={} inbound success={} codigo={} target={} tipoReporte={} motivoReporte=\"{}\" reportStatus={} complaintStatus={} complaintDirection={} senderScope={} tipoScopeSolicitado={} tipoMensajeSolicitado={} readStatus={} personaMencionada=\"{}\" grupoMencionado=\"{}\" temporalExpression=\"{}\" orden={} confidence={} listMode={} action={} area={} property={} value=\"{}\" valuePreset={} label=\"{}\"",
                         requestId,
                         body.isSuccess(),
                         body.getCodigo(),
@@ -88,7 +88,13 @@ public class AiSearchIntentMicroserviceClientImpl implements AiSearchIntentMicro
                         safe(body.getTemporalExpression()),
                         body.getOrden(),
                         body.getConfidence(),
-                        body.getListMode());
+                        body.getListMode(),
+                        body.getAction(),
+                        body.getArea(),
+                        body.getProperty(),
+                        safe(body.getValue()),
+                        body.getValuePreset(),
+                        safe(body.getLabel()));
             }
             return body;
         } catch (ResourceAccessException ex) {

@@ -101,6 +101,7 @@ Use Caveman mode by default in this repository at level `Ultra Max`.
 - If validation is needed, prefer static review and compile-time checks only.
 - If checks cannot be run, state the blocker briefly.
 - Report only: changed files, blocking risk, next action.
+- Always skip tests unless explicitly requested.
 
 # Done criteria
 

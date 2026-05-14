@@ -4,6 +4,10 @@ import com.chat.chat.Utils.AiSearchProgressStep;
 
 public interface AiSearchProgressNotifier {
 
+    void registerSearchContext(String requestId, String target, String tipoMensajeSolicitado, String complaintDirection);
+
+    void clearSearchContext(String requestId);
+
     void notifyStarted(String userEmail, String requestId, AiSearchProgressStep step);
 
     void notifyCompleted(String userEmail, String requestId, AiSearchProgressStep step);

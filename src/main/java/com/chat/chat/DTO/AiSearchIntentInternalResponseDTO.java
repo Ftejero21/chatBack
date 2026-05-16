@@ -33,6 +33,7 @@ public class AiSearchIntentInternalResponseDTO {
     private String valuePreset;
     private String label;
     private Double confidence;
+    private ColorIntentDTO colorIntent;
     private List<UiCustomizationChangeDTO> changes;
 
     public AiSearchIntentInternalResponseDTO() {}
@@ -123,6 +124,9 @@ public class AiSearchIntentInternalResponseDTO {
 
     public Double getConfidence() { return confidence; }
     public void setConfidence(Double confidence) { this.confidence = confidence; }
+
+    public ColorIntentDTO getColorIntent() { return colorIntent; }
+    public void setColorIntent(ColorIntentDTO colorIntent) { this.colorIntent = colorIntent; }
 
     public List<UiCustomizationChangeDTO> getChanges() { return changes; }
     public void setChanges(List<UiCustomizationChangeDTO> changes) { this.changes = changes; }

@@ -7,6 +7,11 @@ public class AiEncryptedMessageSearchResponseDTO {
     private boolean success;
     private String codigo;
     private String mensaje;
+    private String target;
+    private String action;
+    private Boolean needsClarification;
+    private String clarificationReason;
+    private String clarificationQuestion;
     private String tipoScopeAplicado;
     private String nombreScopeAplicado;
     private Boolean scopeResuelto;
@@ -14,6 +19,17 @@ public class AiEncryptedMessageSearchResponseDTO {
     private Integer confidenceScope;
     private String resumenBusqueda;
     private String encryptedPayload;
+    private Long chatId;
+    private Long recipientId;
+    private String recipientName;
+    private String message;
+    private String contenidoBusqueda;
+    private String scheduledAt;
+    private String scheduledBatchId;
+    private Boolean requiresClientEncryption;
+    private Boolean sensitivePayloadEncrypted;
+    private String encryptedScheduledConfirmation;
+    private List<String> scheduledMissingFields;
     private List<AiEncryptedMessageSearchResultDTO> resultados;
 
     public boolean isSuccess() {
@@ -38,6 +54,46 @@ public class AiEncryptedMessageSearchResponseDTO {
 
     public void setMensaje(String mensaje) {
         this.mensaje = mensaje;
+    }
+
+    public String getTarget() {
+        return target;
+    }
+
+    public void setTarget(String target) {
+        this.target = target;
+    }
+
+    public String getAction() {
+        return action;
+    }
+
+    public void setAction(String action) {
+        this.action = action;
+    }
+
+    public Boolean getNeedsClarification() {
+        return needsClarification;
+    }
+
+    public void setNeedsClarification(Boolean needsClarification) {
+        this.needsClarification = needsClarification;
+    }
+
+    public String getClarificationReason() {
+        return clarificationReason;
+    }
+
+    public void setClarificationReason(String clarificationReason) {
+        this.clarificationReason = clarificationReason;
+    }
+
+    public String getClarificationQuestion() {
+        return clarificationQuestion;
+    }
+
+    public void setClarificationQuestion(String clarificationQuestion) {
+        this.clarificationQuestion = clarificationQuestion;
     }
 
     public List<AiEncryptedMessageSearchResultDTO> getResultados() {
@@ -102,5 +158,93 @@ public class AiEncryptedMessageSearchResponseDTO {
 
     public void setEncryptedPayload(String encryptedPayload) {
         this.encryptedPayload = encryptedPayload;
+    }
+
+    public Long getChatId() {
+        return chatId;
+    }
+
+    public void setChatId(Long chatId) {
+        this.chatId = chatId;
+    }
+
+    public String getRecipientName() {
+        return recipientName;
+    }
+
+    public void setRecipientName(String recipientName) {
+        this.recipientName = recipientName;
+    }
+
+    public Long getRecipientId() {
+        return recipientId;
+    }
+
+    public void setRecipientId(Long recipientId) {
+        this.recipientId = recipientId;
+    }
+
+    public String getMessage() {
+        return message;
+    }
+
+    public void setMessage(String message) {
+        this.message = message;
+    }
+
+    public String getContenidoBusqueda() {
+        return contenidoBusqueda;
+    }
+
+    public void setContenidoBusqueda(String contenidoBusqueda) {
+        this.contenidoBusqueda = contenidoBusqueda;
+    }
+
+    public String getScheduledAt() {
+        return scheduledAt;
+    }
+
+    public void setScheduledAt(String scheduledAt) {
+        this.scheduledAt = scheduledAt;
+    }
+
+    public String getScheduledBatchId() {
+        return scheduledBatchId;
+    }
+
+    public void setScheduledBatchId(String scheduledBatchId) {
+        this.scheduledBatchId = scheduledBatchId;
+    }
+
+    public Boolean getRequiresClientEncryption() {
+        return requiresClientEncryption;
+    }
+
+    public void setRequiresClientEncryption(Boolean requiresClientEncryption) {
+        this.requiresClientEncryption = requiresClientEncryption;
+    }
+
+    public Boolean getSensitivePayloadEncrypted() {
+        return sensitivePayloadEncrypted;
+    }
+
+    public void setSensitivePayloadEncrypted(Boolean sensitivePayloadEncrypted) {
+        this.sensitivePayloadEncrypted = sensitivePayloadEncrypted;
+    }
+
+    public String getEncryptedScheduledConfirmation() {
+        return encryptedScheduledConfirmation;
+    }
+
+    public void setEncryptedScheduledConfirmation(String encryptedScheduledConfirmation) {
+        this.encryptedScheduledConfirmation = encryptedScheduledConfirmation;
+    }
+
+    public List<String> getScheduledMissingFields() {
+        return scheduledMissingFields;
+    }
+
+    public void setScheduledMissingFields(List<String> scheduledMissingFields) {
+        this.scheduledMissingFields = scheduledMissingFields;
     }
 }

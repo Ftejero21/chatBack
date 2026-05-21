@@ -64,17 +64,18 @@ public class CifradorE2EMensajeProgramadoService {
         PublicKey keyEmisor = parsearClavePublicaUsuario(emisor, "emisor");
         PublicKey keyReceptor = parsearClavePublicaUsuario(receptor, "receptor");
         MaterialCifrado material = cifrarTextoPlanoConAes(textoPlano);
+        byte[] envelopePlaintext = envelopePlaintextFromAesKey(material.claveAes());
 
         LinkedHashMap<String, Object> payload = new LinkedHashMap<>();
         payload.put("type", "E2E");
         payload.put("iv", material.ivBase64());
         payload.put("ciphertext", material.ciphertextBase64());
-        ResultadoEnvelopeRsa envelopeEmisor = cifrarConRsaOaep(material.claveAes(), keyEmisor, "forEmisor");
-        ResultadoEnvelopeRsa envelopeReceptor = cifrarConRsaOaep(material.claveAes(), keyReceptor, "forReceptor");
+        ResultadoEnvelopeRsa envelopeEmisor = cifrarConRsaOaep(envelopePlaintext, keyEmisor, "forEmisor");
+        ResultadoEnvelopeRsa envelopeReceptor = cifrarConRsaOaep(envelopePlaintext, keyReceptor, "forReceptor");
         payload.put("forEmisor", envelopeEmisor.envelopeBase64());
         payload.put("forReceptor", envelopeReceptor.envelopeBase64());
 
-        String forAdmin = construirForAdmin(material.claveAes());
+        String forAdmin = construirForAdmin(envelopePlaintext);
         if (forAdmin != null) {
             payload.put("forAdmin", forAdmin);
         }
@@ -93,6 +94,7 @@ public class CifradorE2EMensajeProgramadoService {
         }
         PublicKey keyEmisor = parsearClavePublicaUsuario(emisor, "emisor");
         MaterialCifrado material = cifrarTextoPlanoConAes(textoPlano);
+        byte[] envelopePlaintext = envelopePlaintextFromAesKey(material.claveAes());
 
         LinkedHashMap<String, String> forReceptores = new LinkedHashMap<>();
         if (receptoresActivos != null) {
@@ -115,7 +117,7 @@ public class CifradorE2EMensajeProgramadoService {
                     })
                     .forEach(receptor -> {
                         PublicKey keyReceptor = parsearClavePublicaUsuario(receptor, "receptor_grupal");
-                        ResultadoEnvelopeRsa envelope = cifrarConRsaOaep(material.claveAes(), keyReceptor,
+                        ResultadoEnvelopeRsa envelope = cifrarConRsaOaep(envelopePlaintext, keyReceptor,
                                 "forReceptores[" + receptor.getId() + "]");
                         forReceptores.put(String.valueOf(receptor.getId()), envelope.envelopeBase64());
                     });
@@ -125,11 +127,11 @@ public class CifradorE2EMensajeProgramadoService {
         payload.put("type", "E2E_GROUP");
         payload.put("iv", material.ivBase64());
         payload.put("ciphertext", material.ciphertextBase64());
-        ResultadoEnvelopeRsa envelopeEmisor = cifrarConRsaOaep(material.claveAes(), keyEmisor, "forEmisor");
+        ResultadoEnvelopeRsa envelopeEmisor = cifrarConRsaOaep(envelopePlaintext, keyEmisor, "forEmisor");
         payload.put("forEmisor", envelopeEmisor.envelopeBase64());
         payload.put("forReceptores", forReceptores);
 
-        String forAdmin = construirForAdmin(material.claveAes());
+        String forAdmin = construirForAdmin(envelopePlaintext);
         if (forAdmin != null) {
             payload.put("forAdmin", forAdmin);
         }
@@ -155,16 +157,24 @@ public class CifradorE2EMensajeProgramadoService {
         }
     }
 
-    private String construirForAdmin(byte[] aesKeyRaw) {
+    private String construirForAdmin(byte[] envelopePlaintext) {
         String adminPublicKey = adminAuditCrypto.getAuditPublicKeySpkiBase64();
         if (adminPublicKey == null || adminPublicKey.isBlank()) {
             return null;
         }
         PublicKey keyAdmin = parsearClavePublicaBase64(adminPublicKey, "admin_audit", false);
-        if (aesKeyRaw == null || aesKeyRaw.length == 0) {
+        if (envelopePlaintext == null || envelopePlaintext.length == 0) {
             return null;
         }
-        return cifrarConRsaOaep(aesKeyRaw, keyAdmin, "forAdmin").envelopeBase64();
+        return cifrarConRsaOaep(envelopePlaintext, keyAdmin, "forAdmin").envelopeBase64();
+    }
+
+    private byte[] envelopePlaintextFromAesKey(byte[] aesKeyRaw) {
+        if (aesKeyRaw == null || aesKeyRaw.length == 0) {
+            throw new ExcepcionCifradoProgramado("clave AES vacia para envelope RSA", false);
+        }
+        String aesKeyBase64 = base64(aesKeyRaw);
+        return aesKeyBase64.getBytes(StandardCharsets.UTF_8);
     }
 
     private ResultadoEnvelopeRsa cifrarConRsaOaep(byte[] data, PublicKey publicKey, String contexto) {

@@ -6,6 +6,7 @@ public class AiEncryptedConversationSummaryInternalResponseDTO {
     private String codigo;
     private String mensaje;
     private String resumen;
+    private AiUsageInfoDTO usage;
 
     public boolean isSuccess() {
         return success;
@@ -37,5 +38,13 @@ public class AiEncryptedConversationSummaryInternalResponseDTO {
 
     public void setResumen(String resumen) {
         this.resumen = resumen;
+    }
+
+    public AiUsageInfoDTO getUsage() {
+        return usage;
+    }
+
+    public void setUsage(AiUsageInfoDTO usage) {
+        this.usage = usage;
     }
 }

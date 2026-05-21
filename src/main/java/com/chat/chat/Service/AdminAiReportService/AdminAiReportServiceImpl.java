@@ -25,6 +25,8 @@ import com.chat.chat.Repository.UserComplaintRepository;
 import com.chat.chat.Repository.UserModerationHistoryRepository;
 import com.chat.chat.Repository.UsuarioRepository;
 import com.chat.chat.Service.AiService.DeepSeekApiClient;
+import com.chat.chat.Service.AiService.AiUsageMetricCaptureService;
+import com.chat.chat.Service.AiService.AiUsageLimitService;
 import com.chat.chat.Service.AdminReportPdfService.AdminReportPdfService;
 import com.chat.chat.Utils.Constantes;
 import com.chat.chat.Utils.ModerationActionType;
@@ -53,6 +55,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.Set;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Service
@@ -79,6 +82,8 @@ public class AdminAiReportServiceImpl implements AdminAiReportService {
     private final AiProperties aiProperties;
     private final DeepSeekProperties deepSeekProperties;
     private final DeepSeekApiClient deepSeekApiClient;
+    private final AiUsageMetricCaptureService aiUsageMetricCaptureService;
+    private final AiUsageLimitService aiUsageLimitService;
     private final AdminReportPdfService adminReportPdfService;
     private final SecurityUtils securityUtils;
 
@@ -93,6 +98,8 @@ public class AdminAiReportServiceImpl implements AdminAiReportService {
                                     AiProperties aiProperties,
                                     DeepSeekProperties deepSeekProperties,
                                     DeepSeekApiClient deepSeekApiClient,
+                                    AiUsageMetricCaptureService aiUsageMetricCaptureService,
+                                    AiUsageLimitService aiUsageLimitService,
                                     AdminReportPdfService adminReportPdfService,
                                     SecurityUtils securityUtils) {
         this.usuarioRepository = usuarioRepository;
@@ -106,6 +113,8 @@ public class AdminAiReportServiceImpl implements AdminAiReportService {
         this.aiProperties = aiProperties;
         this.deepSeekProperties = deepSeekProperties;
         this.deepSeekApiClient = deepSeekApiClient;
+        this.aiUsageMetricCaptureService = aiUsageMetricCaptureService;
+        this.aiUsageLimitService = aiUsageLimitService;
         this.adminReportPdfService = adminReportPdfService;
         this.securityUtils = securityUtils;
     }
@@ -164,7 +173,10 @@ public class AdminAiReportServiceImpl implements AdminAiReportService {
                     data.getFechaInicio(), data.getFechaFin());
             return buildFallbackReport(data, CODE_ERROR);
         }
+        aiUsageLimitService.assertCurrentUserCanUseAi();
         try {
+            Long userId = securityUtils.getAuthenticatedUserId();
+            String requestId = UUID.randomUUID().toString();
             LOGGER.info("[ADMIN_AI_REPORT] ai-request start={} end={} denuncias={} reportes={} mensajes={}",
                     data.getFechaInicio(),
                     data.getFechaFin(),
@@ -176,11 +188,31 @@ public class AdminAiReportServiceImpl implements AdminAiReportService {
                     buildUserContent(data),
                     deepSeekProperties.getAdminReportMaxOutputTokens()
             );
+            aiUsageMetricCaptureService.capture(
+                    userId,
+                    requestId,
+                    "ADMIN_AI_REPORT",
+                    "GENERATE_REPORT",
+                    "REPORT_ANALYSIS",
+                    deepSeekApiClient.getLastUsage(),
+                    true,
+                    null
+            );
             if (response == null || response.isBlank()) {
                 return buildFallbackReport(data, CODE_ERROR);
             }
             return response.trim();
         } catch (SemanticApiException ex) {
+            aiUsageMetricCaptureService.capture(
+                    securityUtils.getAuthenticatedUserId(),
+                    UUID.randomUUID().toString(),
+                    "ADMIN_AI_REPORT",
+                    "GENERATE_REPORT",
+                    "REPORT_ANALYSIS",
+                    null,
+                    false,
+                    ex.getCode()
+            );
             LOGGER.warn("[ADMIN_AI_REPORT] ai-provider-error start={} end={} code={} status={}",
                     data.getFechaInicio(),
                     data.getFechaFin(),

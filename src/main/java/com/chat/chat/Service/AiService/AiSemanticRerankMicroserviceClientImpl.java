@@ -26,15 +26,22 @@ public class AiSemanticRerankMicroserviceClientImpl implements AiSemanticRerankM
 
     private final RestTemplate restTemplate;
     private final TejechatAiServiceProperties tejechatAiServiceProperties;
+    private final AiUsageMetricAuthenticatedCaptureService usageCaptureService;
+    private final AiUsageLimitService aiUsageLimitService;
 
     public AiSemanticRerankMicroserviceClientImpl(@Qualifier("aiMessageSearchRestTemplate") RestTemplate restTemplate,
-                                                  TejechatAiServiceProperties tejechatAiServiceProperties) {
+                                                  TejechatAiServiceProperties tejechatAiServiceProperties,
+                                                  AiUsageMetricAuthenticatedCaptureService usageCaptureService,
+                                                  AiUsageLimitService aiUsageLimitService) {
         this.restTemplate = restTemplate;
         this.tejechatAiServiceProperties = tejechatAiServiceProperties;
+        this.usageCaptureService = usageCaptureService;
+        this.aiUsageLimitService = aiUsageLimitService;
     }
 
     @Override
     public AiSemanticRerankInternalResponseDTO rerank(String requestId, AiSemanticRerankInternalRequestDTO request) {
+        aiUsageLimitService.assertCurrentUserCanUseAi();
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         headers.set(INTERNAL_API_KEY_HEADER, tejechatAiServiceProperties.getInternalKey());
@@ -54,18 +61,30 @@ public class AiSemanticRerankMicroserviceClientImpl implements AiSemanticRerankM
                     AiSemanticRerankInternalResponseDTO.class
             );
             AiSemanticRerankInternalResponseDTO body = response.getBody();
+            usageCaptureService.capture(
+                    requestId,
+                    "SEMANTIC_RERANK",
+                    null,
+                    request == null ? null : request.getTipoBusqueda(),
+                    body == null ? null : body.getUsage(),
+                    body != null && body.isSuccess(),
+                    body == null ? "AI_SERVICE_EMPTY_RESPONSE" : body.getCodigo()
+            );
             LOGGER.info("[AI][SEMANTIC_RERANK_CLIENT] requestId={} selectedIds={} confidence={}",
                     requestId,
                     body == null ? null : body.getSelectedIds(),
                     body == null ? null : body.getConfidence());
             return body;
         } catch (ResourceAccessException ex) {
+            usageCaptureService.capture(requestId, "SEMANTIC_RERANK", null, request == null ? null : request.getTipoBusqueda(), null, false, "AI_SERVICE_UNAVAILABLE");
             LOGGER.warn("[AI][SEMANTIC_RERANK_CLIENT] requestId={} service-unavailable type={}", requestId, ex.getClass().getSimpleName());
             return null;
         } catch (HttpStatusCodeException ex) {
+            usageCaptureService.capture(requestId, "SEMANTIC_RERANK", null, request == null ? null : request.getTipoBusqueda(), null, false, "AI_SERVICE_ERROR");
             LOGGER.warn("[AI][SEMANTIC_RERANK_CLIENT] requestId={} service-error status={}", requestId, ex.getStatusCode().value());
             return null;
         } catch (RestClientException ex) {
+            usageCaptureService.capture(requestId, "SEMANTIC_RERANK", null, request == null ? null : request.getTipoBusqueda(), null, false, "AI_SERVICE_ERROR");
             LOGGER.warn("[AI][SEMANTIC_RERANK_CLIENT] requestId={} service-error type={}", requestId, ex.getClass().getSimpleName());
             return null;
         }

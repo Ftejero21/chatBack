@@ -6,6 +6,7 @@ public class AiAppReportStatusSummaryInternalResponseDTO {
     private String codigo;
     private String mensaje;
     private String resumenBusqueda;
+    private AiUsageInfoDTO usage;
 
     public AiAppReportStatusSummaryInternalResponseDTO() {}
 
@@ -20,4 +21,6 @@ public class AiAppReportStatusSummaryInternalResponseDTO {
 
     public String getResumenBusqueda() { return resumenBusqueda; }
     public void setResumenBusqueda(String resumenBusqueda) { this.resumenBusqueda = resumenBusqueda; }
+    public AiUsageInfoDTO getUsage() { return usage; }
+    public void setUsage(AiUsageInfoDTO usage) { this.usage = usage; }
 }

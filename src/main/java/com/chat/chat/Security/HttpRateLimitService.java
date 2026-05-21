@@ -2,6 +2,8 @@ package com.chat.chat.Security;
 
 import com.chat.chat.Exceptions.TooManyRequestsException;
 import jakarta.servlet.http.HttpServletRequest;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
@@ -11,6 +13,7 @@ import java.util.Locale;
 
 @Service
 public class HttpRateLimitService {
+    private static final Logger log = LoggerFactory.getLogger(HttpRateLimitService.class);
 
     private static final int LOGIN_LIMIT = 8;
     private static final Duration LOGIN_WINDOW = Duration.ofMinutes(10);
@@ -50,6 +53,8 @@ public class HttpRateLimitService {
     private static final Duration ADMIN_HTTP_WINDOW = Duration.ofMinutes(1);
     private static final int UPLOAD_LIMIT = 40;
     private static final Duration UPLOAD_WINDOW = Duration.ofMinutes(5);
+    private static final int DOWNLOAD_LIMIT = 300;
+    private static final Duration DOWNLOAD_WINDOW = Duration.ofMinutes(1);
     private static final int E2E_BACKUP_PUT_LIMIT = 15;
     private static final Duration E2E_BACKUP_PUT_WINDOW = Duration.ofMinutes(5);
     private static final int E2E_BACKUP_GET_LIMIT = 60;
@@ -172,7 +177,17 @@ public class HttpRateLimitService {
         String userKey = authenticatedUserKey();
         String normalizedType = normalizeIdentity(uploadType);
         String key = "http:upload:" + normalizedType + ":" + ip + ":" + userKey;
-        enforce(key, UPLOAD_LIMIT, UPLOAD_WINDOW, "Demasiadas subidas de archivo. Intenta mas tarde.");
+        enforce(key, UPLOAD_LIMIT, UPLOAD_WINDOW, "Demasiadas subidas de archivo. Intenta mas tarde.",
+                "UPLOAD", normalizedType, userKey, ip);
+    }
+
+    public void checkDownload(HttpServletRequest request, String downloadType) {
+        String ip = clientIpResolver.resolve(request);
+        String userKey = authenticatedUserKey();
+        String normalizedType = normalizeIdentity(downloadType);
+        String key = "http:download:" + normalizedType + ":" + ip + ":" + userKey;
+        enforce(key, DOWNLOAD_LIMIT, DOWNLOAD_WINDOW, "Demasiadas descargas de archivo. Intenta mas tarde.",
+                "DOWNLOAD", normalizedType, userKey, ip);
     }
 
     public void checkE2EPrivateKeyBackupPut(HttpServletRequest request, Long userId) {
@@ -197,6 +212,18 @@ public class HttpRateLimitService {
             return;
         }
         long retryAfter = decision.retryAfterSeconds();
+        throw new TooManyRequestsException(baseMessage + " Reintenta en " + retryAfter + " segundos.", retryAfter);
+    }
+
+    private void enforce(String key, int limit, Duration window, String baseMessage,
+                         String category, String type, String userKey, String ip) {
+        RateLimitDecision decision = limiter.consume(key, limit, window);
+        if (decision.allowed()) {
+            return;
+        }
+        long retryAfter = decision.retryAfterSeconds();
+        log.warn("[RATE_LIMIT][{}] type={} userId={} ip={} retryAfter={}",
+                category, type, userKey, ip, retryAfter);
         throw new TooManyRequestsException(baseMessage + " Reintenta en " + retryAfter + " segundos.", retryAfter);
     }
 

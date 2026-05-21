@@ -34,7 +34,26 @@ public class AiSearchIntentInternalResponseDTO {
     private String label;
     private Double confidence;
     private ColorIntentDTO colorIntent;
+    private String uiAreaHint;
+    private String uiPropertyHint;
+    private String uiValueHint;
+    private String uiColorIntent;
+    private String uiExpansionMode;
+    private String scheduledRecipientName;
+    private String scheduledMessageText;
+    private String scheduledMessageTextCorrected;
+    private String scheduledDateTimeExpression;
+    private String scheduledDateTimeIso;
+    private String scheduledTimezone;
+    private String scheduledTargetType;
+    private List<String> scheduledMissingFields;
+    private Double scheduledConfidence;
+    private UiCustomizationScopeDTO scope;
+    private Boolean needsClarification;
+    private String clarificationReason;
+    private String clarificationQuestion;
     private List<UiCustomizationChangeDTO> changes;
+    private AiUsageInfoDTO usage;
 
     public AiSearchIntentInternalResponseDTO() {}
 
@@ -127,6 +146,54 @@ public class AiSearchIntentInternalResponseDTO {
 
     public ColorIntentDTO getColorIntent() { return colorIntent; }
     public void setColorIntent(ColorIntentDTO colorIntent) { this.colorIntent = colorIntent; }
+
+    public String getUiAreaHint() { return uiAreaHint; }
+    public void setUiAreaHint(String uiAreaHint) { this.uiAreaHint = uiAreaHint; }
+
+    public String getUiPropertyHint() { return uiPropertyHint; }
+    public void setUiPropertyHint(String uiPropertyHint) { this.uiPropertyHint = uiPropertyHint; }
+
+    public String getUiValueHint() { return uiValueHint; }
+    public void setUiValueHint(String uiValueHint) { this.uiValueHint = uiValueHint; }
+
+    public String getUiColorIntent() { return uiColorIntent; }
+    public void setUiColorIntent(String uiColorIntent) { this.uiColorIntent = uiColorIntent; }
+
+    public String getUiExpansionMode() { return uiExpansionMode; }
+    public void setUiExpansionMode(String uiExpansionMode) { this.uiExpansionMode = uiExpansionMode; }
+    public String getScheduledRecipientName() { return scheduledRecipientName; }
+    public void setScheduledRecipientName(String scheduledRecipientName) { this.scheduledRecipientName = scheduledRecipientName; }
+    public String getScheduledMessageText() { return scheduledMessageText; }
+    public void setScheduledMessageText(String scheduledMessageText) { this.scheduledMessageText = scheduledMessageText; }
+    public String getScheduledMessageTextCorrected() { return scheduledMessageTextCorrected; }
+    public void setScheduledMessageTextCorrected(String scheduledMessageTextCorrected) { this.scheduledMessageTextCorrected = scheduledMessageTextCorrected; }
+    public String getScheduledDateTimeExpression() { return scheduledDateTimeExpression; }
+    public void setScheduledDateTimeExpression(String scheduledDateTimeExpression) { this.scheduledDateTimeExpression = scheduledDateTimeExpression; }
+    public String getScheduledDateTimeIso() { return scheduledDateTimeIso; }
+    public void setScheduledDateTimeIso(String scheduledDateTimeIso) { this.scheduledDateTimeIso = scheduledDateTimeIso; }
+    public String getScheduledTimezone() { return scheduledTimezone; }
+    public void setScheduledTimezone(String scheduledTimezone) { this.scheduledTimezone = scheduledTimezone; }
+    public String getScheduledTargetType() { return scheduledTargetType; }
+    public void setScheduledTargetType(String scheduledTargetType) { this.scheduledTargetType = scheduledTargetType; }
+    public List<String> getScheduledMissingFields() { return scheduledMissingFields; }
+    public void setScheduledMissingFields(List<String> scheduledMissingFields) { this.scheduledMissingFields = scheduledMissingFields; }
+    public Double getScheduledConfidence() { return scheduledConfidence; }
+    public void setScheduledConfidence(Double scheduledConfidence) { this.scheduledConfidence = scheduledConfidence; }
+
+    public AiUsageInfoDTO getUsage() { return usage; }
+    public void setUsage(AiUsageInfoDTO usage) { this.usage = usage; }
+
+    public UiCustomizationScopeDTO getScope() { return scope; }
+    public void setScope(UiCustomizationScopeDTO scope) { this.scope = scope; }
+
+    public Boolean getNeedsClarification() { return needsClarification; }
+    public void setNeedsClarification(Boolean needsClarification) { this.needsClarification = needsClarification; }
+
+    public String getClarificationReason() { return clarificationReason; }
+    public void setClarificationReason(String clarificationReason) { this.clarificationReason = clarificationReason; }
+
+    public String getClarificationQuestion() { return clarificationQuestion; }
+    public void setClarificationQuestion(String clarificationQuestion) { this.clarificationQuestion = clarificationQuestion; }
 
     public List<UiCustomizationChangeDTO> getChanges() { return changes; }
     public void setChanges(List<UiCustomizationChangeDTO> changes) { this.changes = changes; }

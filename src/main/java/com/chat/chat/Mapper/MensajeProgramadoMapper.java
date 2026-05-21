@@ -2,6 +2,7 @@ package com.chat.chat.Mapper;
 
 import com.chat.chat.DTO.MensajeProgramadoDTO;
 import com.chat.chat.DTO.ProgramarMensajeItemDTO;
+import com.chat.chat.DTO.ScheduledMessageMineDTO;
 import com.chat.chat.Entity.MensajeProgramadoEntity;
 import org.springframework.stereotype.Component;
 
@@ -35,6 +36,25 @@ public class MensajeProgramadoMapper {
         dto.setWsDestinations(entity.getWsDestinations());
         dto.setWsEmitError(entity.getWsEmitError());
         dto.setPersistedMessageId(entity.getPersistedMessageId());
+        return dto;
+    }
+
+    public ScheduledMessageMineDTO toMineDto(MensajeProgramadoEntity entity) {
+        ScheduledMessageMineDTO dto = new ScheduledMessageMineDTO();
+        dto.setId(entity.getId());
+        dto.setMessageId(entity.getPersistedMessageId());
+        dto.setChatId(entity.getChat() == null ? null : entity.getChat().getId());
+        dto.setScheduledBatchId(entity.getScheduledBatchId());
+        dto.setStatus(entity.getStatus() == null ? null : entity.getStatus().name());
+        dto.setScheduledAt(entity.getScheduledAt());
+        dto.setCreatedAt(entity.getCreatedAt());
+        dto.setSentAt(entity.getSentAt());
+        dto.setCanceledAt(entity.getCanceledAt());
+        dto.setAttempts(entity.getAttempts());
+        dto.setLastError(entity.getLastError());
+        dto.setContenido(entity.getMessageContent());
+        dto.setContenidoBusqueda(null);
+        dto.setMessage(null);
         return dto;
     }
 }

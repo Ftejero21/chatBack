@@ -25,6 +25,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
+import java.util.UUID;
 import java.util.regex.Pattern;
 
 @Service
@@ -50,6 +51,8 @@ public class DeepSeekAiPollDraftServiceImpl implements AiPollDraftService {
     private final AdminAuditCrypto adminAuditCrypto;
     private final AiEncryptedContextService aiEncryptedContextService;
     private final ObjectMapper objectMapper;
+    private final AiUsageMetricCaptureService aiUsageMetricCaptureService;
+    private final AiUsageLimitService aiUsageLimitService;
 
     public DeepSeekAiPollDraftServiceImpl(AiProperties aiProperties,
                                           DeepSeekProperties deepSeekProperties,
@@ -59,7 +62,9 @@ public class DeepSeekAiPollDraftServiceImpl implements AiPollDraftService {
                                           ChatGrupalRepository chatGrupalRepository,
                                           AdminAuditCrypto adminAuditCrypto,
                                           AiEncryptedContextService aiEncryptedContextService,
-                                          ObjectMapper objectMapper) {
+                                          ObjectMapper objectMapper,
+                                          AiUsageMetricCaptureService aiUsageMetricCaptureService,
+                                          AiUsageLimitService aiUsageLimitService) {
         this.aiProperties = aiProperties;
         this.deepSeekProperties = deepSeekProperties;
         this.deepSeekApiClient = deepSeekApiClient;
@@ -69,6 +74,8 @@ public class DeepSeekAiPollDraftServiceImpl implements AiPollDraftService {
         this.adminAuditCrypto = adminAuditCrypto;
         this.aiEncryptedContextService = aiEncryptedContextService;
         this.objectMapper = objectMapper;
+        this.aiUsageMetricCaptureService = aiUsageMetricCaptureService;
+        this.aiUsageLimitService = aiUsageLimitService;
     }
 
     @Override
@@ -121,8 +128,10 @@ public class DeepSeekAiPollDraftServiceImpl implements AiPollDraftService {
         if (!rateLimitCheck.isAllowed()) {
             return failure(rateLimitCheck.getCode(), rateLimitCheck.getMessage());
         }
+        aiUsageLimitService.assertCurrentUserCanUseAi();
 
         try {
+            String requestId = UUID.randomUUID().toString();
             LOGGER.info("[AI][POLL_DRAFT] request userId={} chatGrupalId={} mensajes={} contextLength={} maxOpciones={}",
                     userId,
                     request.getChatGrupalId(),
@@ -134,6 +143,16 @@ public class DeepSeekAiPollDraftServiceImpl implements AiPollDraftService {
                     userContent,
                     deepSeekProperties.getPollDraftMaxOutputTokens()
             );
+            aiUsageMetricCaptureService.capture(
+                    userId,
+                    requestId,
+                    "POLL_DRAFT",
+                    "GENERATE_DRAFT",
+                    "POLL_DRAFT",
+                    deepSeekApiClient.getLastUsage(),
+                    true,
+                    null
+            );
             aiRateLimitService.registrarUso(userId);
             PollDraftResult result = parseDraft(rawOutput, maxOptions);
             if (!result.valid()) {
@@ -141,6 +160,16 @@ public class DeepSeekAiPollDraftServiceImpl implements AiPollDraftService {
             }
             return successEncrypted(userId, result.question(), result.options(), result.multipleResponses());
         } catch (SemanticApiException ex) {
+            aiUsageMetricCaptureService.capture(
+                    userId,
+                    UUID.randomUUID().toString(),
+                    "POLL_DRAFT",
+                    "GENERATE_DRAFT",
+                    "POLL_DRAFT",
+                    null,
+                    false,
+                    ex.getCode()
+            );
             LOGGER.warn("[AI][POLL_DRAFT] provider-error userId={} chatGrupalId={} code={} status={}",
                     userId,
                     request.getChatGrupalId(),

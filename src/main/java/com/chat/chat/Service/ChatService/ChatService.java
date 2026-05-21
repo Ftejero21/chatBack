@@ -23,6 +23,7 @@ public interface ChatService {
     List<ChatGrupalDTO> listarChatsGrupalesPorUsuario(Long usuarioId);
 
     List<Object> listarTodosLosChatsDeUsuario(Long usuarioId);
+    UsuariosDisponiblesChatResponseDTO obtenerUsuariosDisponiblesParaChat();
 
     List<MensajeDTO> listarMensajesPorChatId(Long chatId, Integer page, Integer size);
     default List<MensajeDTO> listarMensajesPorChatId(Long chatId) {

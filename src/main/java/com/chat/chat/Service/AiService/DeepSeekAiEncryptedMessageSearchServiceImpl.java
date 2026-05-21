@@ -106,6 +106,7 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
 
     private static final Logger LOGGER = LoggerFactory.getLogger(DeepSeekAiEncryptedMessageSearchServiceImpl.class);
     private static final int DEFAULT_MAX_RESULTADOS = 10;
+    private static final int DEFAULT_CHRONOLOGICAL_MESSAGE_LIST_LIMIT = 5;
     private static final int MAX_MAX_RESULTADOS = 20;
     private static final int DEFAULT_MAX_MENSAJES = 300;
     private static final int MAX_MAX_MENSAJES = 1000;
@@ -118,6 +119,21 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
     private static final int MAX_APP_REPORT_STATUS_RERANK_FALLBACK_RESULTS = 3;
     private static final double MIN_APP_REPORT_STATUS_RERANK_CONFIDENCE = 0.55d;
     private static final int MAX_GENERIC_SEMANTIC_RERANK_CANDIDATES = 12;
+    private static final Pattern MESSAGE_LIMIT_TOKEN_PATTERN = Pattern.compile("\\b(\\d+|un|una|uno|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)\\b");
+    private static final Map<String, Integer> MESSAGE_NUMBER_WORDS = Map.ofEntries(
+            Map.entry("un", 1),
+            Map.entry("una", 1),
+            Map.entry("uno", 1),
+            Map.entry("dos", 2),
+            Map.entry("tres", 3),
+            Map.entry("cuatro", 4),
+            Map.entry("cinco", 5),
+            Map.entry("seis", 6),
+            Map.entry("siete", 7),
+            Map.entry("ocho", 8),
+            Map.entry("nueve", 9),
+            Map.entry("diez", 10)
+    );
     private static final double MIN_GENERIC_SEMANTIC_RERANK_CONFIDENCE = 0.55d;
     private static final int MAX_MESSAGE_CONTENT_LENGTH = 500;
     private static final int MAX_REASON_LENGTH = 300;
@@ -317,6 +333,7 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
                     safeForLog(intentResp.getTemporalExpression()), intentResp.getConfidence());
         }
         logIntentTargetTrace(requestId, "received", intentResp == null ? null : intentResp.getTarget());
+        normalizeChronologicalMessageListIntent(requestId, values.consulta(), analysis, intentResp, authoritativeIntentRouting);
         logIntentClassifierOutcome(requestId, values.consulta(), analysis, intentResp);
         logIntentTargetTrace(requestId, "after-normalize", intentResp == null ? null : intentResp.getTarget());
         logIntentApply(requestId, intentResp, authoritativeIntentRouting);
@@ -456,7 +473,7 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
         scope = refineScopeAfterPersonResolution(requestId, scope, analysis, senderResolution);
 
         // Fork: direct multimedia list (listMode + tipoMensaje multimedia) → skip semantic IA
-        if (isDirectMultimediaListQuery(intentResp, requestedType)) {
+        if (isDirectMultimediaListQuery(intentResp, values, analysis, requestedType, authoritativeIntentRouting)) {
             aiSearchProgressNotifier.notifyCompleted(userEmail, requestId, AiSearchProgressStep.ANALYZING_CONTEXT);
             return resolveDirectMultimediaList(requestId, userId, userEmail, values, scope, senderResolution, intent, intentResp);
         }
@@ -467,7 +484,7 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
             LOGGER.info("[AI][MESSAGE_SEARCH_ENCRYPTED] requestId={} listMode=true directSingularDisabled=true reason=LIST_MODE",
                     requestId);
         }
-        if (isDirectMessageListQuery(intentResp, values, analysis, requestedType, offensiveIntent)) {
+        if (isDirectMessageListQuery(intentResp, values, analysis, requestedType, offensiveIntent, authoritativeIntentRouting)) {
             aiSearchProgressNotifier.notifyCompleted(userEmail, requestId, AiSearchProgressStep.ANALYZING_CONTEXT);
             return resolveDirectMessageList(requestId, userId, userEmail, values, scope, senderResolution, intentResp, requestedType);
         }
@@ -891,11 +908,17 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
         }
     }
 
-    private boolean isDirectMultimediaListQuery(AiSearchIntentInternalResponseDTO intent, String requestedType) {
-        if (intent == null || !intent.isSuccess()) return false;
-        if (intent.getConfidence() == null || intent.getConfidence() < MIN_INTENT_CONFIDENCE) return false;
-        if (!"MESSAGES".equals(intent.getTarget())) return false;
-        if (!Boolean.TRUE.equals(intent.getListMode())) return false;
+    private boolean isDirectMultimediaListQuery(AiSearchIntentInternalResponseDTO intent,
+                                                ValidationValues values,
+                                                AiMessageSearchNaturalQueryAnalysis analysis,
+                                                String requestedType,
+                                                boolean authoritativeIntentRouting) {
+        if (!shouldUseDeterministicChronologicalList(intent,
+                values == null ? null : values.consulta(),
+                analysis,
+                authoritativeIntentRouting)) {
+            return false;
+        }
         String tipo = requestedType != null ? requestedType : intent.getTipoMensajeSolicitado();
         if (tipo == null) return false;
         return "STICKER".equals(tipo) || "IMAGE".equals(tipo) || "AUDIO".equals(tipo) || "FILE".equals(tipo);
@@ -912,45 +935,64 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
         String requestedType = intent != null && intent.requestedType() != null
                 ? intent.requestedType()
                 : intentResp.getTipoMensajeSolicitado();
-        int requestedLimit = intentResp.getLimitSolicitado() != null && intentResp.getLimitSolicitado() > 0
-                ? intentResp.getLimitSolicitado()
-                : values.maxResultados();
+        int requestedLimit = resolveChronologicalMessageListLimit(intentResp, values == null ? null : values.consulta(), values);
         int limit = Math.min(Math.max(1, requestedLimit), MAX_MAX_RESULTADOS);
 
         AiMessageSearchSenderScope senderScope = senderResolution == null
                 ? AiMessageSearchSenderScope.AUTHENTICATED_USER
                 : senderResolution.senderScope();
+        SearchDirection direction = resolveChronologicalSearchDirection(intentResp);
 
         LOGGER.info("[AI][MESSAGE_DIRECT_LIST] requestId={} enabled=true tipo={} limit={} senderScope={} tipoScopeAplicado={} nombreScopeAplicado={}",
                 requestId, requestedType, limit, senderScope.name(),
                 effectiveScopeType(scope).name(),
                 scope == null ? null : scope.getNombreScopeAplicado());
+        LOGGER.info("[AI][MESSAGE_SEARCH_ORDER] requestId={} orden={} sort={} limit={}",
+                requestId,
+                direction == SearchDirection.FIRST ? "FIRST" : "LATEST",
+                direction == SearchDirection.FIRST ? "fechaEnvio_ASC" : "fechaEnvio_DESC",
+                limit);
+        LOGGER.info("[AI][MESSAGE_SEARCH_SCOPE] requestId={} senderScope={} usuarioId={}",
+                requestId, senderScope.name(), userId);
+        LOGGER.info("[AI][MESSAGE_SEARCH_DETERMINISTIC] requestId={} reason={}",
+                requestId, direction == SearchDirection.FIRST ? "FIRST_MESSAGES" : "LATEST_MESSAGES");
 
         aiSearchProgressNotifier.notifyStarted(userEmail, requestId, AiSearchProgressStep.ANALYZING_MESSAGES);
 
-        List<MensajeEntity> mensajes = loadOrderedCandidatesByScope(userId, values, scope, SearchDirection.LAST, senderResolution, false);
+        List<MensajeEntity> mensajes = loadOrderedCandidatesByScope(userId, values, scope, direction, senderResolution, false);
         int totalAntes = mensajes == null ? 0 : mensajes.size();
 
         // Fallback global if no candidates with explicit scope
         if (totalAntes == 0) {
-            mensajes = loadOrderedCandidatesByScope(userId, values, scope, SearchDirection.LAST, senderResolution, true);
+            mensajes = loadOrderedCandidatesByScope(userId, values, scope, direction, senderResolution, true);
             totalAntes = mensajes == null ? 0 : mensajes.size();
         }
 
         boolean isAudio = "AUDIO".equals(requestedType);
-        List<AiEncryptedMessageSearchResultDTO> resultados = new ArrayList<>();
+        List<CandidateMessage> selectedCandidates = new ArrayList<>();
         List<Long> selectedIds = new ArrayList<>();
         if (mensajes != null) {
             for (MensajeEntity m : mensajes) {
-                if (resultados.size() >= limit) break;
                 CandidateMessage candidate = toRichCandidate(userId, m, values.incluirIndividuales(), values.incluirGrupales(), false, isAudio, senderResolution);
                 if (candidate == null) continue;
                 if (!matchesScopeRestriction(scope, candidate)) continue;
                 if (!requestedType.equals(candidate.tipoMensaje())) continue;
-                AiEncryptedMessageSearchResultDTO dto = toPublicResult(candidate, "Coincide con tu consulta", 100);
-                resultados.add(dto);
+                selectedCandidates.add(candidate);
                 selectedIds.add(candidate.mensajeId());
+                if (selectedCandidates.size() >= Math.max(limit * 3, limit)) {
+                    break;
+                }
             }
+        }
+        sortChronologicalCandidates(selectedCandidates, direction);
+        LOGGER.info("[AI][MESSAGE_SEARCH_FINAL_SORT] requestId={} by=fechaEnvio direction={}",
+                requestId, direction == SearchDirection.FIRST ? "ASC" : "DESC");
+        List<AiEncryptedMessageSearchResultDTO> resultados = new ArrayList<>();
+        for (CandidateMessage candidate : selectedCandidates) {
+            if (resultados.size() >= limit) {
+                break;
+            }
+            resultados.add(toPublicResult(candidate, "Coincide con tu consulta", 100));
         }
 
         LOGGER.info("[AI][MESSAGE_DIRECT_LIST] requestId={} totalCandidatos={} totalFinales={} selectedIds={}",
@@ -973,8 +1015,12 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
                                              ValidationValues values,
                                              AiMessageSearchNaturalQueryAnalysis analysis,
                                              String requestedType,
-                                             boolean offensiveIntent) {
-        if (!isLockedMessagesListMode(intent) || offensiveIntent) {
+                                             boolean offensiveIntent,
+                                             boolean authoritativeIntentRouting) {
+        if (!shouldUseDeterministicChronologicalList(intent,
+                values == null ? null : values.consulta(),
+                analysis,
+                authoritativeIntentRouting) || offensiveIntent) {
             return false;
         }
         if (requestedType != null && ("STICKER".equals(requestedType) || "IMAGE".equals(requestedType)
@@ -993,10 +1039,9 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
                                                                          AiSearchIntentInternalResponseDTO intentResp,
                                                                          String requestedType) {
         String effectiveRequestedType = normalizeRequestedMessageType(requestedType);
-        int limit = Math.max(1, Math.min(MAX_MAX_RESULTADOS, values == null ? MAX_MAX_RESULTADOS : values.maxResultados()));
-        SearchDirection direction = "FIRST".equalsIgnoreCase(intentResp == null ? null : intentResp.getOrden())
-                ? SearchDirection.FIRST
-                : SearchDirection.LAST;
+        int limit = resolveChronologicalMessageListLimit(intentResp, values == null ? null : values.consulta(), values);
+        limit = Math.max(1, Math.min(MAX_MAX_RESULTADOS, limit));
+        SearchDirection direction = resolveChronologicalSearchDirection(intentResp);
         String orderLabel = direction == SearchDirection.FIRST ? "fechaEnvio_ASC" : "fechaEnvio_DESC";
 
         if (effectiveRequestedType == null || "TEXT".equals(effectiveRequestedType)) {
@@ -1013,6 +1058,17 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
                 effectiveRequestedType,
                 limit,
                 orderLabel);
+        LOGGER.info("[AI][MESSAGE_SEARCH_ORDER] requestId={} orden={} sort={} limit={}",
+                requestId,
+                direction == SearchDirection.FIRST ? "FIRST" : "LATEST",
+                orderLabel,
+                limit);
+        LOGGER.info("[AI][MESSAGE_SEARCH_SCOPE] requestId={} senderScope={} usuarioId={}",
+                requestId,
+                senderResolution == null ? AiMessageSearchSenderScope.AUTHENTICATED_USER.name() : senderResolution.senderScope().name(),
+                userId);
+        LOGGER.info("[AI][MESSAGE_SEARCH_DETERMINISTIC] requestId={} reason={}",
+                requestId, direction == SearchDirection.FIRST ? "FIRST_MESSAGES" : "LATEST_MESSAGES");
 
         aiSearchProgressNotifier.notifyStarted(userEmail, requestId, AiSearchProgressStep.ANALYZING_MESSAGES);
 
@@ -1023,12 +1079,9 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
             totalAntes = mensajes == null ? 0 : mensajes.size();
         }
 
-        List<AiEncryptedMessageSearchResultDTO> resultados = new ArrayList<>();
+        List<CandidateMessage> selectedCandidates = new ArrayList<>();
         if (mensajes != null) {
             for (MensajeEntity mensaje : mensajes) {
-                if (resultados.size() >= limit) {
-                    break;
-                }
                 CandidateMessage candidate = toRichCandidate(userId, mensaje, values.incluirIndividuales(), values.incluirGrupales(), false, false, senderResolution);
                 if (candidate == null || !matchesScopeRestriction(scope, candidate)) {
                     continue;
@@ -1036,8 +1089,21 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
                 if (effectiveRequestedType != null && !effectiveRequestedType.equals(candidate.tipoMensaje())) {
                     continue;
                 }
-                resultados.add(toPublicResult(candidate, "Coincide con los filtros solicitados", 100));
+                selectedCandidates.add(candidate);
+                if (selectedCandidates.size() >= Math.max(limit * 3, limit)) {
+                    break;
+                }
             }
+        }
+        sortChronologicalCandidates(selectedCandidates, direction);
+        LOGGER.info("[AI][MESSAGE_SEARCH_FINAL_SORT] requestId={} by=fechaEnvio direction={}",
+                requestId, direction == SearchDirection.FIRST ? "ASC" : "DESC");
+        List<AiEncryptedMessageSearchResultDTO> resultados = new ArrayList<>();
+        for (CandidateMessage candidate : selectedCandidates) {
+            if (resultados.size() >= limit) {
+                break;
+            }
+            resultados.add(toPublicResult(candidate, "Coincide con los filtros solicitados", 100));
         }
 
         aiSearchProgressNotifier.notifyCompleted(userEmail, requestId, AiSearchProgressStep.ANALYZING_MESSAGES);
@@ -1409,17 +1475,25 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
                                                          ValidationValues values,
                                                          AiSearchIntentInternalResponseDTO intent,
                                                          boolean authoritativeIntentRouting) {
-        if (values == null || !values.valid() || !isLockedMessagesListMode(intent, authoritativeIntentRouting)) {
+        if (values == null || !values.valid()) {
+            return values;
+        }
+        boolean chronologicalList = shouldUseDeterministicChronologicalList(intent, values.consulta(), values.analysis(), authoritativeIntentRouting);
+        if (!chronologicalList && !isLockedMessagesListMode(intent, authoritativeIntentRouting)) {
             return values;
         }
 
         ValidationValues updated = values;
-        int limit = resolveMessageListLimit(intent, values);
+        int limit = chronologicalList
+                ? resolveChronologicalMessageListLimit(intent, values.consulta(), values)
+                : resolveMessageListLimit(intent, values);
         if (limit != values.maxResultados()) {
             updated = updated.withMaxResultados(limit);
         }
-        LOGGER.info("[AI][MESSAGE_LIST_MODE] requestId={} enabled=true reason=LIST_MODE_FROM_INTENT limit={}",
-                requestId, limit);
+        LOGGER.info("[AI][MESSAGE_LIST_MODE] requestId={} enabled=true reason={} limit={}",
+                requestId,
+                chronologicalList ? "CHRONOLOGICAL_ORDER_FROM_INTENT" : "LIST_MODE_FROM_INTENT",
+                limit);
 
         String temporalExpression = normalizeInput(intent == null ? null : intent.getTemporalExpression());
         if (hasText(temporalExpression)) {
@@ -1458,6 +1532,21 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
             return Math.max(1, Math.min(MAX_MAX_RESULTADOS, requested));
         }
         return MAX_MAX_RESULTADOS;
+    }
+
+    private int resolveChronologicalMessageListLimit(AiSearchIntentInternalResponseDTO intent,
+                                                     String consulta,
+                                                     ValidationValues values) {
+        Integer requested = intent == null ? null : intent.getLimitSolicitado();
+        if (requested != null && requested > 0) {
+            return Math.max(1, Math.min(MAX_MAX_RESULTADOS, requested));
+        }
+        Integer parsed = extractRequestedMessageLimit(consulta);
+        if (parsed != null && parsed > 0) {
+            return Math.max(1, Math.min(MAX_MAX_RESULTADOS, parsed));
+        }
+        int fallback = values == null ? DEFAULT_CHRONOLOGICAL_MESSAGE_LIST_LIMIT : Math.min(values.maxResultados(), DEFAULT_CHRONOLOGICAL_MESSAGE_LIST_LIMIT);
+        return Math.max(1, Math.min(MAX_MAX_RESULTADOS, fallback));
     }
 
     private boolean isLockedMessagesListMode(AiSearchIntentInternalResponseDTO intent, boolean authoritativeIntentRouting) {
@@ -3800,14 +3889,12 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
         result.setTipoMensaje("TEXT");
         result.setDescripcionTipoMensaje("Mensaje programado");
         result.setContenidoVisible(SCHEDULED_CONTENT_PLACEHOLDER);
-        result.setContenido(null);
+        String scheduledContent = row.getMessageContent();
+        result.setContenido(hasText(scheduledContent) ? scheduledContent : null);
         result.setMotivoCoincidencia(buildScheduledReason(queryContext, chatContext, row, huboFallbackTemporal));
         result.setRelevancia(calculateScheduledRelevance(queryContext, huboFallbackTemporal));
-        if ("GRUPAL".equalsIgnoreCase(chatContext.tipoChat())) {
-            result.setNombreChatGrupal(chatContext.nombreChat());
-        } else {
-            result.setNombreReceptor(chatContext.nombreChat());
-        }
+        result.setNombreReceptor(null);
+        result.setNombreChatGrupal(null);
         return result;
     }
 
@@ -5954,6 +6041,11 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
         String normalized = normalizeIntentText(consulta);
         return containsAny(normalized,
                 "ultimo mensaje",
+                "ultimos mensajes",
+                "ultimas imagenes",
+                "ultimos audios",
+                "ultimos archivos",
+                "ultimos stickers",
                 "lo ultimo",
                 "ultimo que mande",
                 "ultimo que envie",
@@ -5968,6 +6060,11 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
         String normalized = normalizeIntentText(consulta);
         return containsAny(normalized,
                 "primer mensaje",
+                "primeros mensajes",
+                "primeras imagenes",
+                "primeros audios",
+                "primeros archivos",
+                "primeros stickers",
                 "lo primero",
                 "primero que mande",
                 "primero que envie",
@@ -6798,9 +6895,10 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
                     sens.put("scheduledMessageId", r.getMensajeId());
                     sens.put("chatId", r.getChatId());
                     sens.put("tipoChat", r.getTipoChat());
-                    sens.put("nombreReceptor", r.getNombreReceptor());
-                    sens.put("nombreChatGrupal", r.getNombreChatGrupal());
+                    sens.put("nombreReceptor", null);
+                    sens.put("nombreChatGrupal", null);
                     sens.put("fechaProgramada", r.getFechaEnvio());
+                    sens.put("contenido", r.getContenido());
                     sens.put("contenidoVisible", r.getContenidoVisible());
                     sens.put("motivoCoincidencia", r.getMotivoCoincidencia());
                 } else if ("APP_REPORT_STATUS".equals(r.getTipoResultado())) {
@@ -6846,7 +6944,10 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
 
     private void sanitizeResultPublic(AiEncryptedMessageSearchResultDTO r) {
         // Elimina texto descifrado del DTO publico
-        r.setContenido(null);
+        boolean scheduled = "SCHEDULED_MESSAGE".equals(r.getTipoResultado());
+        if (!scheduled) {
+            r.setContenido(null);
+        }
         r.setMotivoCoincidencia(null);
         if (isComplaintResult(r)) {
             r.setContenidoVisible("[Denuncia]");
@@ -6854,6 +6955,8 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
             r.setContenidoVisible("[Reporte]");
         } else if ("SCHEDULED_MESSAGE".equals(r.getTipoResultado())) {
             r.setContenidoVisible(SCHEDULED_CONTENT_PLACEHOLDER);
+            r.setNombreReceptor(null);
+            r.setNombreChatGrupal(null);
         } else {
             r.setContenidoVisible(placeholderForType(r.getTipoMensaje()));
         }
@@ -8519,6 +8622,204 @@ public class DeepSeekAiEncryptedMessageSearchServiceImpl implements AiEncryptedM
             return false;
         }
         return true;
+    }
+
+    private void normalizeChronologicalMessageListIntent(String requestId,
+                                                         String consulta,
+                                                         AiMessageSearchNaturalQueryAnalysis analysis,
+                                                         AiSearchIntentInternalResponseDTO intent,
+                                                         boolean authoritativeIntentRouting) {
+        if (intent == null || !isUsableSemanticIntent(intent, authoritativeIntentRouting)) {
+            return;
+        }
+        if (!AiGlobalSearchTarget.MESSAGES.name().equalsIgnoreCase(intent.getTarget())) {
+            return;
+        }
+        String normalized = normalizeIntentText(consulta);
+        String chronologicalOrder = resolveChronologicalIntentOrder(normalized, intent.getOrden());
+        if (!hasText(chronologicalOrder) || isSemanticContentConstrainedMessageQuery(consulta, analysis)) {
+            return;
+        }
+        if (!hasText(intent.getOrden())) {
+            intent.setOrden(chronologicalOrder);
+        }
+        if (shouldUseDeterministicChronologicalList(intent, consulta, analysis, authoritativeIntentRouting)) {
+            intent.setListMode(Boolean.TRUE);
+            if (intent.getLimitSolicitado() == null || intent.getLimitSolicitado() < 1) {
+                intent.setLimitSolicitado(resolveChronologicalMessageListLimit(intent, consulta, null));
+            }
+        }
+        String inferredSenderScope = inferChronologicalSenderScope(normalized, intent);
+        if (shouldOverrideChronologicalSenderScope(intent.getSenderScope(), inferredSenderScope)) {
+            intent.setSenderScope(inferredSenderScope);
+        }
+        if (!hasText(intent.getTipoMensajeSolicitado()) || "ANY".equalsIgnoreCase(intent.getTipoMensajeSolicitado())) {
+            intent.setTipoMensajeSolicitado(firstNonBlank(detectRequestedMessageType(normalized, analysis), "ANY"));
+        }
+        if (!hasText(intent.getTipoScopeSolicitado())) {
+            intent.setTipoScopeSolicitado(resolveChronologicalScopeType(normalized, intent));
+        }
+        LOGGER.info("[AI][MESSAGE_SEARCH_DETERMINISTIC] requestId={} reason={} senderScope={} listMode={} limit={}",
+                requestId,
+                "FIRST".equalsIgnoreCase(intent.getOrden()) ? "FIRST_MESSAGES" : "LATEST_MESSAGES",
+                intent.getSenderScope(),
+                intent.getListMode(),
+                intent.getLimitSolicitado());
+    }
+
+    private boolean shouldUseDeterministicChronologicalList(AiSearchIntentInternalResponseDTO intent,
+                                                            String consulta,
+                                                            AiMessageSearchNaturalQueryAnalysis analysis,
+                                                            boolean authoritativeIntentRouting) {
+        if (intent == null || !isUsableSemanticIntent(intent, authoritativeIntentRouting)) {
+            return false;
+        }
+        if (!AiGlobalSearchTarget.MESSAGES.name().equalsIgnoreCase(intent.getTarget())) {
+            return false;
+        }
+        if (isSemanticContentConstrainedMessageQuery(consulta, analysis)) {
+            return false;
+        }
+        String normalized = normalizeIntentText(consulta);
+        String order = resolveChronologicalIntentOrder(normalized, intent.getOrden());
+        if (!"LATEST".equalsIgnoreCase(order) && !"FIRST".equalsIgnoreCase(order)) {
+            return false;
+        }
+        return requestsChronologicalMessageList(normalized, intent);
+    }
+
+    private boolean requestsChronologicalMessageList(String normalized, AiSearchIntentInternalResponseDTO intent) {
+        if (!hasText(normalized)) {
+            return false;
+        }
+        Integer requested = intent == null ? null : intent.getLimitSolicitado();
+        if (requested != null && requested > 1) {
+            return true;
+        }
+        if (Boolean.TRUE.equals(intent == null ? null : intent.getListMode())) {
+            return true;
+        }
+        boolean explicitCount = MESSAGE_LIMIT_TOKEN_PATTERN.matcher(normalized).find()
+                && containsAny(normalized, "mensaje", "mensajes", "audio", "audios", "imagen", "imagenes",
+                "foto", "fotos", "archivo", "archivos", "sticker", "stickers");
+        boolean pluralChronological = (containsAny(normalized, "ultimos", "ultimas", "primeros", "primeras")
+                || normalized.matches(".*\\bmis\\b.*\\bultimo[s]?\\b.*"))
+                && containsAny(normalized, "mensajes", "audios", "imagenes", "fotos", "archivos", "stickers");
+        return explicitCount || pluralChronological;
+    }
+
+    private String resolveChronologicalIntentOrder(String normalized, String currentOrder) {
+        if ("LATEST".equalsIgnoreCase(currentOrder) || "FIRST".equalsIgnoreCase(currentOrder)) {
+            return currentOrder.toUpperCase(Locale.ROOT);
+        }
+        if (containsAny(normalized, "ultimo", "ultimos", "ultima", "ultimas", "lo ultimo", "mas reciente", "reciente")) {
+            return "LATEST";
+        }
+        if (containsAny(normalized, "primer", "primero", "primeros", "primeras", "lo primero", "mas antiguo")) {
+            return "FIRST";
+        }
+        return null;
+    }
+
+    private String inferChronologicalSenderScope(String normalized, AiSearchIntentInternalResponseDTO intent) {
+        if (containsAny(normalized,
+                "me enviaron", "me mandaron", "me han enviado", "me han mandado", "me escribieron",
+                "me han escrito", "me dijeron", "que me enviaron", "que me mandaron", "recibidos", "recibidas")) {
+            return AiMessageSearchSenderScope.RECEIVED_MESSAGES.name();
+        }
+        if (containsAny(normalized,
+                "mis", "he enviado", "he mandado", "he escrito", "que he enviado", "que mande",
+                "que envie", "enviados por mi", "por mi")) {
+            return AiMessageSearchSenderScope.AUTHENTICATED_USER.name();
+        }
+        if (hasText(intent == null ? null : intent.getGrupoMencionado())
+                || hasText(intent == null ? null : intent.getPersonaMencionada())
+                || "GRUPO_CONCRETO".equalsIgnoreCase(intent == null ? null : intent.getTipoScopeSolicitado())
+                || "INDIVIDUAL_CONCRETO".equalsIgnoreCase(intent == null ? null : intent.getTipoScopeSolicitado())
+                || "GLOBAL_GRUPOS".equalsIgnoreCase(intent == null ? null : intent.getTipoScopeSolicitado())
+                || "GLOBAL_INDIVIDUALES".equalsIgnoreCase(intent == null ? null : intent.getTipoScopeSolicitado())
+                || containsAny(normalized, "grupo", "grupos", "chat", "chats")) {
+            return AiMessageSearchSenderScope.ANY_PARTICIPANT.name();
+        }
+        return AiMessageSearchSenderScope.ANY_PARTICIPANT.name();
+    }
+
+    private boolean shouldOverrideChronologicalSenderScope(String currentScope, String inferredScope) {
+        if (!hasText(inferredScope)) {
+            return false;
+        }
+        if (!hasText(currentScope)) {
+            return true;
+        }
+        String current = currentScope.trim().toUpperCase(Locale.ROOT);
+        String inferred = inferredScope.trim().toUpperCase(Locale.ROOT);
+        if (current.equals(inferred)) {
+            return false;
+        }
+        return AiMessageSearchSenderScope.AUTHENTICATED_USER.name().equals(current)
+                || AiMessageSearchSenderScope.ANY_PARTICIPANT.name().equals(current);
+    }
+
+    private String resolveChronologicalScopeType(String normalized, AiSearchIntentInternalResponseDTO intent) {
+        if (hasText(intent == null ? null : intent.getGrupoMencionado())) {
+            return "GRUPO_CONCRETO";
+        }
+        if (hasText(intent == null ? null : intent.getPersonaMencionada())) {
+            return "INDIVIDUAL_CONCRETO";
+        }
+        if (containsAny(normalized, "grupo", "grupos", "chat grupal", "chats grupales")) {
+            return "GLOBAL_GRUPOS";
+        }
+        if (containsAny(normalized, "privado", "privados", "chat individual", "chats individuales", "por privado")) {
+            return "GLOBAL_INDIVIDUALES";
+        }
+        return "GLOBAL";
+    }
+
+    private Integer extractRequestedMessageLimit(String consulta) {
+        String normalized = normalizeIntentText(consulta);
+        if (!hasText(normalized)) {
+            return null;
+        }
+        Matcher matcher = MESSAGE_LIMIT_TOKEN_PATTERN.matcher(normalized);
+        while (matcher.find()) {
+            String token = matcher.group(1);
+            if (!hasText(token)) {
+                continue;
+            }
+            try {
+                int parsed = Integer.parseInt(token);
+                if (parsed > 0) {
+                    return parsed;
+                }
+            } catch (NumberFormatException ignore) {
+                Integer mapped = MESSAGE_NUMBER_WORDS.get(token);
+                if (mapped != null && mapped > 0) {
+                    return mapped;
+                }
+            }
+        }
+        return null;
+    }
+
+    private SearchDirection resolveChronologicalSearchDirection(AiSearchIntentInternalResponseDTO intent) {
+        return "FIRST".equalsIgnoreCase(intent == null ? null : intent.getOrden())
+                ? SearchDirection.FIRST
+                : SearchDirection.LAST;
+    }
+
+    private void sortChronologicalCandidates(List<CandidateMessage> candidates, SearchDirection direction) {
+        if (candidates == null || candidates.size() < 2) {
+            return;
+        }
+        Comparator<LocalDateTime> dateOrder = direction == SearchDirection.FIRST
+                ? Comparator.nullsLast(Comparator.naturalOrder())
+                : Comparator.nullsLast(Comparator.reverseOrder());
+        Comparator<Long> idOrder = direction == SearchDirection.FIRST
+                ? Comparator.nullsLast(Comparator.naturalOrder())
+                : Comparator.nullsLast(Comparator.reverseOrder());
+        candidates.sort(Comparator.comparing(CandidateMessage::fechaEnvio, dateOrder)
+                .thenComparing(CandidateMessage::mensajeId, idOrder));
     }
 
     private AiMessageSearchScopeType effectiveScopeType(AiMessageSearchScopeDTO scope) {

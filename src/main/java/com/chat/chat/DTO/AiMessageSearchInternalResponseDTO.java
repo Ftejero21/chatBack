@@ -10,6 +10,7 @@ public class AiMessageSearchInternalResponseDTO {
     private String resumenBusquedaNatural;
     private List<AiMessageSearchInternalResultDTO> resultados;
     private Boolean sinResultadosFuertes;
+    private AiUsageInfoDTO usage;
 
     public boolean isSuccess() {
         return success;
@@ -57,5 +58,13 @@ public class AiMessageSearchInternalResponseDTO {
 
     public void setSinResultadosFuertes(Boolean sinResultadosFuertes) {
         this.sinResultadosFuertes = sinResultadosFuertes;
+    }
+
+    public AiUsageInfoDTO getUsage() {
+        return usage;
+    }
+
+    public void setUsage(AiUsageInfoDTO usage) {
+        this.usage = usage;
     }
 }

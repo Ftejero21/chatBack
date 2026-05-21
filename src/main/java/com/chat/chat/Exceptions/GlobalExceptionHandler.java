@@ -1,5 +1,6 @@
 package com.chat.chat.Exceptions;
 
+import com.chat.chat.DTO.AiUsageLimitExceededResponseDTO;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.ConstraintViolationException;
@@ -192,6 +193,19 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
                 .header(HttpHeaders.RETRY_AFTER, String.valueOf(ex.getRetryAfterSeconds()))
                 .body(new ApiError(Constantes.ERR_RATE_LIMIT, safeMessage(ex.getMessage(), "Demasiadas solicitudes")));
+    }
+
+    @ExceptionHandler(AiUsageLimitExceededException.class)
+    public ResponseEntity<AiUsageLimitExceededResponseDTO> handleAiUsageLimitExceeded(AiUsageLimitExceededException ex) {
+        AiUsageLimitExceededResponseDTO response = new AiUsageLimitExceededResponseDTO();
+        response.setSuccess(false);
+        response.setCodigo("AI_USAGE_LIMIT_EXCEEDED");
+        response.setMensaje(safeMessage(ex.getMessage(), "Has alcanzado el limite mensual de uso de IA de tu plan."));
+        response.setCanUseAi(false);
+        response.setUsagePercentDisplay(ex.getUsagePercentDisplay());
+        response.setIncludedAiBudgetEur(ex.getIncludedAiBudgetEur());
+        response.setCostEurThisMonth(ex.getCostEurThisMonth());
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body(response);
     }
 
     @ExceptionHandler(Exception.class)

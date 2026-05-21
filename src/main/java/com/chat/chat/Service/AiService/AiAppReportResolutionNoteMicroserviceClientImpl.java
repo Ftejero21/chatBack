@@ -26,16 +26,23 @@ public class AiAppReportResolutionNoteMicroserviceClientImpl implements AiAppRep
 
     private final RestTemplate restTemplate;
     private final TejechatAiServiceProperties tejechatAiServiceProperties;
+    private final AiUsageMetricAuthenticatedCaptureService usageCaptureService;
+    private final AiUsageLimitService aiUsageLimitService;
 
     public AiAppReportResolutionNoteMicroserviceClientImpl(@Qualifier("aiMessageSearchRestTemplate") RestTemplate restTemplate,
-                                                           TejechatAiServiceProperties tejechatAiServiceProperties) {
+                                                           TejechatAiServiceProperties tejechatAiServiceProperties,
+                                                           AiUsageMetricAuthenticatedCaptureService usageCaptureService,
+                                                           AiUsageLimitService aiUsageLimitService) {
         this.restTemplate = restTemplate;
         this.tejechatAiServiceProperties = tejechatAiServiceProperties;
+        this.usageCaptureService = usageCaptureService;
+        this.aiUsageLimitService = aiUsageLimitService;
     }
 
     @Override
     public AiAppReportResolutionNoteInternalResponseDTO generateResolutionNote(String requestId,
                                                                                AiAppReportResolutionNoteInternalRequestDTO request) {
+        aiUsageLimitService.assertCurrentUserCanUseAi();
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         headers.set(INTERNAL_API_KEY_HEADER, tejechatAiServiceProperties.getInternalKey());
@@ -57,6 +64,15 @@ public class AiAppReportResolutionNoteMicroserviceClientImpl implements AiAppRep
                     AiAppReportResolutionNoteInternalResponseDTO.class
             );
             AiAppReportResolutionNoteInternalResponseDTO body = response.getBody();
+            usageCaptureService.capture(
+                    requestId,
+                    "APP_REPORT_RESOLUTION_NOTE",
+                    null,
+                    "APP_REPORT",
+                    body == null ? null : body.getUsage(),
+                    body != null && body.isSuccess(),
+                    body == null ? "AI_SERVICE_EMPTY_RESPONSE" : body.getCodigo()
+            );
             LOGGER.info("[AI][APP_REPORT_RESOLUTION_NOTE_CLIENT] requestId={} inbound success={} codigo={} resolucionLength={}",
                     requestId,
                     body != null && body.isSuccess(),
@@ -64,14 +80,17 @@ public class AiAppReportResolutionNoteMicroserviceClientImpl implements AiAppRep
                     body == null || body.getResolucionMotivo() == null ? 0 : body.getResolucionMotivo().length());
             return body;
         } catch (ResourceAccessException ex) {
+            usageCaptureService.capture(requestId, "APP_REPORT_RESOLUTION_NOTE", null, "APP_REPORT", null, false, "AI_SERVICE_UNAVAILABLE");
             LOGGER.warn("[AI][APP_REPORT_RESOLUTION_NOTE_CLIENT] requestId={} service-unavailable type={}",
                     requestId, ex.getClass().getSimpleName());
             return null;
         } catch (HttpStatusCodeException ex) {
+            usageCaptureService.capture(requestId, "APP_REPORT_RESOLUTION_NOTE", null, "APP_REPORT", null, false, "AI_SERVICE_ERROR");
             LOGGER.warn("[AI][APP_REPORT_RESOLUTION_NOTE_CLIENT] requestId={} service-error status={}",
                     requestId, ex.getStatusCode().value());
             return null;
         } catch (RestClientException ex) {
+            usageCaptureService.capture(requestId, "APP_REPORT_RESOLUTION_NOTE", null, "APP_REPORT", null, false, "AI_SERVICE_ERROR");
             LOGGER.warn("[AI][APP_REPORT_RESOLUTION_NOTE_CLIENT] requestId={} service-error type={}",
                     requestId, ex.getClass().getSimpleName());
             return null;

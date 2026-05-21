@@ -64,7 +64,7 @@ public interface MensajeDestacadoRepository extends JpaRepository<MensajeDestaca
                     "where md.usuario_id = :usuarioId " +
                     "and (exists (select 1 from chats_individuales ci where ci.id = m.chat_id) " +
                     "     or exists (select 1 from chats_grupales cg where cg.id = m.chat_id)) " +
-                    "order by coalesce(m.fecha_envio, md.created_at) desc, md.created_at desc, md.id desc",
+                    "order by md.id desc",
             countQuery = "select count(1) " +
                     "from mensaje_destacado md " +
                     "join mensajes m on m.id = md.mensaje_id " +

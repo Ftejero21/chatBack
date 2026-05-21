@@ -70,6 +70,10 @@ public class AiUiCustomizationServiceImpl implements AiUiCustomizationService {
                 intent.getLabel(),
                 intent.getConfidence(),
                 intent.getColorIntent(),
+                intent.getScope(),
+                intent.getNeedsClarification(),
+                intent.getClarificationReason(),
+                intent.getClarificationQuestion(),
                 intent.getChanges(),
                 request.getUiContext()
         );

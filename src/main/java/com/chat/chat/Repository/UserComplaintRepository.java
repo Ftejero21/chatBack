@@ -56,6 +56,13 @@ public interface UserComplaintRepository extends JpaRepository<UserComplaintEnti
     Set<Long> findDistinctDenunciadoIdsByDenuncianteId(Long denuncianteId);
 
     @Query("""
+            select distinct uc.denuncianteId
+            from UserComplaintEntity uc
+            where uc.denunciadoId = :denunciadoId
+            """)
+    Set<Long> findDistinctDenuncianteIdsByDenunciadoId(Long denunciadoId);
+
+    @Query("""
             select uc.motivo as motivo, count(uc.id) as total
             from UserComplaintEntity uc
             where uc.denunciadoId = :userId

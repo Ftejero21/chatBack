@@ -46,6 +46,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.security.access.AccessDeniedException;
@@ -964,9 +965,9 @@ public class MensajeriaServiceImpl implements MensajeriaService {
                 safePage,
                 safeSize);
         if (sort != null && !sort.isBlank()) {
-            LOGGER.debug("[DESTACADOS] sort param recibido='{}' (se mantiene orden de negocio por fecha de mensaje)", sort);
+            LOGGER.debug("[DESTACADOS] sort param recibido='{}' (ignorado; endpoint forzado a id DESC)", sort);
         }
-        Pageable pageable = PageRequest.of(safePage, safeSize);
+        Pageable pageable = PageRequest.of(safePage, safeSize, Sort.by(Sort.Direction.DESC, "id"));
 
         Page<MensajeDestacadoRepository.DestacadoRow> pageResult =
                 mensajeDestacadoRepository.findDestacadosRowsByUsuarioId(authenticatedUserId, pageable);

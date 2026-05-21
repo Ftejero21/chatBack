@@ -5,6 +5,7 @@ import com.chat.chat.DTO.BulkEmailRequestDTO;
 import com.chat.chat.DTO.MensajeProgramadoDTO;
 import com.chat.chat.DTO.ProgramarMensajeRequestDTO;
 import com.chat.chat.DTO.ProgramarMensajeResponseDTO;
+import com.chat.chat.DTO.ScheduledMessageMineDTO;
 import com.chat.chat.DTO.ScheduledBatchResponseDTO;
 import com.chat.chat.Utils.EstadoMensajeProgramado;
 import org.springframework.data.domain.Page;
@@ -22,6 +23,8 @@ public interface MensajeProgramadoService {
     ScheduledBatchResponseDTO crearBulkEmailsProgramados(BulkEmailRequestDTO request, List<MultipartFile> attachments);
 
     Page<MensajeProgramadoDTO> listarMensajesProgramados(EstadoMensajeProgramado status, Pageable pageable);
+
+    Page<ScheduledMessageMineDTO> listarMisMensajesProgramados(EstadoMensajeProgramado status, Pageable pageable);
 
     MensajeProgramadoDTO editarMensajeDirectoAdminProgramado(Long id, AdminDirectMessageScheduledRequestDTO request);
 

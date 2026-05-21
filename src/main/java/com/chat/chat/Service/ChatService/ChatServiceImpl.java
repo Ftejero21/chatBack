@@ -978,6 +978,198 @@ public class ChatServiceImpl implements ChatService {
         return resultado;
     }
 
+    @Override
+    public UsuariosDisponiblesChatResponseDTO obtenerUsuariosDisponiblesParaChat() {
+        Long usuarioActualId = securityUtils.getAuthenticatedUserId();
+        UsuarioEntity usuarioActual = usuarioRepo.findById(usuarioActualId)
+                .filter(UsuarioEntity::isActivo)
+                .orElseThrow(() -> new AccessDeniedException(Constantes.ERR_NO_AUTORIZADO));
+
+        Set<Long> bloqueadosPorMi = safeIds(usuarioActual.getBloqueados());
+        Set<Long> meHanBloqueado = safeIds(usuarioActual.getMeHanBloqueado());
+        Set<Long> denunciadosPorMi = userComplaintRepository.findDistinctDenunciadoIdsByDenuncianteId(usuarioActualId);
+        Set<Long> meHanDenunciado = userComplaintRepository.findDistinctDenuncianteIdsByDenunciadoId(usuarioActualId);
+
+        List<UsuarioEntity> candidatosActivos = usuarioRepo.findByActivoTrueAndIdNot(usuarioActualId);
+        List<UsuarioEntity> candidatos = candidatosActivos.stream()
+                .filter(u -> u != null && u.getId() != null)
+                .filter(u -> !hasAdminRole(u))
+                .filter(u -> !bloqueadosPorMi.contains(u.getId()))
+                .filter(u -> !meHanBloqueado.contains(u.getId()))
+                .filter(u -> !denunciadosPorMi.contains(u.getId()))
+                .filter(u -> !meHanDenunciado.contains(u.getId()))
+                .toList();
+
+        List<ChatIndividualEntity> misChatsIndividuales = chatIndRepo.findAllByUsuario1IdOrUsuario2Id(usuarioActualId, usuarioActualId)
+                .stream()
+                .filter(Objects::nonNull)
+                .filter(chat -> !chat.isAdminDirect())
+                .toList();
+
+        Map<Long, ChatIndividualEntity> chatByPeerId = new HashMap<>();
+        List<Long> chatIds = new ArrayList<>();
+        for (ChatIndividualEntity chat : misChatsIndividuales) {
+            UsuarioEntity peer = resolvePeer(chat, usuarioActualId);
+            if (peer == null || peer.getId() == null || !peer.isActivo()) {
+                continue;
+            }
+            chatByPeerId.putIfAbsent(peer.getId(), chat);
+            chatIds.add(chat.getId());
+        }
+        Map<Long, Long> cutoffByChatId = chatUserStateService.resolveCutoffs(usuarioActualId, chatIds);
+        Map<Long, Long> unreadMap = mensajeRepository.countUnreadByUser(usuarioActualId)
+                .stream()
+                .collect(Collectors.toMap(
+                        r -> (Long) r[0],
+                        r -> (Long) r[1]
+                ));
+
+        List<UsuarioDisponibleChatDTO> conConversacion = new ArrayList<>();
+        List<UsuarioDisponibleChatDTO> sinConversacion = new ArrayList<>();
+
+        for (UsuarioEntity candidato : candidatos) {
+            ChatIndividualEntity chat = chatByPeerId.get(candidato.getId());
+            if (chat != null) {
+                conConversacion.add(buildUsuarioDisponibleConConversacion(
+                        candidato,
+                        chat,
+                        usuarioActualId,
+                        cutoffByChatId.get(chat.getId()),
+                        unreadMap.getOrDefault(chat.getId(), 0L)));
+            } else {
+                sinConversacion.add(buildUsuarioDisponibleSinConversacion(candidato));
+            }
+        }
+
+        conConversacion.sort((a, b) -> {
+            LocalDateTime fa = parseFechaRaw(a.getUltimaFechaRaw());
+            LocalDateTime fb = parseFechaRaw(b.getUltimaFechaRaw());
+            if (fa == null && fb == null) {
+                return 0;
+            }
+            if (fa == null) {
+                return 1;
+            }
+            if (fb == null) {
+                return -1;
+            }
+            return fb.compareTo(fa);
+        });
+        sinConversacion.sort(Comparator.comparing(
+                d -> Optional.ofNullable(d.getNombreCompleto()).orElse(""),
+                String.CASE_INSENSITIVE_ORDER
+        ));
+
+        LOGGER.info("[CHAT][USUARIOS_DISPONIBLES_FILTER] inactivos={} bloqueados={} reportados={}",
+                Math.max(0, candidatosActivos.size() - candidatos.size()),
+                bloqueadosPorMi.size() + meHanBloqueado.size(),
+                denunciadosPorMi.size() + meHanDenunciado.size());
+        LOGGER.info("[CHAT][USUARIOS_DISPONIBLES] usuarioId={} candidatos={} conConversacion={} sinConversacion={}",
+                usuarioActualId,
+                candidatos.size(),
+                conConversacion.size(),
+                sinConversacion.size());
+
+        UsuariosDisponiblesChatResponseDTO out = new UsuariosDisponiblesChatResponseDTO();
+        out.setUsuariosConConversacion(conConversacion);
+        out.setUsuariosSinConversacion(sinConversacion);
+        return out;
+    }
+
+    private UsuarioDisponibleChatDTO buildUsuarioDisponibleConConversacion(UsuarioEntity candidato,
+                                                                           ChatIndividualEntity chat,
+                                                                           Long usuarioActualId,
+                                                                           Long cutoff,
+                                                                           Long mensajesNoLeidos) {
+        UsuarioDisponibleChatDTO dto = buildBaseUsuarioDisponible(candidato);
+        dto.setTieneConversacion(true);
+        dto.setChatId(chat.getId());
+        dto.setMensajesNoLeidos(mensajesNoLeidos == null ? 0L : mensajesNoLeidos);
+        MensajeEntity last = mensajeRepository.findTopVisibleByChatIdOrderByFechaEnvioDesc(chat.getId(), cutoff).orElse(null);
+        if (last != null && isVisibleMessageForUser(last)) {
+            MessageType tipo = last.getTipo() == null ? MessageType.TEXT : last.getTipo();
+            dto.setUltimoMensajeTipo(tipo.name());
+            if (tipo == MessageType.TEXT && StringUtils.hasText(last.getContenido())) {
+                // Para E2E/texto devolvemos el payload raw como en /api/chat/mensajes/{chatId}
+                dto.setUltimoMensaje(last.getContenido());
+            } else {
+                dto.setUltimoMensaje(buildIndividualPreview(last, usuarioActualId));
+            }
+            dto.setUltimoMensajeId(last.getId());
+            dto.setUltimoMensajeEmisorId(last.getEmisor() == null ? null : last.getEmisor().getId());
+            dto.setUltimaFechaRaw(last.getFechaEnvio() == null ? null : last.getFechaEnvio().toString());
+            dto.setUltimaFecha(ChatUltimaFechaSerializer.formatearUltimaFechaChat(last.getFechaEnvio()));
+        }
+        return dto;
+    }
+
+    private UsuarioDisponibleChatDTO buildUsuarioDisponibleSinConversacion(UsuarioEntity candidato) {
+        UsuarioDisponibleChatDTO dto = buildBaseUsuarioDisponible(candidato);
+        dto.setTieneConversacion(false);
+        return dto;
+    }
+
+    private UsuarioDisponibleChatDTO buildBaseUsuarioDisponible(UsuarioEntity candidato) {
+        UsuarioDisponibleChatDTO dto = new UsuarioDisponibleChatDTO();
+        dto.setId(candidato.getId());
+        dto.setNombre(candidato.getNombre());
+        dto.setApellido(candidato.getApellido());
+        dto.setNombreCompleto(buildNombreCompleto(candidato));
+        dto.setFotoPerfil(resolveFotoPerfil(candidato));
+        dto.setEstado(null);
+        dto.setUltimoMensaje(null);
+        dto.setUltimoMensajeTipo(null);
+        dto.setUltimaFecha(null);
+        dto.setUltimaFechaRaw(null);
+        dto.setUltimoMensajeId(null);
+        dto.setUltimoMensajeEmisorId(null);
+        dto.setMensajesNoLeidos(0L);
+        dto.setChatId(null);
+        return dto;
+    }
+
+    private UsuarioEntity resolvePeer(ChatIndividualEntity chat, Long usuarioActualId) {
+        if (chat == null || chat.getUsuario1() == null || chat.getUsuario2() == null) {
+            return null;
+        }
+        return Objects.equals(chat.getUsuario1().getId(), usuarioActualId) ? chat.getUsuario2() : chat.getUsuario1();
+    }
+
+    private Set<Long> safeIds(Set<UsuarioEntity> usuarios) {
+        if (usuarios == null || usuarios.isEmpty()) {
+            return Set.of();
+        }
+        return usuarios.stream()
+                .filter(Objects::nonNull)
+                .map(UsuarioEntity::getId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+    }
+
+    private String buildNombreCompleto(UsuarioEntity usuario) {
+        String nombre = usuario == null || usuario.getNombre() == null ? "" : usuario.getNombre().trim();
+        String apellido = usuario == null || usuario.getApellido() == null ? "" : usuario.getApellido().trim();
+        return (nombre + " " + apellido).trim();
+    }
+
+    private String resolveFotoPerfil(UsuarioEntity usuario) {
+        if (usuario == null || usuario.getFotoUrl() == null) {
+            return null;
+        }
+        return Utils.toDataUrlFromUrl(usuario.getFotoUrl(), uploadsRoot);
+    }
+
+    private LocalDateTime parseFechaRaw(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        try {
+            return LocalDateTime.parse(raw);
+        } catch (Exception ex) {
+            return null;
+        }
+    }
+
     private boolean isPinnedChat(Object chatDto) {
         if (chatDto instanceof ChatIndividualDTO individual) {
             return Boolean.TRUE.equals(individual.getIsPinned());

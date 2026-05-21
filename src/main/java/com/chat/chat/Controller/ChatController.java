@@ -32,12 +32,14 @@ import com.chat.chat.DTO.MensajeProgramadoDTO;
 import com.chat.chat.DTO.MessagueSalirGrupoDTO;
 import com.chat.chat.DTO.ProgramarMensajeRequestDTO;
 import com.chat.chat.DTO.ProgramarMensajeResponseDTO;
+import com.chat.chat.DTO.ScheduledMessageMineDTO;
 import com.chat.chat.DTO.ScheduledBatchResponseDTO;
 import com.chat.chat.DTO.SolicitudDesbaneoDTO;
 import com.chat.chat.DTO.UserPinnedChatRequestDTO;
 import com.chat.chat.DTO.UserPinnedChatResponseDTO;
 import com.chat.chat.DTO.UserChatFavoriteResponseDTO;
 import com.chat.chat.DTO.VotoEncuestaDTO;
+import com.chat.chat.DTO.UsuariosDisponiblesChatResponseDTO;
 import com.chat.chat.Exceptions.ApiError;
 import com.chat.chat.Service.ChatService.ChatService;
 import com.chat.chat.Service.MensajeProgramadoService.MensajeProgramadoService;
@@ -408,6 +410,13 @@ public class ChatController {
         return chatService.listarTodosLosChatsDeUsuario(usuarioId);
     }
 
+    @GetMapping(Constantes.CHAT_USUARIOS_DISPONIBLES)
+    @Operation(summary = "Listar usuarios disponibles para chat", description = "Devuelve usuarios activos separados entre con conversacion previa y sin conversacion previa para el usuario autenticado.")
+    @ApiResponse(responseCode = "200", description = "Usuarios disponibles obtenidos")
+    public ResponseEntity<UsuariosDisponiblesChatResponseDTO> obtenerUsuariosDisponiblesParaChat() {
+        return ResponseEntity.ok(chatService.obtenerUsuariosDisponiblesParaChat());
+    }
+
     @PutMapping(Constantes.CHAT_PINNED)
     @Operation(summary = "Fijar chat de usuario", description = "Fija un chat para el usuario autenticado o lo desfija si chatId es null.")
     @ApiResponses(value = {
@@ -657,6 +666,19 @@ public class ChatController {
     public ResponseEntity<ProgramarMensajeResponseDTO> programarMensaje(
             @Valid @RequestBody ProgramarMensajeRequestDTO payload) {
         return ResponseEntity.ok(mensajeProgramadoService.crearMensajesProgramados(payload));
+    }
+
+    @GetMapping(Constantes.MENSAJES_PROGRAMADOS_MIOS)
+    @Operation(summary = "Listar mis mensajes programados", description = "Lista los mensajes programados creados por el usuario autenticado conservando el contenido E2E cifrado.")
+    @ApiResponse(responseCode = "200", description = "Mensajes programados del usuario obtenidos")
+    public ResponseEntity<Page<ScheduledMessageMineDTO>> listarMisMensajesProgramados(
+            @RequestParam(value = "status", required = false) String status,
+            @RequestParam(value = "page", defaultValue = "0") int page,
+            @RequestParam(value = "size", defaultValue = "10") int size) {
+        EstadoMensajeProgramado estado = parseEstadoProgramado(status);
+        int safePage = Math.max(page, 0);
+        int safeSize = Math.min(Math.max(size, 1), 10);
+        return ResponseEntity.ok(mensajeProgramadoService.listarMisMensajesProgramados(estado, PageRequest.of(safePage, safeSize)));
     }
 
     @GetMapping(Constantes.MENSAJES_PROGRAMADOS)

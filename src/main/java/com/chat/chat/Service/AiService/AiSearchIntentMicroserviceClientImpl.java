@@ -29,17 +29,24 @@ public class AiSearchIntentMicroserviceClientImpl implements AiSearchIntentMicro
     private final RestTemplate restTemplate;
     private final TejechatAiServiceProperties tejechatAiServiceProperties;
     private final ObjectMapper objectMapper;
+    private final AiUsageMetricAuthenticatedCaptureService usageCaptureService;
+    private final AiUsageLimitService aiUsageLimitService;
 
     public AiSearchIntentMicroserviceClientImpl(@Qualifier("aiMessageSearchRestTemplate") RestTemplate restTemplate,
                                                 TejechatAiServiceProperties tejechatAiServiceProperties,
-                                                ObjectMapper objectMapper) {
+                                                ObjectMapper objectMapper,
+                                                AiUsageMetricAuthenticatedCaptureService usageCaptureService,
+                                                AiUsageLimitService aiUsageLimitService) {
         this.restTemplate = restTemplate;
         this.tejechatAiServiceProperties = tejechatAiServiceProperties;
         this.objectMapper = objectMapper;
+        this.usageCaptureService = usageCaptureService;
+        this.aiUsageLimitService = aiUsageLimitService;
     }
 
     @Override
     public AiSearchIntentInternalResponseDTO classifyIntent(String requestId, AiSearchIntentInternalRequestDTO request) {
+        aiUsageLimitService.assertCurrentUserCanUseAi();
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         headers.set(INTERNAL_API_KEY_HEADER, tejechatAiServiceProperties.getInternalKey());
@@ -67,6 +74,7 @@ public class AiSearchIntentMicroserviceClientImpl implements AiSearchIntentMicro
             AiSearchIntentInternalResponseDTO body = mapResponseBody(requestId, rawBody);
             if (body != null) {
                 body.setTarget(normalizeTarget(body.getTarget()));
+                usageCaptureService.capture(requestId, "SMART_INTENT", body.getAction(), body.getTarget(), body.getUsage(), body.isSuccess(), body.getCodigo());
                 LOGGER.info("[AI][SEARCH_INTENT_CLIENT][MAPPED_DTO] requestId={} target={} tipoReporte={} reportStatus={} complaintStatus={} temporalExpression={} confidence={} listMode={} action={} area={} property={}",
                         requestId, body.getTarget(), body.getTipoReporte(), body.getReportStatus(), body.getComplaintStatus(), safe(body.getTemporalExpression()), body.getConfidence(), body.getListMode(), body.getAction(), body.getArea(), body.getProperty());
                 LOGGER.info("[AI][SEARCH_INTENT_CLIENT] requestId={} inbound success={} codigo={} target={} tipoReporte={} motivoReporte=\"{}\" reportStatus={} complaintStatus={} complaintDirection={} senderScope={} tipoScopeSolicitado={} tipoMensajeSolicitado={} readStatus={} personaMencionada=\"{}\" grupoMencionado=\"{}\" temporalExpression=\"{}\" orden={} confidence={} listMode={} action={} area={} property={} value=\"{}\" valuePreset={} label=\"{}\"",
@@ -98,12 +106,15 @@ public class AiSearchIntentMicroserviceClientImpl implements AiSearchIntentMicro
             }
             return body;
         } catch (ResourceAccessException ex) {
+            usageCaptureService.capture(requestId, "SMART_INTENT", null, null, null, false, "AI_SERVICE_UNAVAILABLE");
             LOGGER.warn("[AI][SEARCH_INTENT_CLIENT] requestId={} service-unavailable type={}", requestId, ex.getClass().getSimpleName());
             return null;
         } catch (HttpStatusCodeException ex) {
+            usageCaptureService.capture(requestId, "SMART_INTENT", null, null, null, false, "AI_SERVICE_ERROR");
             LOGGER.warn("[AI][SEARCH_INTENT_CLIENT] requestId={} service-error status={}", requestId, ex.getStatusCode().value());
             return null;
         } catch (RestClientException ex) {
+            usageCaptureService.capture(requestId, "SMART_INTENT", null, null, null, false, "AI_SERVICE_ERROR");
             LOGGER.warn("[AI][SEARCH_INTENT_CLIENT] requestId={} service-error type={}", requestId, ex.getClass().getSimpleName());
             return null;
         }

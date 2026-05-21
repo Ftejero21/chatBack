@@ -1,5 +1,8 @@
 package com.chat.chat.DTO;
 
+import com.chat.chat.Utils.ChatUltimaFechaSerializer;
+import com.fasterxml.jackson.databind.annotation.JsonSerialize;
+
 import java.time.LocalDateTime;
 
 public class ChatIndividualDTO {
@@ -21,6 +24,7 @@ public class ChatIndividualDTO {
     private String ultimaMensajeFileMime;
     private String ultimaMensajeFileNombre;
     private Long ultimaMensajeFileSizeBytes;
+    @JsonSerialize(using = ChatUltimaFechaSerializer.class)
     private LocalDateTime ultimaFecha;
     private Boolean isPinned;
     private LocalDateTime pinnedAt;

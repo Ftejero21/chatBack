@@ -26,16 +26,23 @@ public class AiUiCustomizationMicroserviceClientImpl implements AiUiCustomizatio
 
     private final RestTemplate restTemplate;
     private final TejechatAiServiceProperties properties;
+    private final AiUsageMetricAuthenticatedCaptureService usageCaptureService;
+    private final AiUsageLimitService aiUsageLimitService;
 
     public AiUiCustomizationMicroserviceClientImpl(@Qualifier("aiMessageSearchRestTemplate") RestTemplate restTemplate,
-                                                   TejechatAiServiceProperties properties) {
+                                                   TejechatAiServiceProperties properties,
+                                                   AiUsageMetricAuthenticatedCaptureService usageCaptureService,
+                                                   AiUsageLimitService aiUsageLimitService) {
         this.restTemplate = restTemplate;
         this.properties = properties;
+        this.usageCaptureService = usageCaptureService;
+        this.aiUsageLimitService = aiUsageLimitService;
     }
 
     @Override
     public AiUiCustomizationIntentInternalResponseDTO classifyIntent(String requestId,
                                                                       AiUiCustomizationIntentInternalRequestDTO request) {
+        aiUsageLimitService.assertCurrentUserCanUseAi();
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         headers.set(INTERNAL_API_KEY_HEADER, properties.getInternalKey());
@@ -55,6 +62,15 @@ public class AiUiCustomizationMicroserviceClientImpl implements AiUiCustomizatio
                     AiUiCustomizationIntentInternalResponseDTO.class
             );
             AiUiCustomizationIntentInternalResponseDTO body = response.getBody();
+            usageCaptureService.capture(
+                    requestId,
+                    "UI_CUSTOMIZATION_INTENT",
+                    body == null ? null : body.getAction(),
+                    body == null ? null : body.getTarget(),
+                    body == null ? null : body.getUsage(),
+                    body != null && body.isSuccess(),
+                    body == null ? "AI_SERVICE_EMPTY_RESPONSE" : body.getCodigo()
+            );
             LOGGER.info("[AI][UI_CUSTOMIZATION_CLIENT] requestId={} inbound success={} area={} property={} confidence={}",
                     requestId,
                     body != null && body.isSuccess(),
@@ -63,12 +79,15 @@ public class AiUiCustomizationMicroserviceClientImpl implements AiUiCustomizatio
                     body == null ? null : body.getConfidence());
             return body;
         } catch (ResourceAccessException ex) {
+            usageCaptureService.capture(requestId, "UI_CUSTOMIZATION_INTENT", null, "UI_CUSTOMIZATION", null, false, "AI_SERVICE_UNAVAILABLE");
             LOGGER.warn("[AI][UI_CUSTOMIZATION_CLIENT] requestId={} service-unavailable type={}", requestId, ex.getClass().getSimpleName());
             return null;
         } catch (HttpStatusCodeException ex) {
+            usageCaptureService.capture(requestId, "UI_CUSTOMIZATION_INTENT", null, "UI_CUSTOMIZATION", null, false, "AI_SERVICE_ERROR");
             LOGGER.warn("[AI][UI_CUSTOMIZATION_CLIENT] requestId={} service-error status={}", requestId, ex.getStatusCode().value());
             return null;
         } catch (RestClientException ex) {
+            usageCaptureService.capture(requestId, "UI_CUSTOMIZATION_INTENT", null, "UI_CUSTOMIZATION", null, false, "AI_SERVICE_ERROR");
             LOGGER.warn("[AI][UI_CUSTOMIZATION_CLIENT] requestId={} service-error type={}", requestId, ex.getClass().getSimpleName());
             return null;
         }

@@ -8,6 +8,7 @@ public class AiQuickReplyInternalResponseDTO {
     private String codigo;
     private String mensaje;
     private List<String> sugerencias;
+    private AiUsageInfoDTO usage;
 
     public boolean isSuccess() {
         return success;
@@ -39,5 +40,13 @@ public class AiQuickReplyInternalResponseDTO {
 
     public void setSugerencias(List<String> sugerencias) {
         this.sugerencias = sugerencias;
+    }
+
+    public AiUsageInfoDTO getUsage() {
+        return usage;
+    }
+
+    public void setUsage(AiUsageInfoDTO usage) {
+        this.usage = usage;
     }
 }

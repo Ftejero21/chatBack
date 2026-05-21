@@ -6,6 +6,7 @@ public class AiScheduledMessageSummaryInternalResponseDTO {
     private String codigo;
     private String mensaje;
     private String resumenBusquedaNatural;
+    private AiUsageInfoDTO usage;
 
     public boolean isSuccess() {
         return success;
@@ -37,5 +38,13 @@ public class AiScheduledMessageSummaryInternalResponseDTO {
 
     public void setResumenBusquedaNatural(String resumenBusquedaNatural) {
         this.resumenBusquedaNatural = resumenBusquedaNatural;
+    }
+
+    public AiUsageInfoDTO getUsage() {
+        return usage;
+    }
+
+    public void setUsage(AiUsageInfoDTO usage) {
+        this.usage = usage;
     }
 }

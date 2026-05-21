@@ -26,16 +26,23 @@ public class AiScheduledMessageSummaryMicroserviceClientImpl implements AiSchedu
 
     private final RestTemplate restTemplate;
     private final TejechatAiServiceProperties tejechatAiServiceProperties;
+    private final AiUsageMetricAuthenticatedCaptureService usageCaptureService;
+    private final AiUsageLimitService aiUsageLimitService;
 
     public AiScheduledMessageSummaryMicroserviceClientImpl(@Qualifier("aiMessageSearchRestTemplate") RestTemplate restTemplate,
-                                                           TejechatAiServiceProperties tejechatAiServiceProperties) {
+                                                           TejechatAiServiceProperties tejechatAiServiceProperties,
+                                                           AiUsageMetricAuthenticatedCaptureService usageCaptureService,
+                                                           AiUsageLimitService aiUsageLimitService) {
         this.restTemplate = restTemplate;
         this.tejechatAiServiceProperties = tejechatAiServiceProperties;
+        this.usageCaptureService = usageCaptureService;
+        this.aiUsageLimitService = aiUsageLimitService;
     }
 
     @Override
     public AiScheduledMessageSummaryInternalResponseDTO resumirMensajesProgramados(String requestId,
                                                                                    AiScheduledMessageSummaryInternalRequestDTO request) {
+        aiUsageLimitService.assertCurrentUserCanUseAi();
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         headers.set(INTERNAL_API_KEY_HEADER, tejechatAiServiceProperties.getInternalKey());
@@ -50,18 +57,31 @@ public class AiScheduledMessageSummaryMicroserviceClientImpl implements AiSchedu
                     new HttpEntity<>(request, headers),
                     AiScheduledMessageSummaryInternalResponseDTO.class
             );
+            AiScheduledMessageSummaryInternalResponseDTO body = response.getBody();
+            usageCaptureService.capture(
+                    requestId,
+                    "SCHEDULED_MESSAGES",
+                    null,
+                    "SCHEDULED_MESSAGES",
+                    body == null ? null : body.getUsage(),
+                    body != null && body.isSuccess(),
+                    body == null ? "AI_SERVICE_EMPTY_RESPONSE" : body.getCodigo()
+            );
             LOGGER.info("[AI][SCHEDULED_SUMMARY_CLIENT] requestId={} service-status={} hasBody={}",
-                    requestId, response.getStatusCode().value(), response.getBody() != null);
-            return response.getBody();
+                    requestId, response.getStatusCode().value(), body != null);
+            return body;
         } catch (ResourceAccessException ex) {
+            usageCaptureService.capture(requestId, "SCHEDULED_MESSAGES", null, "SCHEDULED_MESSAGES", null, false, "AI_SERVICE_UNAVAILABLE");
             LOGGER.warn("[AI][SCHEDULED_SUMMARY_CLIENT] requestId={} service-unavailable type={}",
                     requestId, ex.getClass().getSimpleName());
             return null;
         } catch (HttpStatusCodeException ex) {
+            usageCaptureService.capture(requestId, "SCHEDULED_MESSAGES", null, "SCHEDULED_MESSAGES", null, false, "AI_SERVICE_ERROR");
             LOGGER.warn("[AI][SCHEDULED_SUMMARY_CLIENT] requestId={} service-error status={}",
                     requestId, ex.getStatusCode().value());
             return null;
         } catch (RestClientException ex) {
+            usageCaptureService.capture(requestId, "SCHEDULED_MESSAGES", null, "SCHEDULED_MESSAGES", null, false, "AI_SERVICE_ERROR");
             LOGGER.warn("[AI][SCHEDULED_SUMMARY_CLIENT] requestId={} service-error type={}",
                     requestId, ex.getClass().getSimpleName());
             return null;

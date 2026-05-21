@@ -2,6 +2,7 @@ package com.chat.chat.Service.AiService;
 
 import com.chat.chat.DTO.AiUiCustomizationResponseDTO;
 import com.chat.chat.DTO.ColorIntentDTO;
+import com.chat.chat.DTO.UiCustomizationScopeDTO;
 import com.chat.chat.DTO.UiCustomizationContextDTO;
 import com.chat.chat.DTO.UiCustomizationChangeDTO;
 import org.slf4j.Logger;
@@ -23,13 +24,32 @@ public class AiUiCustomizationValidationService {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(AiUiCustomizationValidationService.class);
     private static final double MIN_CONFIDENCE = 0.75d;
-    private static final String CLARIFICATION_MESSAGE = "Que zona quieres cambiar: fondo del chat, mensajes, listado de chats, barra lateral o popup IA?";
+    private static final String DEFAULT_CLARIFICATION_MESSAGE = "\u00BFPuedes especificar un poco m\u00E1s el cambio visual?";
+    private static final String COLOR_VALUE_MISSING_MESSAGE = "\u00BFQu\u00E9 color quieres aplicar?";
+    private static final String SIZE_VALUE_MISSING_MESSAGE = "\u00BFQu\u00E9 tama\u00F1o quieres aplicar?";
+    private static final String AMBIGUOUS_DROPDOWN_CLARIFICATION_MESSAGE = "\u00BFQu\u00E9 desplegable quieres cambiar: el de opciones del chat, mensajes, perfil u otra zona?";
+    private static final String AMBIGUOUS_ICON_CLARIFICATION_MESSAGE = "\u00BFQu\u00E9 iconos quieres cambiar: los de la barra lateral, listado de chats, mensajes u otra zona?";
+    private static final String AMBIGUOUS_BORDER_CLARIFICATION_MESSAGE = "\u00BFQu\u00E9 parte del borde quieres cambiar: color, grosor o redondeo?";
+    private static final String AMBIGUOUS_AREA_CLARIFICATION_MESSAGE = "\u00BFQu\u00E9 zona quieres cambiar exactamente?";
 
     private static final Set<String> ALLOWED_AREAS = Set.of(
             "MAIN_LAYOUT",
             "SIDEBAR_NAV",
+            "SIDEBAR_NAV_PANEL",
+            "SIDEBAR_NAV_GROUP",
+            "SIDEBAR_NAV_BOTTOM",
             "SIDEBAR_NAV_ITEM",
+            "SIDEBAR_NAV_ITEM_ACTIVE",
             "SIDEBAR_NAV_ACTIVE_ITEM",
+            "SIDEBAR_NAV_ACTIVE_INDICATOR",
+            "SIDEBAR_NAV_LOGO",
+            "SIDEBAR_NAV_ICON",
+            "SIDEBAR_NAV_ICON_ACTIVE",
+            "SIDEBAR_NAV_AI_ICON",
+            "SIDEBAR_NAV_TOOLTIP",
+            "SIDEBAR_NAV_AVATAR",
+            "SIDEBAR_NAV_NOTIF_BADGE",
+            "SIDEBAR_NAV_SETTINGS",
             "TOPBAR",
             "TOPBAR_PROFILE",
             "CHAT_LIST_PANEL",
@@ -67,12 +87,28 @@ public class AiUiCustomizationValidationService {
             "CHAT_LIST_ITEM_ACTIONS",
             "CHAT_LIST_TITLE",
             "CHAT_LIST_HEADER_ACTIONS",
+            "CHAT_LIST_HEADER_ICON_BUTTON",
+            "CHAT_LIST_HEADER_ICON",
+            "CHAT_LIST_HEADER_MENU",
+            "CHAT_LIST_HEADER_MENU_ITEM",
             "CHAT_LIST_SCROLL",
             "CHAT_LIST_AVATAR",
+            "CHAT_LIST_STATUS_DOT",
             "CHAT_LIST_ITEM_CONTENT",
             "CHAT_LIST_ITEM_NAME",
+            "CHAT_LIST_NAME",
+            "CHAT_LIST_ITEM_DATE",
             "CHAT_LIST_IMAGE_PREVIEW",
             "CHAT_LIST_FILE_PREVIEW",
+            "CHAT_LIST_STICKER_PREVIEW",
+            "CHAT_LIST_ITEM_STICKER_PREVIEW",
+            "CHAT_LIST_ITEM_GROUP_STICKER_PREVIEW",
+            "CHAT_LIST_MUTED_INDICATOR",
+            "CHAT_LIST_FAVORITE_INDICATOR",
+            "CHAT_LIST_CLOSED_INDICATOR",
+            "CHAT_LIST_EMPTY_STATE",
+            "CHAT_LIST_PUBLIC_PANEL",
+            "CHAT_LIST_PUBLIC_CARD",
             "CHAT_LIST_ACTIONS_MENU",
             "CHAT_LIST_ACTIONS_MENU_ITEM",
             "CHAT_LIST_PIN_TOGGLE",
@@ -81,6 +117,7 @@ public class AiUiCustomizationValidationService {
             "CHAT_LIST_PIN_MENU_DANGER",
             "CHAT_LIST_PIN_MENU_REPORT",
             "CHAT_LIST_ITEM_ACTIVE",
+            "CHAT_LIST_ITEM_GROUP_ACTIVE",
             "CHAT_LIST_ITEM_UNREAD",
             "CHAT_LIST_HEADER",
             "CHAT_HEADER",
@@ -119,14 +156,20 @@ public class AiUiCustomizationValidationService {
             "TEXT_COLOR",
             "BORDER_COLOR",
             "BORDER_WIDTH",
+            "WIDTH",
+            "HEIGHT",
+            "GAP",
             "BORDER_RADIUS",
             "FONT_SIZE",
+            "FONT_WEIGHT",
             "COLOR",
             "ICON_COLOR",
             "ACTIVE_BACKGROUND_COLOR",
             "ACTIVE_TEXT_COLOR",
             "ACTIVE_ICON_COLOR",
             "HOVER_BACKGROUND_COLOR",
+            "HOVER_TEXT_COLOR",
+            "HOVER_ICON_COLOR",
             "PREVIEW_SENDER_TEXT_COLOR",
             "LABEL_COLOR",
             "SEPARATOR_COLOR",
@@ -141,6 +184,7 @@ public class AiUiCustomizationValidationService {
             "INPUT_BACKGROUND_COLOR",
             "CARD_BACKGROUND_COLOR",
             "HEADER_BACKGROUND_COLOR",
+            "SHADOW",
             "SHADOW_PRESET",
             "DENSITY",
             "OPACITY",
@@ -148,9 +192,9 @@ public class AiUiCustomizationValidationService {
             "BACKGROUND_IMAGE"
     );
     private static final Set<String> ALLOWED_ACTIONS = Set.of("UPDATE_STYLE", "UPDATE_STYLE_GROUP", "UPDATE_STYLE_MULTI", "RESET_THEME");
-    private static final int MAX_EXPLICIT_MULTI_CHANGES = 30;
-    private static final int MAX_FINAL_MULTI_CHANGES = 80;
-    private static final int MAX_THEME_MULTI_CHANGES = 120;
+    private static final int MAX_EXPLICIT_MULTI_CHANGES = 300;
+    private static final int MAX_FINAL_MULTI_CHANGES = 300;
+    private static final int MAX_THEME_MULTI_CHANGES = 300;
 
     private static final Set<String> COLOR_PROPERTIES = Set.of(
             "BACKGROUND_COLOR",
@@ -162,6 +206,8 @@ public class AiUiCustomizationValidationService {
             "ACTIVE_TEXT_COLOR",
             "ACTIVE_ICON_COLOR",
             "HOVER_BACKGROUND_COLOR",
+            "HOVER_TEXT_COLOR",
+            "HOVER_ICON_COLOR",
             "PREVIEW_SENDER_TEXT_COLOR",
             "LABEL_COLOR",
             "SEPARATOR_COLOR",
@@ -176,6 +222,14 @@ public class AiUiCustomizationValidationService {
             "INPUT_BACKGROUND_COLOR",
             "CARD_BACKGROUND_COLOR",
             "HEADER_BACKGROUND_COLOR"
+    );
+    private static final Set<String> SIZE_PROPERTIES = Set.of(
+            "FONT_SIZE",
+            "BORDER_WIDTH",
+            "BORDER_RADIUS",
+            "WIDTH",
+            "HEIGHT",
+            "GAP"
     );
 
     private static final Set<String> DENSITY_VALUES = Set.of("COMPACT", "NORMAL", "COMFORTABLE");
@@ -193,16 +247,22 @@ public class AiUiCustomizationValidationService {
             "LARGE", "16px",
             "XL", "18px"
     );
+    private static final Set<String> WIDTH_VALUES = Set.of("1px", "2px", "3px", "4px", "6px", "8px");
+    private static final Set<String> HEIGHT_VALUES = Set.of("4px", "6px", "8px", "10px", "12px", "14px", "16px", "18px", "20px", "24px");
+    private static final Set<String> GAP_VALUES = Set.of("0px", "2px", "4px", "6px", "8px", "10px", "12px", "16px");
+    private static final Set<String> FONT_WEIGHT_VALUES = Set.of("400", "500", "600", "700");
     private static final Set<Integer> SAFE_FONT_SIZES = Set.of(10, 11, 12, 13, 14, 16, 18, 20, 22, 24, 28, 32);
     private static final Set<String> SAFE_BORDER_RADIUS_VALUES = Set.of("0px", "4px", "8px", "12px", "16px", "18px", "24px", "32px", "999px");
     private static final Set<String> GROUP_ONLY_ALLOWED_AREAS = Set.of(
             "CHAT_LIST_ITEM_GROUP",
+            "CHAT_LIST_ITEM_GROUP_ACTIVE",
             "CHAT_LIST_GROUP_PILL",
             "CHAT_LIST_ITEM_GROUP_PREVIEW",
             "CHAT_LIST_ITEM_GROUP_AUDIO_PREVIEW",
             "CHAT_LIST_ITEM_GROUP_DRAFT_PREVIEW",
             "CHAT_LIST_ITEM_GROUP_IMAGE_PREVIEW",
             "CHAT_LIST_ITEM_GROUP_FILE_PREVIEW",
+            "CHAT_LIST_ITEM_GROUP_STICKER_PREVIEW",
             "CHAT_LIST_ITEM_GROUP_BADGES",
             "CHAT_LIST_ITEM_GROUP_ACTIONS",
             "CHAT_LIST_ITEM_GROUP_STATUS_PILLS"
@@ -229,10 +289,28 @@ public class AiUiCustomizationValidationService {
             "CHAT_LIST_ITEM_AUDIO_PREVIEW",
             "CHAT_LIST_ITEM_IMAGE_PREVIEW",
             "CHAT_LIST_ITEM_FILE_PREVIEW",
+            "CHAT_LIST_ITEM_STICKER_PREVIEW",
             "CHAT_LIST_ITEM_BADGES",
             "CHAT_LIST_ITEM_ACTIONS_SCOPED",
             "CHAT_LIST_ITEM_STATUS_PILLS",
             "CHAT_LIST_ITEM_NAME_SCOPED"
+    );
+    private static final Set<String> PARENT_AREAS_DEFAULT_HARMONY = Set.of(
+            "CHAT_LIST_PANEL",
+            "CHAT_LIST_HEADER",
+            "CHAT_LIST_ITEM",
+            "CHAT_LIST_ITEM_ACTIVE",
+            "CHAT_LIST_ITEM_GROUP",
+            "CHAT_LIST_ITEM_GROUP_ACTIVE",
+            "CHAT_LIST_SEARCH",
+            "CHAT_LIST_FILTERS",
+            "CHAT_LIST_PIN_MENU",
+            "SIDEBAR_NAV_PANEL",
+            "SIDEBAR_NAV_ITEM",
+            "SIDEBAR_NAV_ITEM_ACTIVE",
+            "SIDEBAR_NAV_TOOLTIP",
+            "CHAT_LIST_PUBLIC_PANEL",
+            "CHAT_LIST_PUBLIC_CARD"
     );
     private static final Map<String, String> SHADOW_PRESETS = Map.of(
             "NONE", "none",
@@ -295,7 +373,98 @@ public class AiUiCustomizationValidationService {
                                                  ColorIntentDTO colorIntent,
                                                  List<UiCustomizationChangeDTO> inputChanges,
                                                  UiCustomizationContextDTO uiContext) {
+        return validate(requestId, consulta, action, area, property, value, valuePreset, label, confidence,
+                colorIntent, null, null, null, null, inputChanges, uiContext);
+    }
+
+    public AiUiCustomizationResponseDTO validate(String requestId,
+                                                 String consulta,
+                                                 String action,
+                                                 String area,
+                                                 String property,
+                                                 String value,
+                                                 String valuePreset,
+                                                 String label,
+                                                 Double confidence,
+                                                 ColorIntentDTO colorIntent,
+                                                 UiCustomizationScopeDTO scope,
+                                                 Boolean needsClarification,
+                                                 String clarificationReason,
+                                                 String clarificationQuestion,
+                                                 List<UiCustomizationChangeDTO> inputChanges,
+                                                 UiCustomizationContextDTO uiContext) {
+        String semantic = semanticSource(consulta, label);
+        logScopeResult(scope);
+        String resolvedAreaFromScope = resolveAreaFromScope(scope);
         String normalizedAction = hasText(action) ? action : "UPDATE_STYLE";
+        if (isGroupActiveChatRequest(semantic)) {
+            List<UiCustomizationChangeDTO> repairedChanges = buildGroupActiveScopedChanges(semantic);
+            LOGGER.info("[AI][UI_CUSTOMIZATION_GROUP_ACTIVE_CHANGES] changesCount={}", repairedChanges.size());
+            if (repairedChanges.size() > 1) {
+                normalizedAction = "UPDATE_STYLE_MULTI";
+                inputChanges = repairedChanges;
+                area = null;
+                property = null;
+                value = null;
+                valuePreset = null;
+                needsClarification = Boolean.FALSE;
+            } else if (repairedChanges.size() == 1) {
+                UiCustomizationChangeDTO single = repairedChanges.get(0);
+                normalizedAction = "UPDATE_STYLE";
+                area = single.getArea();
+                property = single.getProperty();
+                value = single.getValue();
+                valuePreset = single.getValuePreset();
+                inputChanges = null;
+                needsClarification = Boolean.FALSE;
+            } else {
+                normalizedAction = "UPDATE_STYLE";
+                area = "CHAT_LIST_ITEM_GROUP_ACTIVE";
+                needsClarification = Boolean.FALSE;
+            }
+            LOGGER.info("[AI][UI_CUSTOMIZATION_CLARIFICATION_SKIPPED] reason=GROUP_ACTIVE_ITEM semantic={}", safe(semantic));
+        }
+        if (hasText(resolvedAreaFromScope)) {
+            LOGGER.info("[AI][UI_SCOPE_AREA_RESOLVED] area={}", safe(resolvedAreaFromScope));
+            if (!hasText(area)) {
+                area = resolvedAreaFromScope;
+            }
+            inputChanges = applyResolvedAreaToChanges(inputChanges, resolvedAreaFromScope);
+        }
+        SidebarRepair sidebarRepair = repairSidebarNavIntent(semantic, normalizedAction, area, property, value, valuePreset, inputChanges, needsClarification);
+        normalizedAction = sidebarRepair.action();
+        area = sidebarRepair.area();
+        property = sidebarRepair.property();
+        value = sidebarRepair.value();
+        valuePreset = sidebarRepair.valuePreset();
+        inputChanges = sidebarRepair.changes();
+        needsClarification = sidebarRepair.needsClarification();
+        boolean aiAskedClarification = Boolean.TRUE.equals(needsClarification) || "NEEDS_CLARIFICATION".equals(normalizedAction);
+        boolean hasResolvableArea = hasText(normalizeArea(area))
+                || hasText(resolvedAreaFromScope)
+                || hasValidChanges(inputChanges)
+                || hasResolvableVisualPayload(property, value, inputChanges);
+        LOGGER.info("[AI][UI_CLARIFICATION_AI_DECISION] needsClarification={} reason={} question={}",
+                aiAskedClarification, safe(clarificationReason), safe(clarificationQuestion));
+        LOGGER.info("[AI][UI_CLARIFICATION_AI_DECISION] reason={} question={}",
+                safe(clarificationReason), safe(clarificationQuestion));
+        if (aiAskedClarification && hasResolvableArea) {
+            LOGGER.info("[AI][UI_CLARIFICATION_IGNORED] reason=RESOLVABLE_AREA_OR_CHANGES area={} changesCount={}",
+                    safe(hasText(area) ? area : resolvedAreaFromScope),
+                    inputChanges == null ? 0 : inputChanges.size());
+            normalizedAction = resolveActionFromPayload(property, value, inputChanges);
+            if (!hasText(area) && hasText(resolvedAreaFromScope)) {
+                area = resolvedAreaFromScope;
+            }
+            needsClarification = Boolean.FALSE;
+        } else if (aiAskedClarification) {
+            LOGGER.info("[AI][UI_CLARIFICATION_ACCEPTED] reason=AI_REQUESTED_AND_UNRESOLVABLE");
+            return failure(action, area, property, value, valuePreset, label, confidence,
+                    "UI_CUSTOMIZATION_NEEDS_CLARIFICATION",
+                    resolveClarificationMessage(clarificationQuestion, clarificationReason),
+                    clarificationReason,
+                    clarificationQuestion);
+        }
         if (!ALLOWED_ACTIONS.contains(normalizedAction)) {
             return failure(action, area, property, value, valuePreset, label, confidence,
                     "UI_CUSTOMIZATION_NOT_ALLOWED", "La accion solicitada no esta permitida.");
@@ -303,6 +472,22 @@ public class AiUiCustomizationValidationService {
         action = normalizedAction;
         if ("UPDATE_STYLE".equals(action) && inputChanges != null && inputChanges.size() > 1) {
             action = "UPDATE_STYLE_MULTI";
+        }
+        if (isGroupActiveChatRequest(semantic)) {
+            LOGGER.info("[AI][UI_CUSTOMIZATION_CLARIFICATION_SKIPPED] reason=GROUP_ACTIVE_ITEM consulta={}", safe(semantic));
+            if (!hasText(area) || "CHAT_LIST_ITEM_ACTIVE".equals(area)) {
+                LOGGER.info("[AI][UI_CUSTOMIZATION_AREA_REPAIRED] from={} to=CHAT_LIST_ITEM_GROUP_ACTIVE reason=GROUP_ACTIVE_SCOPE",
+                        safe(area));
+                area = "CHAT_LIST_ITEM_GROUP_ACTIVE";
+            }
+            if ("UPDATE_STYLE_MULTI".equals(action) && (inputChanges == null || inputChanges.isEmpty())) {
+                List<UiCustomizationChangeDTO> repairedChanges = buildGroupActiveScopedChanges(semantic);
+                LOGGER.info("[AI][UI_CUSTOMIZATION_GROUP_ACTIVE_CHANGES] changesCount={}", repairedChanges.size());
+                if (!repairedChanges.isEmpty()) {
+                    inputChanges = repairedChanges;
+                    logRuleMatch("GROUP_ACTIVE_ITEM", semantic, repairedChanges);
+                }
+            }
         }
         Map<String, Map<String, String>> contextStyles = mergeContextStyles(uiContext);
         boolean relativeStyleRequest = isRelativeStyleRequest(consulta);
@@ -326,15 +511,27 @@ public class AiUiCustomizationValidationService {
                 }
             }
         }
+        boolean scopedPinMenuRequest = isScopedPinMenuRequest(consulta) || isPinMenuArea(resolvedAreaFromScope);
+        boolean fullChatListThemeRequest = scopedPinMenuRequest ? false : isFullChatListThemeRequest(consulta);
+        if (fullChatListThemeRequest) {
+            LOGGER.info("[AI][UI_CUSTOMIZATION_FULL_THEME] detected=true consulta={}", safe(consulta));
+        }
+        if (scopedPinMenuRequest) {
+            LOGGER.info("[AI][UI_CUSTOMIZATION_FULL_THEME_SKIPPED] reason=SCOPED_PIN_MENU consulta={}", safe(consulta));
+        }
+        if (fullChatListThemeRequest && mentionsDropdownKeywords(consulta)) {
+            LOGGER.info("[AI][UI_CUSTOMIZATION_CLARIFICATION_SKIPPED] reason=FULL_CHAT_LIST_THEME consulta={}", safe(consulta));
+        }
+        LOGGER.info("[AI][UI_CLARIFICATION_BACKEND_NOT_ALLOWED] reason=DETERMINISTIC_AMBIGUITY_DISABLED");
 
-        if ("UPDATE_STYLE".equals(action) && isGroupAudioPreviewScopedRequest(consulta)) {
+        if ("UPDATE_STYLE".equals(action) && !fullChatListThemeRequest && isGroupAudioPreviewScopedRequest(consulta)) {
             action = "UPDATE_STYLE_MULTI";
             inputChanges = buildGroupAudioPreviewScopedColorGroup(hasText(value) ? value : "#f97316");
             logRuleMatch("GROUP_AUDIO_PREVIEW_SCOPED", consulta, inputChanges);
             area = null;
             property = null;
             value = null;
-        } else if ("UPDATE_STYLE".equals(action) && isIndividualAudioPreviewScopedRequest(consulta)) {
+        } else if ("UPDATE_STYLE".equals(action) && !fullChatListThemeRequest && isIndividualAudioPreviewScopedRequest(consulta)) {
             action = "UPDATE_STYLE_MULTI";
             inputChanges = buildIndividualAudioPreviewScopedColorGroup(hasText(value) ? value : "#f97316");
             logRuleMatch("INDIVIDUAL_AUDIO_PREVIEW_SCOPED", consulta, inputChanges);
@@ -361,13 +558,61 @@ public class AiUiCustomizationValidationService {
             area = resolveFilterButtonsAreaFromConsulta(consulta, area);
         }
         if ("UPDATE_STYLE".equals(action)) {
-            area = resolveChatStateAreaFromConsulta(consulta, area);
+            area = resolveChatStateAreaFromConsulta(semantic, area);
+        }
+        if ("UPDATE_STYLE".equals(action)) {
+            area = resolveChatListSpecificAreaFromConsulta(consulta, area);
+            property = resolveChatListSpecificPropertyFromConsulta(consulta, area, property);
+        }
+        if ("UPDATE_STYLE".equals(action)) {
+            area = resolveSidebarAreaFromConsulta(consulta, area);
+            property = resolveSidebarPropertyFromConsulta(consulta, area, property);
+        }
+        if ("UPDATE_STYLE".equals(action) && isSidebarRequest(normalizeSemanticText(consulta))) {
+            List<UiCustomizationChangeDTO> sidebarChanges = parseDeterministicMultiChanges(consulta);
+            if (sidebarChanges.size() > 1 && areAllSidebarChanges(sidebarChanges)) {
+                action = "UPDATE_STYLE_MULTI";
+                inputChanges = sidebarChanges;
+                area = null;
+                property = null;
+                value = null;
+            }
+        }
+        if ("UPDATE_STYLE".equals(action) && isGroupActiveChatRequest(semantic) && !hasText(property)) {
+            String normalized = normalizeSemanticText(semantic);
+            if (containsAny(normalized, "texto", "letra")) {
+                property = "TEXT_COLOR";
+            } else if (containsAny(normalized, "borde", "contorno", "border")) {
+                property = containsAny(normalized, "sin borde", "quita el borde", "quitar borde", "elimina el borde", "sin contorno")
+                        ? "BORDER_WIDTH" : "BORDER_COLOR";
+            } else if (containsAny(normalized, "fondo", "background")) {
+                property = "BACKGROUND_COLOR";
+            }
+        }
+        if ("UPDATE_STYLE".equals(action) && isGroupActiveChatRequest(semantic) && !hasText(value) && hasText(property)) {
+            if ("BORDER_WIDTH".equals(property) && isRemoveBorderRequest(consulta)) {
+                value = "0px";
+            } else {
+                String inferredValue = resolveColorFromText(semantic);
+                if (hasText(inferredValue)) {
+                    value = inferredValue;
+                }
+            }
         }
         if ("UPDATE_STYLE".equals(action)) {
             area = resolvePinMenuAreaFromConsulta(consulta, area);
             property = inferPinMenuProperty(consulta, property);
         }
-        if (isGroupBadgesScopedRequest(consulta)) {
+        if ("UPDATE_STYLE".equals(action)) {
+            area = resolveChatItemDateAreaFromConsulta(consulta, area);
+            if ("CHAT_LIST_ITEM_DATE".equals(area) && !hasText(property)) {
+                property = "TEXT_COLOR";
+            }
+        }
+        if (hasText(resolvedAreaFromScope) && !hasText(area)) {
+            area = resolvedAreaFromScope;
+        }
+        if (!fullChatListThemeRequest && isGroupBadgesScopedRequest(consulta)) {
             String requestedBackgroundColor = resolveRequestedBackgroundColor(consulta);
             String requestedTextColor = resolveRequestedTextColor(consulta);
             String forcedBaseColor = hasText(requestedBackgroundColor)
@@ -380,8 +625,10 @@ public class AiUiCustomizationValidationService {
             area = null;
             property = null;
             value = null;
+        } else if (fullChatListThemeRequest && isGroupBadgesScopedRequest(consulta)) {
+            LOGGER.info("[AI][UI_CUSTOMIZATION_SCOPED_RULE_SKIPPED] rule=GROUP_BADGES_SCOPED reason=FULL_CHAT_LIST_THEME");
         }
-        if (isGroupAudioPreviewScopedRequest(consulta)) {
+        if (!fullChatListThemeRequest && isGroupAudioPreviewScopedRequest(consulta)) {
             String forcedBaseColor = resolveForcedBaseColor(consulta, value, inputChanges, "#f97316");
             action = "UPDATE_STYLE_MULTI";
             inputChanges = buildGroupAudioPreviewScopedColorGroup(forcedBaseColor);
@@ -389,15 +636,22 @@ public class AiUiCustomizationValidationService {
             area = null;
             property = null;
             value = null;
+        } else if (fullChatListThemeRequest && isGroupAudioPreviewScopedRequest(consulta)) {
+            LOGGER.info("[AI][UI_CUSTOMIZATION_SCOPED_RULE_SKIPPED] rule=GROUP_AUDIO_PREVIEW_SCOPED reason=FULL_CHAT_LIST_THEME");
         }
-        if (isPinMenuWholeMenuRequest(consulta)) {
+        if (!fullChatListThemeRequest && isControlledPinMenuRequest(consulta)) {
             String forcedBaseColor = resolveForcedBaseColor(consulta, value, inputChanges, "#7c3aed");
-            inputChanges = completePinMenuThemeChanges(forcedBaseColor, inputChanges);
-            logRuleMatch("FORCE_PIN_MENU_FULL_GROUP", consulta, inputChanges);
+            List<UiCustomizationChangeDTO> beforeFilter = inputChanges == null ? List.of() : inputChanges;
+            List<UiCustomizationChangeDTO> pinOnly = filterPinMenuChanges(inputChanges);
+            LOGGER.info("[AI][UI_CUSTOMIZATION_PIN_MENU_FILTER] before={} after={}", beforeFilter.size(), pinOnly.size());
+            inputChanges = sanitizePinMenuOnlyChanges(completePinMenuThemeChanges(forcedBaseColor, pinOnly));
+            logRuleMatch("PIN_MENU_FULL_GROUP", consulta, inputChanges);
             action = "UPDATE_STYLE_MULTI";
             area = null;
             property = null;
             value = null;
+        } else if (fullChatListThemeRequest && isControlledPinMenuRequest(consulta)) {
+            LOGGER.info("[AI][UI_CUSTOMIZATION_SCOPED_RULE_SKIPPED] rule=PIN_MENU_FULL_GROUP reason=FULL_CHAT_LIST_THEME");
         }
         if ("TEXT_COLOR".equals(property)
                 && isPxValue(value)
@@ -410,7 +664,7 @@ public class AiUiCustomizationValidationService {
         if ("UPDATE_STYLE".equals(action) && isUnreadBadgeRequest(consulta)) {
             area = "CHAT_LIST_BADGES";
         }
-        if ("UPDATE_STYLE".equals(action) && isGroupBadgesScopedRequest(consulta)) {
+        if ("UPDATE_STYLE".equals(action) && !fullChatListThemeRequest && isGroupBadgesScopedRequest(consulta)) {
             action = "UPDATE_STYLE_MULTI";
             inputChanges = buildGroupBadgesScopedColorGroup(hasText(value) ? value : "#7c3aed");
             logRuleMatch("GROUP_BADGES_SCOPED", consulta, inputChanges);
@@ -423,7 +677,7 @@ public class AiUiCustomizationValidationService {
             property = "TEXT_COLOR";
             logRuleMatch("INDIVIDUAL_PREVIEW_TEXT", consulta, List.of(change("CHAT_LIST_ITEM_PREVIEW", "TEXT_COLOR", hasText(value) ? value : "")));
         }
-        if ("UPDATE_STYLE".equals(action) && isIndividualFilePreviewRequest(consulta)) {
+        if ("UPDATE_STYLE".equals(action) && !fullChatListThemeRequest && isIndividualFilePreviewRequest(consulta)) {
             action = "UPDATE_STYLE_MULTI";
             inputChanges = buildIndividualFilePreviewScopedColorGroup(hasText(value) ? value : "#2563eb");
             logRuleMatch("INDIVIDUAL_FILE_PREVIEW_SCOPED", consulta, inputChanges);
@@ -459,7 +713,7 @@ public class AiUiCustomizationValidationService {
         if ("UPDATE_STYLE".equals(action)
                 && ("CHAT_LIST_PIN_MENU".equals(area) || "CHAT_LIST_PIN_MENU_ITEM".equals(area))
                 && "BACKGROUND_COLOR".equals(property)
-                && isPinMenuWholeMenuRequest(consulta)) {
+                && isControlledPinMenuRequest(consulta)) {
             action = "UPDATE_STYLE_GROUP";
             area = "CHAT_LIST_PIN_MENU";
         }
@@ -485,6 +739,7 @@ public class AiUiCustomizationValidationService {
         }
         if ("UPDATE_STYLE".equals(action)
                 && "BACKGROUND_COLOR".equals(property)
+                && !fullChatListThemeRequest
                 && isBothIndividualAndGroupScopeRequest(consulta)) {
             action = "UPDATE_STYLE_MULTI";
             inputChanges = new ArrayList<>();
@@ -525,6 +780,17 @@ public class AiUiCustomizationValidationService {
                 && isWholeBlockStyleRequest(consulta)) {
             action = "UPDATE_STYLE_GROUP";
         }
+        if ("UPDATE_STYLE".equals(action) && isFullSidebarThemeRequest(consulta)) {
+            String sidebarBaseColor = hasText(value) ? normalizeColorText(value) : resolveFullSidebarThemeBaseColor(consulta);
+            if (hasText(sidebarBaseColor)) {
+                action = "UPDATE_STYLE_MULTI";
+                inputChanges = buildSidebarNavThemeChanges(sidebarBaseColor);
+                logRuleMatch("SIDEBAR_NAV_THEME", consulta, inputChanges);
+                area = null;
+                property = null;
+                value = null;
+            }
+        }
 
         String requestedProperty = property;
         String requestedValue = value;
@@ -561,13 +827,7 @@ public class AiUiCustomizationValidationService {
         if ("UPDATE_STYLE".equals(action)
                 && isChatListPanelThemeRequest(consulta)
                 && (!hasText(area) || !hasText(property) || !hasText(value))) {
-            String inferredColor = resolveColorFromText(consulta);
-            if (!hasText(inferredColor) && containsAny(normalizeSemanticText(consulta), "negro", "oscuro")) {
-                inferredColor = "#111827";
-            }
-            if (!hasText(inferredColor) && containsAny(normalizeSemanticText(consulta), "blanco", "claro")) {
-                inferredColor = "#ffffff";
-            }
+            String inferredColor = resolveFullChatListThemeBaseColor(consulta);
             if (hasText(inferredColor)) {
                 action = "UPDATE_STYLE_GROUP";
                 area = "CHAT_LIST_PANEL";
@@ -577,18 +837,23 @@ public class AiUiCustomizationValidationService {
             }
         }
 
-        if (isAmbiguousDropdownRequest(consulta)) {
-            LOGGER.info("[AI][UI_CUSTOMIZATION_NEEDS_CLARIFICATION] reason=AMBIGUOUS_DROPDOWN consulta={}", safe(consulta));
-            return failure(action, area, property, value, valuePreset, label, confidence,
-                    "UI_CUSTOMIZATION_NEEDS_CLARIFICATION",
-                    "¿Que desplegable quieres cambiar: el de opciones del chat, el de mensajes, perfil u otra zona?");
-        }
-
-        if (needsClarification(consulta, area, property, action)) {
+        if (needsClarificationByMissingData(area, property, value, inputChanges, action, resolvedAreaFromScope)) {
+            String effectiveClarificationReason = inferClarificationReason(
+                    clarificationReason,
+                    area,
+                    property,
+                    value,
+                    inputChanges,
+                    action,
+                    resolvedAreaFromScope
+            );
             LOGGER.info("[AI][UI_CUSTOMIZATION_VALIDATE] requestId={} allowed=false reason=NEEDS_CLARIFICATION area={} property={} value={}",
                     requestId, area, property, safe(value));
             return failure(action, area, property, value, valuePreset, label, confidence,
-                    "UI_CUSTOMIZATION_NEEDS_CLARIFICATION", CLARIFICATION_MESSAGE);
+                    "UI_CUSTOMIZATION_NEEDS_CLARIFICATION",
+                    resolveClarificationMessage(clarificationQuestion, effectiveClarificationReason),
+                    effectiveClarificationReason,
+                    clarificationQuestion);
         }
 
         if (confidence == null || effectiveConfidence < 0.70d) {
@@ -597,6 +862,18 @@ public class AiUiCustomizationValidationService {
             return failure(action, area, property, value, valuePreset, label, confidence,
                     "UI_CUSTOMIZATION_LOW_CONFIDENCE", "No estoy seguro del cambio visual solicitado.");
         }
+
+        ActionNormalization actionNormalization = normalizeSingleAreaGroupAction(action, area, property, value, inputChanges);
+        if (actionNormalization.normalized()) {
+            action = actionNormalization.action();
+            area = actionNormalization.area();
+            property = actionNormalization.property();
+            value = actionNormalization.value();
+            inputChanges = actionNormalization.changes();
+        }
+
+        area = normalizeArea(area);
+        property = normalizeProperty(property);
 
         if (!"UPDATE_STYLE_MULTI".equals(action) && (!hasText(area) || !ALLOWED_AREAS.contains(area))) {
             LOGGER.info("[AI][UI_CUSTOMIZATION_VALIDATE] requestId={} allowed=false reason=AREA_NOT_ALLOWED area={} property={} value={}",
@@ -607,7 +884,7 @@ public class AiUiCustomizationValidationService {
 
         if ("UPDATE_STYLE_MULTI".equals(action)) {
             boolean aiProvidedChanges = inputChanges != null && !inputChanges.isEmpty();
-            List<UiCustomizationChangeDTO> explicitChanges = extractExplicitChanges(consulta, area, property, value, valuePreset, inputChanges);
+            List<UiCustomizationChangeDTO> explicitChanges = extractExplicitChanges(consulta, label, area, property, value, valuePreset, inputChanges);
             boolean autoRepairedWhiteElegant = false;
             boolean highVolumeThemeRequest = isHighVolumeThemeRequest(consulta, area, explicitChanges);
             int maxExplicitChanges = highVolumeThemeRequest ? MAX_THEME_MULTI_CHANGES : MAX_EXPLICIT_MULTI_CHANGES;
@@ -621,9 +898,42 @@ public class AiUiCustomizationValidationService {
                 LOGGER.info("[AI][UI_MULTI_REPAIR] requestId={} reason=CHAT_LIST_WHITE_ELEGANT generatedChanges={}",
                         requestId, explicitChanges.size());
             }
+            if (explicitChanges.isEmpty()
+                    && effectiveConfidence >= 0.70d
+                    && isFullChatListThemeRequest(consulta)) {
+                String inferredColor = resolveFullChatListThemeBaseColor(consulta);
+                if (hasText(inferredColor)) {
+                    explicitChanges.addAll(buildChatListPanelColorGroup(consulta, inferredColor));
+                    LOGGER.info("[AI][UI_CUSTOMIZATION_CLARIFICATION_SKIPPED] reason=FULL_CHAT_LIST_THEME");
+                    LOGGER.info("[AI][UI_CUSTOMIZATION_GLOBAL_THEME_CHANGES] changesCount={}", explicitChanges.size());
+                }
+            }
+            if (explicitChanges.isEmpty()
+                    && effectiveConfidence >= 0.70d
+                    && isFullSidebarThemeRequest(consulta)) {
+                String inferredColor = resolveFullSidebarThemeBaseColor(consulta);
+                if (hasText(inferredColor)) {
+                    explicitChanges.addAll(buildSidebarNavThemeChanges(inferredColor));
+                    LOGGER.info("[AI][UI_CUSTOMIZATION_CLARIFICATION_SKIPPED] reason=FULL_SIDEBAR_THEME");
+                    LOGGER.info("[AI][UI_CUSTOMIZATION_GLOBAL_THEME_CHANGES] changesCount={}", explicitChanges.size());
+                }
+            }
             LOGGER.info("[AI][UI_MULTI_VALIDATE] requestId={} rootAreaIgnored=true changesCount={}", requestId, explicitChanges.size());
             LOGGER.info("[AI][UI_MULTI_EXPLICIT] requestId={} count={}", requestId, explicitChanges.size());
-            if (!autoRepairedWhiteElegant && explicitChanges.size() > maxExplicitChanges) {
+            LOGGER.info("[AI][UI_CUSTOMIZATION_MULTI_LIMIT] limit={} changesCount={}", maxFinalChanges, explicitChanges.size());
+            if (isScopedPinMenuRequest(consulta)) {
+                int before = explicitChanges.size();
+                explicitChanges = sanitizePinMenuOnlyChanges(explicitChanges);
+                LOGGER.info("[AI][UI_CUSTOMIZATION_PIN_MENU_FILTER] before={} after={}", before, explicitChanges.size());
+            }
+            boolean controlledPinMenuGroup = isControlledPinMenuRequest(consulta) || isControlledPinMenuChanges(explicitChanges);
+            if (controlledPinMenuGroup && explicitChanges.size() > maxExplicitChanges) {
+                LOGGER.info("[AI][UI_CUSTOMIZATION_TOO_MANY_CHANGES_SKIPPED] reason=CONTROLLED_PIN_MENU_GROUP changesCount={}", explicitChanges.size());
+            }
+            if (controlledPinMenuGroup) {
+                LOGGER.info("[AI][UI_CUSTOMIZATION_VALIDATE_CONTROLLED_GROUP] group=PIN_MENU_FULL_GROUP valid=true");
+            }
+            if (!autoRepairedWhiteElegant && !controlledPinMenuGroup && explicitChanges.size() > maxExplicitChanges) {
                 return failure(action, area, property, value, valuePreset, label, confidence,
                         "UI_CUSTOMIZATION_TOO_MANY_CHANGES", "Demasiados cambios explicitos en la solicitud.");
             }
@@ -670,6 +980,15 @@ public class AiUiCustomizationValidationService {
                 merged.put(key, normalized);
             }
             List<UiCustomizationChangeDTO> finalChanges = new ArrayList<>(merged.values());
+            if (isScopedPinMenuRequest(consulta)) {
+                finalChanges = sanitizePinMenuOnlyChanges(finalChanges);
+            }
+            if (isStrictGroupOnlyScope(consulta, area)) {
+                finalChanges = sanitizeGroupOnlyChanges(finalChanges);
+            } else if (isStrictIndividualScope(consulta, area)) {
+                finalChanges = sanitizeIndividualOnlyChanges(finalChanges);
+            }
+            finalChanges = completeParentAreaChildrenForHarmony(consulta, area, finalChanges);
             if (isStrictGroupOnlyScope(consulta, area)) {
                 finalChanges = sanitizeGroupOnlyChanges(finalChanges);
             } else if (isStrictIndividualScope(consulta, area)) {
@@ -682,12 +1001,16 @@ public class AiUiCustomizationValidationService {
             LOGGER.info("[AI][UI_MULTI_FINAL] requestId={} count={}", requestId, finalChanges.size());
             if (finalChanges.isEmpty()) {
                 return failure(action, area, property, value, valuePreset, label, confidence,
-                        "UI_CUSTOMIZATION_NEEDS_CLARIFICATION", CLARIFICATION_MESSAGE);
+                        "UI_CUSTOMIZATION_NEEDS_CLARIFICATION",
+                        resolveClarificationMessage(clarificationQuestion, clarificationReason),
+                        clarificationReason,
+                        clarificationQuestion);
             }
             if (finalChanges.size() > maxFinalChanges) {
                 return failure(action, area, property, value, valuePreset, label, confidence,
                         "UI_CUSTOMIZATION_TOO_MANY_CHANGES", "La solicitud genera demasiados cambios.");
             }
+            LOGGER.info("[AI][UI_CUSTOMIZATION_MULTI_ALLOWED] reason=PARENT_HARMONY");
 
             AiUiCustomizationResponseDTO response = baseResponse(action, null, null, null, valuePreset, label, confidence);
             response.setColorIntent(colorIntent);
@@ -855,6 +1178,32 @@ public class AiUiCustomizationValidationService {
         LOGGER.info("[AI][UI_CUSTOMIZATION_VALUE_PRESERVED] area={} property={} value={}",
                 area, property, safe(resolvedValue));
 
+        if (shouldExpandParentAreaByDefaultHarmony(action, area, property, consulta, inputChanges)) {
+            List<UiCustomizationChangeDTO> candidateChanges = buildParentAreaDefaultHarmonyChanges(area, property, resolvedValue);
+            if (!candidateChanges.isEmpty()) {
+                List<UiCustomizationChangeDTO> validated = new ArrayList<>();
+                for (UiCustomizationChangeDTO change : candidateChanges) {
+                    if (isValidGroupChange(change)) {
+                        validated.add(normalizeGroupChange(change));
+                    }
+                }
+                if (!validated.isEmpty()) {
+                    LOGGER.info("[AI][UI_CUSTOMIZATION_PARENT_EXPANSION] area={} explicitSingle=false before={} after={}",
+                            safe(area), 1, validated.size());
+                    LOGGER.info("[AI][UI_CUSTOMIZATION_COMPLETED_CHILDREN] area={} added={}",
+                            safe(area), Math.max(0, validated.size() - 1));
+                    AiUiCustomizationResponseDTO response = baseResponse("UPDATE_STYLE_MULTI", area, property, resolvedValue, valuePreset, label, confidence);
+                    response.setColorIntent(colorIntent);
+                    response.setChanges(validated);
+                    response.setSuccess(true);
+                    response.setCodigo("UI_CUSTOMIZATION_OK");
+                    response.setMensaje("Cambio visual interpretado correctamente con armonia en hijos.");
+                    applyNormalizationMetadata(response, normalizedInput, requestedProperty, requestedValue, resolvedValue);
+                    return response;
+                }
+            }
+        }
+
         LOGGER.info("[AI][UI_CUSTOMIZATION_VALIDATE] requestId={} allowed=true action={} area={} property={} value={}",
                 requestId, action, area, property, resolvedValue);
         AiUiCustomizationResponseDTO response = baseResponse(action, area, property, resolvedValue, valuePreset, label, confidence);
@@ -872,51 +1221,427 @@ public class AiUiCustomizationValidationService {
         return response;
     }
 
-    private boolean needsClarification(String consulta,
-                                       String area,
-                                       String property,
-                                       String action) {
+    private boolean needsClarificationByMissingData(String area,
+                                                    String property,
+                                                    String value,
+                                                    List<UiCustomizationChangeDTO> changes,
+                                                    String action,
+                                                    String resolvedAreaFromScope) {
         if ("RESET_THEME".equals(action)) {
             return false;
         }
-        if (isChatListPanelThemeRequest(consulta)) {
-            return false;
+        if ("UPDATE_STYLE_MULTI".equals(action)) {
+            return !hasValidChanges(changes);
         }
-        String normalized = normalizeSemanticText(consulta);
-        if (!hasText(normalized)) {
-            return !hasText(area) || !hasText(property);
-        }
-        boolean genericIntent = containsAny(normalized,
-                "ponlo mas bonito", "hazlo mas bonito", "cambia el estilo", "cambia estilo",
-                "hazlo moderno", "hazlo mas moderno", "mejora los colores", "mejora el estilo",
-                "ponlo bonito", "ponlo mejor", "mejora el tema", "quiero otro estilo");
-        boolean concreteZone = containsAny(normalized,
-                "chat", "mensaje", "mensajes", "burbuja", "burbujas", "barra lateral", "sidebar",
-                "topbar", "cabecera", "header", "listado", "lista de chats", "popup", "panel",
-                "buscador", "busqueda", "composer", "textarea", "send", "boton", "perfil",
-                "reacciones", "reply", "grupo", "usuario", "publicos", "modal", "poll",
-                "programado", "temporal", "preview", "preview media", "media");
-        boolean concreteProperty = containsAny(normalized,
-                "rojo", "verde", "azul", "morado", "blanco", "negro", "gris", "amarillo", "naranja", "rosa",
-                "fondo", "color", "borde", "bordes", "radio", "redondo", "redondas", "cuadrado",
-                "letra", "texto", "sombra", "shadow", "densidad", "opacidad", "blur", "desenfoque",
-                "icono", "placeholder", "badge", "activo", "hover");
-        if (genericIntent && (!concreteZone || !concreteProperty)) {
+        String effectiveArea = hasText(area) ? normalizeArea(area) : normalizeArea(resolvedAreaFromScope);
+        if (!hasText(effectiveArea)) {
             return true;
         }
-        return (!hasText(area) || !hasText(property)) && !concreteZone;
+        return !hasText(property) || !hasText(value);
     }
 
-    private boolean isAmbiguousDropdownRequest(String consulta) {
+    private boolean shouldExpandParentAreaByDefaultHarmony(String action,
+                                                           String area,
+                                                           String property,
+                                                           String consulta,
+                                                           List<UiCustomizationChangeDTO> changes) {
+        if (!"UPDATE_STYLE".equals(action)) {
+            return false;
+        }
+        if (changes != null && !changes.isEmpty()) {
+            return false;
+        }
+        String normalizedArea = normalizeArea(area);
+        String normalizedProperty = normalizeProperty(property);
+        if (!hasText(normalizedArea) || !PARENT_AREAS_DEFAULT_HARMONY.contains(normalizedArea)) {
+            return false;
+        }
+        if (!hasText(normalizedProperty) || !COLOR_PROPERTIES.contains(normalizedProperty)) {
+            return false;
+        }
+        if (hasExplicitSinglePropertyIntent(consulta)) {
+            LOGGER.info("[AI][UI_CUSTOMIZATION_PARENT_EXPANSION_SKIP] reason=EXPLICIT_SINGLE_PROPERTY");
+            return false;
+        }
+        return true;
+    }
+
+    private boolean hasExplicitSinglePropertyIntent(String consulta) {
         String normalized = normalizeSemanticText(consulta);
-        boolean mentionsMenu = containsAny(normalized, "desplegable", "menu", "menú", "opciones");
-        boolean mentionsChatScope = containsAny(normalized,
-                "del chat", "de chat", "item de chat", "listado de chats", "lista de chats", "del listado de chats");
-        boolean mentionsOtherKnownScope = containsAny(normalized,
-                "mensaje", "mensajes", "perfil", "ajustes", "ia", "popup");
-        boolean mentionsToggleOnly = containsAny(normalized,
-                "icono", "boton", "botón", "abre", "abrir", "tres puntos", "flecha");
-        return mentionsMenu && !mentionsChatScope && !mentionsOtherKnownScope && !mentionsToggleOnly;
+        return containsAny(normalized,
+                "solo cambia", "unicamente cambia", "solamente cambia", "cambia solo", "quiero cambiar solo",
+                "solo el fondo", "solo el texto", "solo el borde", "solo el icono", "solo esa propiedad",
+                "unicamente el fondo", "unicamente el texto", "unicamente el borde", "unicamente el icono",
+                "solamente el fondo", "solamente el texto", "solamente el borde", "solamente el icono",
+                "no toques nada mas", "no cambies nada mas", "sin cambiar nada mas", "manten el resto igual", "deja lo demas igual",
+                "sin cambiar el resto", "sin tocar los hijos", "no cambies los hijos", "no cambies los elementos internos",
+                "aplica unicamente ese cambio", "no armonices", "sin armonizar", "sin combinar",
+                "aplica solo ese cambio");
+    }
+
+    private List<UiCustomizationChangeDTO> buildParentAreaDefaultHarmonyChanges(String area, String property, String bgColor) {
+        String normalizedArea = normalizeArea(area);
+        String baseBg = hasText(bgColor) ? bgColor : "#2563eb";
+        List<UiCustomizationChangeDTO> changes = new ArrayList<>(buildParentAreaExpansionTemplate(null, normalizedArea, baseBg));
+        changes.add(change(normalizedArea, property, baseBg));
+        return deduplicateChangesPreservingLast(changes);
+    }
+
+    private List<UiCustomizationChangeDTO> completeParentAreaChildrenForHarmony(String consulta,
+                                                                                String area,
+                                                                                List<UiCustomizationChangeDTO> changes) {
+        if (changes == null || changes.isEmpty()) {
+            return changes;
+        }
+        if (hasExplicitSinglePropertyIntent(consulta)) {
+            LOGGER.info("[AI][UI_CUSTOMIZATION_PARENT_EXPANSION_SKIP] reason=EXPLICIT_SINGLE_PROPERTY");
+            return changes;
+        }
+        String expansionArea = resolveParentExpansionArea(consulta, area, changes);
+        if (!hasText(expansionArea)) {
+            LOGGER.info("[AI][UI_CUSTOMIZATION_PARENT_EXPANSION_SKIP] reason=NO_PARENT_AREA");
+            return changes;
+        }
+        int before = changes.size();
+        String baseColor = resolveParentExpansionBaseColor(consulta, expansionArea, changes);
+        List<UiCustomizationChangeDTO> template = buildParentAreaExpansionTemplate(consulta, expansionArea, baseColor);
+        if (template.isEmpty()) {
+            return changes;
+        }
+        Map<String, UiCustomizationChangeDTO> merged = new LinkedHashMap<>();
+        for (UiCustomizationChangeDTO templateChange : template) {
+            UiCustomizationChangeDTO normalized = normalizeGroupChange(templateChange);
+            if (isValidGroupChange(normalized)) {
+                merged.put(changeKey(normalized), normalized);
+            }
+        }
+        for (UiCustomizationChangeDTO existing : changes) {
+            UiCustomizationChangeDTO normalized = normalizeGroupChange(existing);
+            if (isValidGroupChange(normalized)) {
+                merged.put(changeKey(normalized), normalized);
+            }
+        }
+        List<UiCustomizationChangeDTO> completed = new ArrayList<>(merged.values());
+        LOGGER.info("[AI][UI_CUSTOMIZATION_PARENT_EXPANSION] area={} explicitSingle=false before={} after={}",
+                expansionArea, before, completed.size());
+        LOGGER.info("[AI][UI_CUSTOMIZATION_COMPLETED_CHILDREN] area={} added={}",
+                expansionArea, Math.max(0, completed.size() - before));
+        return completed;
+    }
+
+    private String resolveParentExpansionArea(String consulta,
+                                             String area,
+                                             List<UiCustomizationChangeDTO> changes) {
+        String normalizedArea = normalizeArea(area);
+        LOGGER.info("[AI][UI_CUSTOMIZATION_PARENT_EXPANSION] area={} normalizedArea={}", safe(area), safe(normalizedArea));
+        if (hasText(normalizedArea) && PARENT_AREAS_DEFAULT_HARMONY.contains(normalizedArea)) {
+            return normalizedArea;
+        }
+        if (changes != null) {
+            for (UiCustomizationChangeDTO change : changes) {
+                if (change == null) {
+                    LOGGER.info("[AI][UI_CUSTOMIZATION_PARENT_EXPANSION_SKIP] reason=NULL_CHANGE_AREA");
+                    continue;
+                }
+                String changeArea = normalizeArea(change == null ? null : change.getArea());
+                if (!hasText(changeArea)) {
+                    LOGGER.info("[AI][UI_CUSTOMIZATION_PARENT_EXPANSION_SKIP] reason=NULL_CHANGE_AREA");
+                    continue;
+                }
+                if (PARENT_AREAS_DEFAULT_HARMONY.contains(changeArea)) {
+                    return changeArea;
+                }
+            }
+        }
+        String normalized = normalizeSemanticText(consulta);
+        if (containsAny(normalized, "todo el listado de chats", "listado de chats completo", "panel de chats", "zona de chats", "lista de conversaciones", "todo el bloque de chats")) {
+            return "CHAT_LIST_PANEL";
+        }
+        if (containsAny(normalized, "chat grupal activo", "grupo seleccionado", "grupo activo", "chat grupal seleccionado")) {
+            return "CHAT_LIST_ITEM_GROUP_ACTIVE";
+        }
+        if (containsAny(normalized, "chat activo", "chat seleccionado", "chat individual seleccionado", "chat individual activo")) {
+            return "CHAT_LIST_ITEM_ACTIVE";
+        }
+        if (containsAny(normalized, "chats grupales", "grupos", "todos los grupos", "chats de grupo")) {
+            return "CHAT_LIST_ITEM_GROUP";
+        }
+        if (containsAny(normalized, "chats individuales", "chat individual", "conversaciones individuales", "todos los chats individuales")) {
+            return "CHAT_LIST_ITEM";
+        }
+        if (containsAny(normalized, "buscador de chats", "buscador")) {
+            return "CHAT_LIST_SEARCH";
+        }
+        if (containsAny(normalized, "filtros", "botones de filtros", "filtro de chats")) {
+            return "CHAT_LIST_FILTERS";
+        }
+        if (containsAny(normalized, "desplegable de opciones del chat", "menu de opciones del chat", "opciones del chat")) {
+            return "CHAT_LIST_PIN_MENU";
+        }
+        if (containsAny(normalized, "barra lateral", "sidebar", "menu izquierdo", "menu lateral")) {
+            return "SIDEBAR_NAV_PANEL";
+        }
+        if (containsAny(normalized, "encabezado de chats", "header de chats", "cabecera de chats")) {
+            return "CHAT_LIST_HEADER";
+        }
+        return null;
+    }
+
+    private String resolveParentExpansionBaseColor(String consulta,
+                                                   String expansionArea,
+                                                   List<UiCustomizationChangeDTO> changes) {
+        if (changes != null) {
+            for (UiCustomizationChangeDTO change : changes) {
+                String normalizedProperty = normalizeProperty(change == null ? null : change.getProperty());
+                if (change == null || !hasText(normalizedProperty) || !COLOR_PROPERTIES.contains(normalizedProperty) || !hasText(change.getValue())) {
+                    continue;
+                }
+                if (expansionArea.equals(normalizeArea(change.getArea()))) {
+                    return change.getValue();
+                }
+            }
+            for (UiCustomizationChangeDTO change : changes) {
+                String normalizedProperty = normalizeProperty(change == null ? null : change.getProperty());
+                if (change != null && hasText(normalizedProperty) && COLOR_PROPERTIES.contains(normalizedProperty) && hasText(change.getValue())) {
+                    return change.getValue();
+                }
+            }
+        }
+        String inferred = resolveColorFromText(consulta);
+        return hasText(inferred) ? inferred : "#2563eb";
+    }
+
+    private List<UiCustomizationChangeDTO> buildParentAreaExpansionTemplate(String consulta,
+                                                                            String area,
+                                                                            String baseColor) {
+        String normalizedArea = normalizeArea(area);
+        if (!hasText(normalizedArea)) {
+            return List.of();
+        }
+        return switch (normalizedArea) {
+            case "CHAT_LIST_PANEL" -> buildChatListPanelColorGroup(consulta, baseColor);
+            case "CHAT_LIST_ITEM" -> buildCompleteChatListItemChildren(baseColor);
+            case "CHAT_LIST_ITEM_GROUP" -> buildCompleteChatListGroupChildren(baseColor);
+            case "CHAT_LIST_ITEM_ACTIVE" -> buildCompleteChatListActiveChildren(baseColor);
+            case "CHAT_LIST_ITEM_GROUP_ACTIVE" -> buildCompleteChatListGroupActiveChildren(baseColor);
+            case "CHAT_LIST_SEARCH" -> buildSearchColorGroup(baseColor);
+            case "CHAT_LIST_FILTERS" -> buildFiltersColorGroup(baseColor);
+            case "CHAT_LIST_PIN_MENU" -> buildPinMenuColorGroup(baseColor);
+            case "SIDEBAR_NAV_PANEL" -> buildSidebarNavThemeChanges(baseColor);
+            case "CHAT_LIST_HEADER" -> buildChatListHeaderColorGroup(baseColor);
+            default -> List.of();
+        };
+    }
+
+    private List<UiCustomizationChangeDTO> buildCompleteChatListItemChildren(String baseColor) {
+        String normalizedBase = normalizeColorText(baseColor);
+        String textColor = choosePrimaryTextColor(normalizedBase);
+        String secondaryText = chooseSecondaryTextColor(normalizedBase);
+        String borderColor = chooseBorderColor(normalizedBase);
+        List<UiCustomizationChangeDTO> changes = new ArrayList<>(buildChatListItemColorGroup(null, "CHAT_LIST_ITEM", normalizedBase));
+        changes.add(change("CHAT_LIST_ITEM_NAME", "TEXT_COLOR", textColor));
+        changes.add(change("CHAT_LIST_ITEM_NAME_SCOPED", "TEXT_COLOR", textColor));
+        changes.add(change("CHAT_LIST_ITEM_PREVIEW", "TEXT_COLOR", secondaryText));
+        changes.add(change("CHAT_LIST_ITEM_DRAFT_PREVIEW", "TEXT_COLOR", secondaryText));
+        changes.add(change("CHAT_LIST_ITEM_BADGES", "BACKGROUND_COLOR", borderColor));
+        changes.add(change("CHAT_LIST_ITEM_BADGES", "TEXT_COLOR", textColor));
+        changes.add(change("CHAT_LIST_ITEM_ACTIONS", "ICON_COLOR", textColor));
+        changes.add(change("CHAT_LIST_ITEM_ACTIONS_SCOPED", "ICON_COLOR", textColor));
+        changes.add(change("CHAT_LIST_ITEM_STATUS_PILLS", "REPORTED_BACKGROUND_COLOR", borderColor));
+        changes.add(change("CHAT_LIST_ITEM_STATUS_PILLS", "REPORTED_TEXT_COLOR", textColor));
+        changes.add(change("CHAT_LIST_ITEM_STATUS_PILLS", "BLOCKED_BACKGROUND_COLOR", borderColor));
+        changes.add(change("CHAT_LIST_ITEM_STATUS_PILLS", "BLOCKED_TEXT_COLOR", textColor));
+        changes.add(change("CHAT_LIST_ITEM_DATE", "TEXT_COLOR", secondaryText));
+        changes.add(change("CHAT_LIST_PIN_TOGGLE", "ICON_COLOR", textColor));
+        changes.add(change("CHAT_LIST_MUTED_INDICATOR", "ICON_COLOR", textColor));
+        changes.add(change("CHAT_LIST_FAVORITE_INDICATOR", "ICON_COLOR", textColor));
+        changes.add(change("CHAT_LIST_CLOSED_INDICATOR", "TEXT_COLOR", secondaryText));
+        return deduplicateChangesPreservingLast(changes);
+    }
+
+    private List<UiCustomizationChangeDTO> buildCompleteChatListGroupChildren(String baseColor) {
+        String normalizedBase = normalizeColorText(baseColor);
+        String textColor = choosePrimaryTextColor(normalizedBase);
+        String secondaryText = chooseSecondaryTextColor(normalizedBase);
+        String borderColor = chooseBorderColor(normalizedBase);
+        List<UiCustomizationChangeDTO> changes = new ArrayList<>(buildChatListItemColorGroup("chats grupales", "CHAT_LIST_ITEM_GROUP", normalizedBase));
+        changes.add(change("CHAT_LIST_ITEM_GROUP_NAME", "TEXT_COLOR", textColor));
+        changes.add(change("CHAT_LIST_ITEM_GROUP_PREVIEW", "TEXT_COLOR", secondaryText));
+        changes.add(change("CHAT_LIST_ITEM_GROUP_DRAFT_PREVIEW", "TEXT_COLOR", secondaryText));
+        changes.add(change("CHAT_LIST_ITEM_GROUP_BADGES", "BACKGROUND_COLOR", borderColor));
+        changes.add(change("CHAT_LIST_ITEM_GROUP_BADGES", "TEXT_COLOR", textColor));
+        changes.add(change("CHAT_LIST_ITEM_GROUP_ACTIONS", "ICON_COLOR", textColor));
+        changes.add(change("CHAT_LIST_ITEM_GROUP_STATUS_PILLS", "REPORTED_BACKGROUND_COLOR", borderColor));
+        changes.add(change("CHAT_LIST_ITEM_GROUP_STATUS_PILLS", "REPORTED_TEXT_COLOR", textColor));
+        changes.add(change("CHAT_LIST_ITEM_GROUP_STATUS_PILLS", "BLOCKED_BACKGROUND_COLOR", borderColor));
+        changes.add(change("CHAT_LIST_ITEM_GROUP_STATUS_PILLS", "BLOCKED_TEXT_COLOR", textColor));
+        changes.add(change("CHAT_LIST_GROUP_PILL", "BACKGROUND_COLOR", borderColor));
+        changes.add(change("CHAT_LIST_GROUP_PILL", "TEXT_COLOR", textColor));
+        changes.add(change("CHAT_LIST_ITEM_DATE", "TEXT_COLOR", secondaryText));
+        changes.add(change("CHAT_LIST_PIN_TOGGLE", "ICON_COLOR", textColor));
+        changes.add(change("CHAT_LIST_MUTED_INDICATOR", "ICON_COLOR", textColor));
+        changes.add(change("CHAT_LIST_FAVORITE_INDICATOR", "ICON_COLOR", textColor));
+        changes.add(change("CHAT_LIST_CLOSED_INDICATOR", "TEXT_COLOR", secondaryText));
+        return deduplicateChangesPreservingLast(changes);
+    }
+
+    private List<UiCustomizationChangeDTO> buildCompleteChatListActiveChildren(String baseColor) {
+        String normalizedBase = normalizeColorText(baseColor);
+        String textColor = choosePrimaryTextColor(normalizedBase);
+        String secondaryText = chooseSecondaryTextColor(normalizedBase);
+        String borderColor = chooseBorderColor(normalizedBase);
+        List<UiCustomizationChangeDTO> changes = new ArrayList<>();
+        changes.add(change("CHAT_LIST_ITEM_ACTIVE", "BACKGROUND_COLOR", normalizedBase));
+        changes.add(change("CHAT_LIST_ITEM_ACTIVE", "TEXT_COLOR", textColor));
+        changes.add(change("CHAT_LIST_ITEM_ACTIVE", "BORDER_COLOR", borderColor));
+        changes.add(change("CHAT_LIST_ITEM_NAME", "TEXT_COLOR", textColor));
+        changes.add(change("CHAT_LIST_ITEM_NAME_SCOPED", "TEXT_COLOR", textColor));
+        changes.add(change("CHAT_LIST_ITEM_PREVIEW", "TEXT_COLOR", secondaryText));
+        changes.add(change("CHAT_LIST_ITEM_DATE", "TEXT_COLOR", secondaryText));
+        changes.add(change("CHAT_LIST_PIN_TOGGLE", "ICON_COLOR", textColor));
+        changes.add(change("CHAT_LIST_BADGES", "BACKGROUND_COLOR", borderColor));
+        changes.add(change("CHAT_LIST_BADGES", "TEXT_COLOR", textColor));
+        changes.add(change("CHAT_LIST_MUTED_INDICATOR", "ICON_COLOR", textColor));
+        changes.add(change("CHAT_LIST_FAVORITE_INDICATOR", "ICON_COLOR", textColor));
+        return changes;
+    }
+
+    private List<UiCustomizationChangeDTO> buildCompleteChatListGroupActiveChildren(String baseColor) {
+        String normalizedBase = normalizeColorText(baseColor);
+        String textColor = choosePrimaryTextColor(normalizedBase);
+        String secondaryText = chooseSecondaryTextColor(normalizedBase);
+        String borderColor = chooseBorderColor(normalizedBase);
+        List<UiCustomizationChangeDTO> changes = new ArrayList<>();
+        changes.add(change("CHAT_LIST_ITEM_GROUP_ACTIVE", "BACKGROUND_COLOR", normalizedBase));
+        changes.add(change("CHAT_LIST_ITEM_GROUP_ACTIVE", "TEXT_COLOR", textColor));
+        changes.add(change("CHAT_LIST_ITEM_GROUP_ACTIVE", "BORDER_COLOR", borderColor));
+        changes.add(change("CHAT_LIST_ITEM_GROUP_NAME", "TEXT_COLOR", textColor));
+        changes.add(change("CHAT_LIST_ITEM_GROUP_PREVIEW", "TEXT_COLOR", secondaryText));
+        changes.add(change("CHAT_LIST_ITEM_DATE", "TEXT_COLOR", secondaryText));
+        changes.add(change("CHAT_LIST_GROUP_PILL", "BACKGROUND_COLOR", borderColor));
+        changes.add(change("CHAT_LIST_GROUP_PILL", "TEXT_COLOR", textColor));
+        changes.add(change("CHAT_LIST_ITEM_GROUP_BADGES", "BACKGROUND_COLOR", borderColor));
+        changes.add(change("CHAT_LIST_ITEM_GROUP_BADGES", "TEXT_COLOR", textColor));
+        changes.add(change("CHAT_LIST_PIN_TOGGLE", "ICON_COLOR", textColor));
+        changes.add(change("CHAT_LIST_MUTED_INDICATOR", "ICON_COLOR", textColor));
+        changes.add(change("CHAT_LIST_FAVORITE_INDICATOR", "ICON_COLOR", textColor));
+        return changes;
+    }
+
+    private List<UiCustomizationChangeDTO> buildChatListHeaderColorGroup(String baseColor) {
+        String normalizedBase = normalizeColorText(baseColor);
+        String textColor = choosePrimaryTextColor(normalizedBase);
+        String borderColor = chooseBorderColor(normalizedBase);
+        List<UiCustomizationChangeDTO> changes = new ArrayList<>();
+        changes.add(change("CHAT_LIST_HEADER", "BACKGROUND_COLOR", normalizedBase));
+        changes.add(change("CHAT_LIST_HEADER", "TEXT_COLOR", textColor));
+        changes.add(change("CHAT_LIST_TITLE", "TEXT_COLOR", textColor));
+        changes.add(change("CHAT_LIST_HEADER_ACTIONS", "ICON_COLOR", textColor));
+        changes.add(change("CHAT_LIST_HEADER_ICON_BUTTON", "BACKGROUND_COLOR", normalizedBase));
+        changes.add(change("CHAT_LIST_HEADER_ICON_BUTTON", "ICON_COLOR", textColor));
+        changes.add(change("CHAT_LIST_HEADER_ICON", "ICON_COLOR", textColor));
+        changes.add(change("CHAT_LIST_HEADER_MENU", "BACKGROUND_COLOR", normalizedBase));
+        changes.add(change("CHAT_LIST_HEADER_MENU", "TEXT_COLOR", textColor));
+        changes.add(change("CHAT_LIST_HEADER_MENU", "BORDER_COLOR", borderColor));
+        changes.add(change("CHAT_LIST_HEADER_MENU_ITEM", "TEXT_COLOR", textColor));
+        changes.add(change("CHAT_LIST_HEADER_MENU_ITEM", "ICON_COLOR", textColor));
+        changes.add(change("CHAT_LIST_ACTIONS_MENU", "BACKGROUND_COLOR", normalizedBase));
+        changes.add(change("CHAT_LIST_ACTIONS_MENU", "TEXT_COLOR", textColor));
+        changes.add(change("CHAT_LIST_ACTIONS_MENU", "BORDER_COLOR", borderColor));
+        changes.add(change("CHAT_LIST_ACTIONS_MENU_ITEM", "TEXT_COLOR", textColor));
+        changes.add(change("CHAT_LIST_ACTIONS_MENU_ITEM", "ICON_COLOR", textColor));
+        return deduplicateChangesPreservingLast(changes);
+    }
+
+    private String choosePrimaryTextColor(String baseColor) {
+        String normalizedBase = normalizeColorText(baseColor);
+        return isDarkColor(normalizedBase) || "#ef4444".equals(normalizedBase) || "#7c3aed".equals(normalizedBase) || "#14532d".equals(normalizedBase)
+                ? "#ffffff" : "#111827";
+    }
+
+    private String chooseSecondaryTextColor(String baseColor) {
+        return isDarkColor(normalizeColorText(baseColor)) ? "#e5e7eb" : "#64748b";
+    }
+
+    private String chooseBorderColor(String baseColor) {
+        String normalizedBase = normalizeColorText(baseColor);
+        if ("#ef4444".equals(normalizedBase)) {
+            return "#b91c1c";
+        }
+        if ("#7c3aed".equals(normalizedBase)) {
+            return "#6d28d9";
+        }
+        if ("#16a34a".equals(normalizedBase) || "#14532d".equals(normalizedBase)) {
+            return "#166534";
+        }
+        return isDarkColor(normalizedBase) ? "#334155" : "#e5e7eb";
+    }
+
+    private List<UiCustomizationChangeDTO> deduplicateChangesPreservingLast(List<UiCustomizationChangeDTO> changes) {
+        Map<String, UiCustomizationChangeDTO> deduped = new LinkedHashMap<>();
+        if (changes == null) {
+            return new ArrayList<>();
+        }
+        for (UiCustomizationChangeDTO change : changes) {
+            UiCustomizationChangeDTO normalized = normalizeGroupChange(change);
+            if (isValidGroupChange(normalized)) {
+                deduped.put(changeKey(normalized), normalized);
+            }
+        }
+        return new ArrayList<>(deduped.values());
+    }
+
+    private boolean hasValidChanges(List<UiCustomizationChangeDTO> changes) {
+        if (changes == null || changes.isEmpty()) {
+            return false;
+        }
+        for (UiCustomizationChangeDTO change : changes) {
+            if (change == null) {
+                continue;
+            }
+            String changeArea = normalizeArea(change.getArea());
+            String changeProperty = normalizeProperty(change.getProperty());
+            String changeValue = change.getValue();
+            if (hasText(changeArea) && ALLOWED_AREAS.contains(changeArea)
+                    && hasText(changeProperty) && hasText(changeValue)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean mentionsDropdownKeywords(String consulta) {
+        String normalized = normalizeSemanticText(consulta);
+        return containsAny(normalized, "desplegable", "menu", "opciones");
+    }
+
+    private String inferClarificationReason(String clarificationReason,
+                                            String area,
+                                            String property,
+                                            String value,
+                                            List<UiCustomizationChangeDTO> changes,
+                                            String action,
+                                            String resolvedAreaFromScope) {
+        if (hasText(clarificationReason)) {
+            return clarificationReason;
+        }
+        if (!needsClarificationByMissingData(area, property, value, changes, action, resolvedAreaFromScope)) {
+            return clarificationReason;
+        }
+        String effectiveArea = hasText(area) ? normalizeArea(area) : normalizeArea(resolvedAreaFromScope);
+        String normalizedProperty = normalizeProperty(property);
+        if (!hasText(effectiveArea)) {
+            return "AREA_SCOPE_AMBIGUOUS";
+        }
+        if (hasText(normalizedProperty) && !hasText(value) && (changes == null || changes.isEmpty())) {
+            if (COLOR_PROPERTIES.contains(normalizedProperty)) {
+                return "COLOR_VALUE_MISSING";
+            }
+            if (SIZE_PROPERTIES.contains(normalizedProperty)) {
+                return "SIZE_VALUE_MISSING";
+            }
+        }
+        return clarificationReason;
     }
 
     private AiUiCustomizationResponseDTO failure(String action,
@@ -928,11 +1653,66 @@ public class AiUiCustomizationValidationService {
                                                  Double confidence,
                                                  String codigo,
                                                  String mensaje) {
-        AiUiCustomizationResponseDTO response = baseResponse(action, area, property, value, valuePreset, label, confidence);
+        return failure(action, area, property, value, valuePreset, label, confidence, codigo, mensaje, null, null);
+    }
+
+    private AiUiCustomizationResponseDTO failure(String action,
+                                                 String area,
+                                                 String property,
+                                                 String value,
+                                                 String valuePreset,
+                                                 String label,
+                                                 Double confidence,
+                                                 String codigo,
+                                                 String mensaje,
+                                                 String clarificationReason,
+                                                 String clarificationQuestion) {
+        String responseAction = "UI_CUSTOMIZATION_NEEDS_CLARIFICATION".equals(codigo) ? "NEEDS_CLARIFICATION" : action;
+        AiUiCustomizationResponseDTO response = baseResponse(responseAction, area, property, value, valuePreset, label, confidence);
         response.setSuccess(false);
         response.setCodigo(codigo);
-        response.setMensaje(mensaje);
+        if ("UI_CUSTOMIZATION_NEEDS_CLARIFICATION".equals(codigo)) {
+            String resolvedClarificationMessage = resolveClarificationMessage(clarificationQuestion, clarificationReason);
+            response.setMensaje(resolvedClarificationMessage);
+            response.setNeedsClarification(Boolean.TRUE);
+            response.setClarificationReason(clarificationReason);
+            response.setClarificationQuestion(resolvedClarificationMessage);
+            response.setArea(null);
+            response.setProperty(null);
+            response.setValue(null);
+            response.setChanges(null);
+            LOGGER.info("[AI][UI_CLARIFICATION_MESSAGE_RESOLVED] message={}", safe(resolvedClarificationMessage));
+            LOGGER.info("[AI][UI_CLARIFICATION_CONTEXTUAL] label={} reason={}", safe(label), safe(clarificationReason));
+        } else {
+            response.setMensaje(mensaje);
+        }
         return response;
+    }
+
+    private String resolveClarificationMessage(String clarificationQuestion,
+                                              String clarificationReason) {
+        if (hasText(clarificationQuestion)) {
+            return clarificationQuestion;
+        }
+        if ("COLOR_VALUE_MISSING".equalsIgnoreCase(safe(clarificationReason))) {
+            return COLOR_VALUE_MISSING_MESSAGE;
+        }
+        if ("SIZE_VALUE_MISSING".equalsIgnoreCase(safe(clarificationReason))) {
+            return SIZE_VALUE_MISSING_MESSAGE;
+        }
+        if ("DROPDOWN_SCOPE_AMBIGUOUS".equalsIgnoreCase(safe(clarificationReason))) {
+            return AMBIGUOUS_DROPDOWN_CLARIFICATION_MESSAGE;
+        }
+        if ("ICON_SCOPE_AMBIGUOUS".equalsIgnoreCase(safe(clarificationReason))) {
+            return AMBIGUOUS_ICON_CLARIFICATION_MESSAGE;
+        }
+        if ("BORDER_PROPERTY_AMBIGUOUS".equalsIgnoreCase(safe(clarificationReason))) {
+            return AMBIGUOUS_BORDER_CLARIFICATION_MESSAGE;
+        }
+        if ("AREA_SCOPE_AMBIGUOUS".equalsIgnoreCase(safe(clarificationReason))) {
+            return AMBIGUOUS_AREA_CLARIFICATION_MESSAGE;
+        }
+        return DEFAULT_CLARIFICATION_MESSAGE;
     }
 
     private AiUiCustomizationResponseDTO baseResponse(String action,
@@ -1191,8 +1971,8 @@ public class AiUiCustomizationValidationService {
     }
 
     private AreaProperty normalizeAreaProperty(String area, String property) {
-        String normalizedArea = area;
-        String normalizedProperty = property;
+        String normalizedArea = normalizeArea(area);
+        String normalizedProperty = normalizeProperty(property);
         if ("CHAT_HEADER".equals(normalizedArea)) {
             normalizedArea = "CHAT_LIST_HEADER";
         }
@@ -1200,6 +1980,26 @@ public class AiUiCustomizationValidationService {
             normalizedProperty = "ICON_COLOR";
         }
         return new AreaProperty(normalizedArea, normalizedProperty);
+    }
+
+    private String normalizeArea(String area) {
+        if (!hasText(area)) {
+            return area;
+        }
+        return switch (area) {
+            case "SIDEBAR_NAV" -> "SIDEBAR_NAV_PANEL";
+            case "SIDEBAR_NAV_ACTIVE_ITEM" -> "SIDEBAR_NAV_ITEM_ACTIVE";
+            case "CHAT_LIST_NAME" -> "CHAT_LIST_ITEM_NAME";
+            case "CHAT_LIST_STATUS_INDICATOR" -> "CHAT_LIST_STATUS_DOT";
+            default -> area;
+        };
+    }
+
+    private String normalizeProperty(String property) {
+        if (!hasText(property)) {
+            return property;
+        }
+        return "SHADOW".equals(property) ? "SHADOW_PRESET" : property;
     }
 
     private boolean isDarkColor(String hex) {
@@ -1567,8 +2367,12 @@ public class AiUiCustomizationValidationService {
         return switch (property) {
             case "BORDER_RADIUS" -> resolvePresetOrPx(rawValue, valuePreset, BORDER_RADIUS_PRESETS, 0, 999);
             case "BORDER_WIDTH" -> resolveBorderWidth(rawValue, valuePreset);
+            case "WIDTH" -> resolveWidth(rawValue);
+            case "HEIGHT" -> resolveHeight(rawValue);
+            case "GAP" -> resolveGap(rawValue);
             case "FONT_SIZE" -> resolveFontSize(rawValue, valuePreset);
-            case "SHADOW_PRESET" -> resolvePreset(valuePreset, rawValue, SHADOW_PRESETS);
+            case "FONT_WEIGHT" -> resolveFontWeight(rawValue);
+            case "SHADOW_PRESET", "SHADOW" -> resolvePreset(valuePreset, rawValue, SHADOW_PRESETS);
             case "DENSITY" -> resolveDensity(valuePreset, rawValue);
             case "OPACITY" -> resolveOpacity(rawValue);
             case "BLUR" -> resolvePresetOrPx(rawValue, valuePreset, BLUR_PRESETS, 0, 32);
@@ -1624,6 +2428,38 @@ public class AiUiCustomizationValidationService {
         }
         String normalized = rawValue.trim().toLowerCase(Locale.ROOT);
         return BORDER_WIDTH_VALUES.contains(normalized) ? normalized : null;
+    }
+
+    private String resolveWidth(String rawValue) {
+        if (!hasText(rawValue)) {
+            return null;
+        }
+        String normalized = rawValue.trim().toLowerCase(Locale.ROOT);
+        return WIDTH_VALUES.contains(normalized) ? normalized : null;
+    }
+
+    private String resolveHeight(String rawValue) {
+        if (!hasText(rawValue)) {
+            return null;
+        }
+        String normalized = rawValue.trim().toLowerCase(Locale.ROOT);
+        return HEIGHT_VALUES.contains(normalized) ? normalized : null;
+    }
+
+    private String resolveGap(String rawValue) {
+        if (!hasText(rawValue)) {
+            return null;
+        }
+        String normalized = rawValue.trim().toLowerCase(Locale.ROOT);
+        return GAP_VALUES.contains(normalized) ? normalized : null;
+    }
+
+    private String resolveFontWeight(String rawValue) {
+        if (!hasText(rawValue)) {
+            return null;
+        }
+        String normalized = rawValue.trim();
+        return FONT_WEIGHT_VALUES.contains(normalized) ? normalized : null;
     }
 
     private boolean isPxValue(String rawValue) {
@@ -2085,12 +2921,17 @@ public class AiUiCustomizationValidationService {
                 : isDarkColor(normalizedBase) ? "#334155" : "#e5e7eb";
         List<UiCustomizationChangeDTO> changes = new ArrayList<>();
         changes.add(change("CHAT_LIST_FILTERS", "BACKGROUND_COLOR", normalizedBase));
+        changes.add(change("CHAT_LIST_FILTERS", "TEXT_COLOR", textColor));
+        changes.add(change("CHAT_LIST_FILTERS", "BORDER_COLOR", borderColor));
         changes.add(change("CHAT_LIST_FILTER_BUTTONS", "BACKGROUND_COLOR", normalizedBase));
         changes.add(change("CHAT_LIST_FILTER_BUTTONS", "TEXT_COLOR", textColor));
         changes.add(change("CHAT_LIST_FILTER_BUTTONS", "BORDER_COLOR", borderColor));
+        changes.add(change("CHAT_LIST_FILTER_BUTTONS", "HOVER_BACKGROUND_COLOR", isDarkColor(normalizedBase) ? "#1f2937" : "#f1f5f9"));
         changes.add(change("CHAT_LIST_FILTER_BUTTONS_ACTIVE", "BACKGROUND_COLOR", normalizedBase));
         changes.add(change("CHAT_LIST_FILTER_BUTTONS_ACTIVE", "TEXT_COLOR", textColor));
         changes.add(change("CHAT_LIST_FILTER_BUTTONS_ACTIVE", "BORDER_COLOR", borderColor));
+        changes.add(change("CHAT_LIST_FILTER_BUTTONS_ACTIVE", "ACTIVE_BACKGROUND_COLOR", normalizedBase));
+        changes.add(change("CHAT_LIST_FILTER_BUTTONS_ACTIVE", "ACTIVE_TEXT_COLOR", textColor));
         return changes;
     }
 
@@ -2122,6 +2963,7 @@ public class AiUiCustomizationValidationService {
         changes.add(change("CHAT_LIST_SEARCH", "TEXT_COLOR", textColor));
         changes.add(change("CHAT_LIST_SEARCH", "BORDER_COLOR", borderColor));
         changes.add(change("CHAT_LIST_SEARCH", "PLACEHOLDER_COLOR", isDarkColor(normalizedBase) ? "#cbd5e1" : "#64748b"));
+        changes.add(change("CHAT_LIST_SEARCH", "BORDER_RADIUS", "18px"));
         return changes;
     }
 
@@ -2132,6 +2974,7 @@ public class AiUiCustomizationValidationService {
         }
         return switch (effectiveArea) {
             case "CHAT_LIST_PANEL" -> buildChatListPanelColorGroup(consulta, value);
+            case "SIDEBAR_NAV_PANEL" -> buildSidebarNavThemeChanges(value);
             case "CHAT_LIST_FILTERS" -> buildFiltersColorGroup(value);
             case "CHAT_LIST_AUDIO_PREVIEW" -> buildAudioPreviewColorGroup(value);
             case "CHAT_LIST_GROUP_PILL" -> buildGroupPillColorGroup(value);
@@ -2150,8 +2993,48 @@ public class AiUiCustomizationValidationService {
         if (!"BACKGROUND_COLOR".equals(change.getProperty())) {
             return false;
         }
-        return Set.of("CHAT_LIST_PANEL", "CHAT_LIST_ITEM", "CHAT_LIST_ITEM_GROUP", "CHAT_LIST_AUDIO_PREVIEW", "CHAT_LIST_GROUP_PILL",
+        return Set.of("CHAT_LIST_PANEL", "SIDEBAR_NAV_PANEL", "CHAT_LIST_ITEM", "CHAT_LIST_ITEM_GROUP", "CHAT_LIST_AUDIO_PREVIEW", "CHAT_LIST_GROUP_PILL",
                 "CHAT_LIST_PIN_MENU", "CHAT_LIST_STATUS_PILLS", "CHAT_LIST_SEARCH", "CHAT_LIST_FILTERS").contains(change.getArea());
+    }
+
+    private List<UiCustomizationChangeDTO> buildSidebarNavThemeChanges(String baseColor) {
+        String normalizedBase = normalizeColorText(baseColor);
+        String panelText = isDarkColor(normalizedBase) || "#2563eb".equals(normalizedBase) || "#7c3aed".equals(normalizedBase)
+                ? "#f9fafb" : "#111827";
+        String borderColor = isDarkColor(normalizedBase) ? "#334155" : "#d1d5db";
+        String itemBackground = isDarkColor(normalizedBase) ? "#1f2937" : "#f8fafc";
+        String itemHoverBackground = isDarkColor(normalizedBase) ? "#374151" : "#e5e7eb";
+        String accent = "#ffffff".equals(normalizedBase) ? "#2563eb"
+                : isDarkColor(normalizedBase) ? "#3b82f6"
+                : "#1d4ed8";
+        String tooltipBackground = isDarkColor(normalizedBase) ? "#0f172a" : "#ffffff";
+        List<UiCustomizationChangeDTO> changes = new ArrayList<>();
+        changes.add(change("SIDEBAR_NAV_PANEL", "BACKGROUND_COLOR", normalizedBase));
+        changes.add(change("SIDEBAR_NAV_PANEL", "TEXT_COLOR", panelText));
+        changes.add(change("SIDEBAR_NAV_GROUP", "BACKGROUND_COLOR", normalizedBase));
+        changes.add(change("SIDEBAR_NAV_GROUP", "TEXT_COLOR", panelText));
+        changes.add(change("SIDEBAR_NAV_BOTTOM", "BACKGROUND_COLOR", normalizedBase));
+        changes.add(change("SIDEBAR_NAV_BOTTOM", "TEXT_COLOR", panelText));
+        changes.add(change("SIDEBAR_NAV_ITEM", "BACKGROUND_COLOR", itemBackground));
+        changes.add(change("SIDEBAR_NAV_ITEM", "ICON_COLOR", panelText));
+        changes.add(change("SIDEBAR_NAV_ITEM", "TEXT_COLOR", panelText));
+        changes.add(change("SIDEBAR_NAV_ITEM", "HOVER_BACKGROUND_COLOR", itemHoverBackground));
+        changes.add(change("SIDEBAR_NAV_ITEM_ACTIVE", "BACKGROUND_COLOR", accent));
+        changes.add(change("SIDEBAR_NAV_ITEM_ACTIVE", "ICON_COLOR", "#ffffff"));
+        changes.add(change("SIDEBAR_NAV_ITEM_ACTIVE", "TEXT_COLOR", "#ffffff"));
+        changes.add(change("SIDEBAR_NAV_ACTIVE_INDICATOR", "BACKGROUND_COLOR", accent));
+        changes.add(change("SIDEBAR_NAV_ICON", "ICON_COLOR", panelText));
+        changes.add(change("SIDEBAR_NAV_ICON_ACTIVE", "ICON_COLOR", "#ffffff"));
+        changes.add(change("SIDEBAR_NAV_AI_ICON", "ICON_COLOR", panelText));
+        changes.add(change("SIDEBAR_NAV_TOOLTIP", "BACKGROUND_COLOR", tooltipBackground));
+        changes.add(change("SIDEBAR_NAV_TOOLTIP", "TEXT_COLOR", isDarkColor(tooltipBackground) ? "#f9fafb" : "#111827"));
+        changes.add(change("SIDEBAR_NAV_LOGO", "BACKGROUND_COLOR", accent));
+        changes.add(change("SIDEBAR_NAV_LOGO", "TEXT_COLOR", "#ffffff"));
+        changes.add(change("SIDEBAR_NAV_AVATAR", "BORDER_COLOR", borderColor));
+        changes.add(change("SIDEBAR_NAV_SETTINGS", "ICON_COLOR", panelText));
+        changes.add(change("SIDEBAR_NAV_NOTIF_BADGE", "BACKGROUND_COLOR", accent));
+        changes.add(change("SIDEBAR_NAV_NOTIF_BADGE", "TEXT_COLOR", "#ffffff"));
+        return changes;
     }
 
     private List<UiCustomizationChangeDTO> buildChatListPanelColorGroup(String consulta, String baseColor) {
@@ -2171,6 +3054,8 @@ public class AiUiCustomizationValidationService {
         changes.add(change("CHAT_LIST_PANEL", "BORDER_COLOR", panelBorder));
         changes.add(change("CHAT_LIST_HEADER", "BACKGROUND_COLOR", normalizedBase));
         changes.add(change("CHAT_LIST_HEADER", "TEXT_COLOR", panelText));
+        changes.add(change("CHAT_LIST_TITLE", "TEXT_COLOR", panelText));
+        changes.add(change("CHAT_LIST_SCROLL", "BACKGROUND_COLOR", normalizedBase));
         changes.addAll(buildSearchColorGroup(normalizedBase));
         changes.add(change("CHAT_LIST_FILTERS", "BACKGROUND_COLOR", normalizedBase));
         changes.add(change("CHAT_LIST_FILTERS", "BORDER_COLOR", panelBorder));
@@ -2180,12 +3065,27 @@ public class AiUiCustomizationValidationService {
         changes.add(change("CHAT_LIST_FILTER_BUTTONS_ACTIVE", "BACKGROUND_COLOR", filterActiveBg));
         changes.add(change("CHAT_LIST_FILTER_BUTTONS_ACTIVE", "TEXT_COLOR", filterActiveText));
         changes.add(change("CHAT_LIST_FILTER_BUTTONS_ACTIVE", "BORDER_COLOR", filterActiveBorder));
-        changes.addAll(buildChatListItemColorGroup(consulta, "CHAT_LIST_ITEM", normalizedBase));
+        changes.add(change("CHAT_LIST_HEADER_ACTIONS", "ICON_COLOR", panelText));
+        changes.add(change("CHAT_LIST_HEADER_ICON_BUTTON", "BACKGROUND_COLOR", normalizedBase));
+        changes.add(change("CHAT_LIST_HEADER_ICON_BUTTON", "ICON_COLOR", panelText));
+        changes.add(change("CHAT_LIST_HEADER_MENU", "BACKGROUND_COLOR", normalizedBase));
+        changes.add(change("CHAT_LIST_HEADER_MENU", "TEXT_COLOR", panelText));
+        changes.add(change("CHAT_LIST_HEADER_MENU", "BORDER_COLOR", panelBorder));
+        changes.add(change("CHAT_LIST_HEADER_MENU_ITEM", "TEXT_COLOR", panelText));
+        changes.add(change("CHAT_LIST_HEADER_MENU_ITEM", "ICON_COLOR", panelText));
+        List<UiCustomizationChangeDTO> itemThemeChanges = buildChatListItemColorGroup(consulta, "CHAT_LIST_ITEM", normalizedBase);
+        changes.addAll(itemThemeChanges);
+        changes.addAll(buildCompleteChatListActiveChildren(normalizedBase));
+        changes.addAll(buildCompleteChatListGroupActiveChildren(normalizedBase));
+        changes.addAll(buildCompleteChatListItemChildren(normalizedBase));
+        changes.addAll(buildCompleteChatListGroupChildren(normalizedBase));
         changes.addAll(buildPinMenuColorGroup(normalizedBase));
         changes.add(change("CHAT_LIST_ITEM_UNREAD", "BACKGROUND_COLOR", normalizedBase));
         changes.add(change("CHAT_LIST_ITEM_UNREAD", "TEXT_COLOR", panelText));
         changes.add(change("CHAT_LIST_ITEM_UNREAD", "BORDER_COLOR", panelBorder));
         changes.add(change("CHAT_LIST_ITEM_UNREAD", "HOVER_BACKGROUND_COLOR", isDarkColor(normalizedBase) ? "#1f2937" : "#f1f5f9"));
+        changes.add(change("CHAT_LIST_AVATAR", "BORDER_COLOR", panelBorder));
+        changes.add(change("CHAT_LIST_STATUS_DOT", "BACKGROUND_COLOR", filterActiveBg));
         changes.add(change("CHAT_LIST_IMAGE_PREVIEW", "BACKGROUND_COLOR", normalizedBase));
         changes.add(change("CHAT_LIST_IMAGE_PREVIEW", "TEXT_COLOR", panelText));
         changes.add(change("CHAT_LIST_IMAGE_PREVIEW", "BORDER_COLOR", panelBorder));
@@ -2203,10 +3103,62 @@ public class AiUiCustomizationValidationService {
         changes.add(change("CHAT_LIST_BADGES", "BACKGROUND_COLOR", panelBorder));
         changes.add(change("CHAT_LIST_BADGES", "TEXT_COLOR", panelText));
         changes.add(change("CHAT_LIST_PIN_TOGGLE", "ICON_COLOR", panelText));
-        return changes;
+        changes.add(change("CHAT_LIST_MUTED_INDICATOR", "ICON_COLOR", panelText));
+        changes.add(change("CHAT_LIST_FAVORITE_INDICATOR", "ICON_COLOR", panelText));
+        changes.add(change("CHAT_LIST_CLOSED_INDICATOR", "TEXT_COLOR", panelText));
+        String previewText = findChangeValue(itemThemeChanges, "CHAT_LIST_PREVIEW", "TEXT_COLOR", panelText);
+        String previewSenderText = findChangeValue(itemThemeChanges, "CHAT_LIST_PREVIEW", "PREVIEW_SENDER_TEXT_COLOR", panelText);
+        String audioBackground = findChangeValue(itemThemeChanges, "CHAT_LIST_AUDIO_PREVIEW", "BACKGROUND_COLOR", normalizedBase);
+        String audioText = findChangeValue(itemThemeChanges, "CHAT_LIST_AUDIO_PREVIEW", "TEXT_COLOR", panelText);
+        String audioIcon = findChangeValue(itemThemeChanges, "CHAT_LIST_AUDIO_PREVIEW", "ICON_COLOR", panelText);
+        String audioBorder = findChangeValue(itemThemeChanges, "CHAT_LIST_AUDIO_PREVIEW", "BORDER_COLOR", panelBorder);
+        changes.add(change("CHAT_LIST_ITEM_PREVIEW", "TEXT_COLOR", previewText));
+        changes.add(change("CHAT_LIST_ITEM_PREVIEW", "PREVIEW_SENDER_TEXT_COLOR", previewSenderText));
+        changes.add(change("CHAT_LIST_ITEM_GROUP_PREVIEW", "TEXT_COLOR", previewText));
+        changes.add(change("CHAT_LIST_ITEM_GROUP_PREVIEW", "PREVIEW_SENDER_TEXT_COLOR", previewSenderText));
+        changes.add(change("CHAT_LIST_ITEM_NAME_SCOPED", "TEXT_COLOR", panelText));
+        changes.add(change("CHAT_LIST_ITEM_GROUP_NAME", "TEXT_COLOR", panelText));
+        changes.addAll(buildIndividualAudioPreviewScopedColorGroup(audioBackground));
+        changes.addAll(buildGroupAudioPreviewScopedColorGroup(audioBackground));
+        changes.add(change("CHAT_LIST_ITEM_AUDIO_PREVIEW", "BORDER_COLOR", audioBorder));
+        changes.add(change("CHAT_LIST_ITEM_GROUP_AUDIO_PREVIEW", "BORDER_COLOR", audioBorder));
+        changes.add(change("CHAT_LIST_ITEM_AUDIO_PREVIEW", "LABEL_COLOR", audioText));
+        changes.add(change("CHAT_LIST_ITEM_GROUP_AUDIO_PREVIEW", "LABEL_COLOR", audioText));
+        changes.add(change("CHAT_LIST_ITEM_AUDIO_PREVIEW", "SEPARATOR_COLOR", audioText));
+        changes.add(change("CHAT_LIST_ITEM_GROUP_AUDIO_PREVIEW", "SEPARATOR_COLOR", audioText));
+        changes.add(change("CHAT_LIST_ITEM_AUDIO_PREVIEW", "TIME_COLOR", audioText));
+        changes.add(change("CHAT_LIST_ITEM_GROUP_AUDIO_PREVIEW", "TIME_COLOR", audioText));
+        changes.addAll(buildIndividualFilePreviewScopedColorGroup(normalizedBase));
+        changes.addAll(buildGroupFilePreviewScopedColorGroup(normalizedBase));
+        changes.add(change("CHAT_LIST_ITEM_IMAGE_PREVIEW", "BACKGROUND_COLOR", normalizedBase));
+        changes.add(change("CHAT_LIST_ITEM_IMAGE_PREVIEW", "TEXT_COLOR", panelText));
+        changes.add(change("CHAT_LIST_ITEM_IMAGE_PREVIEW", "BORDER_COLOR", panelBorder));
+        changes.add(change("CHAT_LIST_ITEM_GROUP_IMAGE_PREVIEW", "BACKGROUND_COLOR", normalizedBase));
+        changes.add(change("CHAT_LIST_ITEM_GROUP_IMAGE_PREVIEW", "TEXT_COLOR", panelText));
+        changes.add(change("CHAT_LIST_ITEM_GROUP_IMAGE_PREVIEW", "BORDER_COLOR", panelBorder));
+        return deduplicateChangesPreservingLast(changes);
+    }
+
+    private String findChangeValue(List<UiCustomizationChangeDTO> changes,
+                                   String area,
+                                   String property,
+                                   String fallback) {
+        if (changes == null) {
+            return fallback;
+        }
+        for (UiCustomizationChangeDTO change : changes) {
+            if (change != null
+                    && area.equals(change.getArea())
+                    && property.equals(change.getProperty())
+                    && hasText(change.getValue())) {
+                return change.getValue();
+            }
+        }
+        return fallback;
     }
 
     private List<UiCustomizationChangeDTO> extractExplicitChanges(String consulta,
+                                                                  String label,
                                                                   String area,
                                                                   String property,
                                                                   String value,
@@ -2223,7 +3175,7 @@ public class AiUiCustomizationValidationService {
             one.setValuePreset(valuePreset);
             explicit.add(one);
         } else {
-            explicit.addAll(parseDeterministicMultiChanges(consulta));
+            explicit.addAll(parseDeterministicMultiChanges(semanticSource(consulta, label)));
             if (!explicit.isEmpty()) {
                 LOGGER.info("[AI][UI_MULTI_REPAIR] generatedChanges={}", explicit.size());
             }
@@ -2267,25 +3219,25 @@ public class AiUiCustomizationValidationService {
                 logRuleMatch("REPAIR_BOTH_INDIVIDUAL_AND_GROUP_ITEMS", consulta, explicit);
             }
         }
-        if (isGroupBadgesScopedRequest(consulta) && isIncompleteScopedGroup(explicit, "CHAT_LIST_ITEM_GROUP_BADGES", Set.of("BACKGROUND_COLOR", "TEXT_COLOR"))) {
+        if (!isFullChatListThemeRequest(consulta) && isGroupBadgesScopedRequest(consulta) && isIncompleteScopedGroup(explicit, "CHAT_LIST_ITEM_GROUP_BADGES", Set.of("BACKGROUND_COLOR", "TEXT_COLOR"))) {
             String base = firstExplicitColor(explicit);
             List<UiCustomizationChangeDTO> repaired = buildGroupBadgesScopedColorGroup(hasText(base) ? base : "#7c3aed");
             logRuleMatch("REPAIR_GROUP_BADGES_SCOPED", consulta, repaired);
             return repaired;
         }
-        if (isGroupAudioPreviewScopedRequest(consulta) && isIncompleteScopedGroup(explicit, "CHAT_LIST_ITEM_GROUP_AUDIO_PREVIEW", Set.of("BACKGROUND_COLOR", "TEXT_COLOR", "ICON_COLOR"))) {
+        if (!isFullChatListThemeRequest(consulta) && isGroupAudioPreviewScopedRequest(consulta) && isIncompleteScopedGroup(explicit, "CHAT_LIST_ITEM_GROUP_AUDIO_PREVIEW", Set.of("BACKGROUND_COLOR", "TEXT_COLOR", "ICON_COLOR"))) {
             String base = firstExplicitColor(explicit);
             List<UiCustomizationChangeDTO> repaired = buildGroupAudioPreviewScopedColorGroup(hasText(base) ? base : "#f97316");
             logRuleMatch("REPAIR_GROUP_AUDIO_PREVIEW_SCOPED", consulta, repaired);
             return repaired;
         }
-        if (isIndividualAudioPreviewScopedRequest(consulta) && explicit.stream().noneMatch(c -> c != null && "CHAT_LIST_ITEM_AUDIO_PREVIEW".equals(c.getArea()))) {
+        if (!isFullChatListThemeRequest(consulta) && isIndividualAudioPreviewScopedRequest(consulta) && explicit.stream().noneMatch(c -> c != null && "CHAT_LIST_ITEM_AUDIO_PREVIEW".equals(c.getArea()))) {
             String base = firstExplicitColor(explicit);
             List<UiCustomizationChangeDTO> repaired = buildIndividualAudioPreviewScopedColorGroup(hasText(base) ? base : "#f97316");
             logRuleMatch("REPAIR_INDIVIDUAL_AUDIO_PREVIEW_SCOPED", consulta, repaired);
             return repaired;
         }
-        if (isIndividualFilePreviewRequest(consulta) && explicit.stream().noneMatch(c -> c != null && "CHAT_LIST_ITEM_FILE_PREVIEW".equals(c.getArea()))) {
+        if (!isFullChatListThemeRequest(consulta) && isIndividualFilePreviewRequest(consulta) && explicit.stream().noneMatch(c -> c != null && "CHAT_LIST_ITEM_FILE_PREVIEW".equals(c.getArea()))) {
             String base = firstExplicitColor(explicit);
             List<UiCustomizationChangeDTO> repaired = buildIndividualFilePreviewScopedColorGroup(hasText(base) ? base : "#2563eb");
             logRuleMatch("REPAIR_INDIVIDUAL_FILE_PREVIEW_SCOPED", consulta, repaired);
@@ -2323,6 +3275,66 @@ public class AiUiCustomizationValidationService {
                 rule,
                 safe(consulta),
                 changes == null ? 0 : changes.size());
+    }
+
+    private boolean isControlledPinMenuChanges(List<UiCustomizationChangeDTO> changes) {
+        if (changes == null || changes.isEmpty()) {
+            return false;
+        }
+        for (UiCustomizationChangeDTO change : changes) {
+            if (change == null || !hasText(change.getArea())) {
+                return false;
+            }
+            if (!Set.of("CHAT_LIST_PIN_MENU", "CHAT_LIST_PIN_MENU_ITEM", "CHAT_LIST_PIN_MENU_REPORT", "CHAT_LIST_PIN_MENU_DANGER").contains(change.getArea())) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private boolean isControlledPinMenuRequest(String consulta) {
+        if (isPinMenuWholeMenuRequest(consulta)) {
+            return true;
+        }
+        String normalized = normalizeSemanticText(consulta);
+        return containsAny(normalized,
+                "menu desplegable del listado de chats",
+                "desplegable del listado de chats",
+                "menu de opciones del chat",
+                "desplegable de opciones del chat",
+                "opciones del chat",
+                "contenido del desplegable del chat");
+    }
+
+    private boolean isScopedPinMenuRequest(String consulta) {
+        String normalized = normalizeSemanticText(consulta);
+        return containsAny(normalized,
+                "menu desplegable del listado de chats",
+                "desplegable del listado de chats",
+                "menu de opciones del chat",
+                "desplegable de opciones del chat",
+                "opciones del chat",
+                "contenido del desplegable del chat");
+    }
+
+    private List<UiCustomizationChangeDTO> filterPinMenuChanges(List<UiCustomizationChangeDTO> changes) {
+        List<UiCustomizationChangeDTO> filtered = new ArrayList<>();
+        if (changes == null) {
+            return filtered;
+        }
+        for (UiCustomizationChangeDTO change : changes) {
+            if (change == null || !hasText(change.getArea())) {
+                continue;
+            }
+            if (Set.of("CHAT_LIST_PIN_MENU", "CHAT_LIST_PIN_MENU_ITEM", "CHAT_LIST_PIN_MENU_REPORT", "CHAT_LIST_PIN_MENU_DANGER").contains(change.getArea())) {
+                filtered.add(change);
+            }
+        }
+        return filtered;
+    }
+
+    private List<UiCustomizationChangeDTO> sanitizePinMenuOnlyChanges(List<UiCustomizationChangeDTO> changes) {
+        return filterPinMenuChanges(changes);
     }
 
     private List<UiCustomizationChangeDTO> completePinMenuThemeChanges(String baseColor,
@@ -2416,8 +3428,76 @@ public class AiUiCustomizationValidationService {
         if (!hasText(normalized)) {
             return parsed;
         }
+        if (isGroupActiveChatRequest(consulta)) {
+            List<UiCustomizationChangeDTO> groupActiveChanges = buildGroupActiveScopedChanges(consulta);
+            if (!groupActiveChanges.isEmpty()) {
+                logRuleMatch("GROUP_ACTIVE_ITEM", consulta, groupActiveChanges);
+                return groupActiveChanges;
+            }
+        }
         String inferredColor = resolveColorFromText(consulta);
-        if (isBothIndividualAndGroupScopeRequest(consulta) && hasText(inferredColor)) {
+        if (isFullSidebarThemeRequest(consulta)) {
+            String sidebarBase = resolveFullSidebarThemeBaseColor(consulta);
+            if (hasText(sidebarBase)) {
+                parsed.addAll(buildSidebarNavThemeChanges(sidebarBase));
+                logRuleMatch("PARSE_SIDEBAR_NAV_THEME", consulta, parsed);
+                return parsed;
+            }
+        }
+        if (isSidebarRequest(normalized)) {
+            String sidebarPanelBg = firstColorAfter(normalized,
+                    "barra lateral", "sidebar", "barra izquierda", "menu lateral", "menu de la izquierda", "navegacion lateral", "panel lateral izquierdo");
+            if (hasText(sidebarPanelBg) && containsAny(normalized, "fondo", "background", "modo oscuro", "modo claro", "dark", "light")) {
+                parsed.add(change("SIDEBAR_NAV_PANEL", "BACKGROUND_COLOR", sidebarPanelBg));
+            }
+            String sidebarIconColor = firstColorAfter(normalized,
+                    "iconos de la barra lateral", "iconos del menu lateral", "iconos de la sidebar", "iconos blancos", "iconos", "icono");
+            if (hasText(sidebarIconColor) && containsAny(normalized, "iconos de la barra lateral", "iconos del menu lateral", "iconos de la sidebar", "barra lateral", "sidebar")) {
+                parsed.add(change("SIDEBAR_NAV_ICON", "ICON_COLOR", sidebarIconColor));
+            }
+            String sidebarItemBg = firstColorAfter(normalized,
+                    "botones de la barra lateral", "items de la barra lateral", "opciones de la barra lateral", "iconos con fondo");
+            if (hasText(sidebarItemBg) && containsAny(normalized, "botones de la barra lateral", "items de la barra lateral", "opciones de la barra lateral", "iconos con fondo")) {
+                parsed.add(change("SIDEBAR_NAV_ITEM", "BACKGROUND_COLOR", sidebarItemBg));
+            }
+            String sidebarActiveBg = firstColorAfter(normalized,
+                    "boton activo de la barra lateral", "icono activo de la barra lateral", "seccion activa", "item seleccionado de la sidebar", "el activo");
+            if (hasText(sidebarActiveBg) && containsAny(normalized, "activo", "seleccionado")) {
+                parsed.add(change("SIDEBAR_NAV_ITEM_ACTIVE", "BACKGROUND_COLOR", sidebarActiveBg));
+            }
+            String tooltipBg = firstColorAfter(normalized, "tooltip de la barra lateral", "texto emergente de la sidebar", "etiqueta al pasar el raton");
+            if (hasText(tooltipBg) && containsAny(normalized, "tooltip", "texto emergente", "etiqueta")) {
+                parsed.add(change("SIDEBAR_NAV_TOOLTIP", "BACKGROUND_COLOR", tooltipBg));
+            }
+            String tooltipText = firstColorAfter(normalized, "texto", "letra", "color del texto", "color de texto");
+            if (hasText(tooltipText) && containsAny(normalized, "tooltip", "texto emergente", "etiqueta") && containsAny(normalized, "texto", "letra")) {
+                parsed.add(change("SIDEBAR_NAV_TOOLTIP", "TEXT_COLOR", tooltipText));
+            }
+            String logoBg = firstColorAfter(normalized, "logo n", "logo de inicio", "n de la barra lateral", "icono nexo de inicio");
+            if (hasText(logoBg) && containsAny(normalized, "logo n", "logo de inicio", "n de la barra lateral", "icono nexo de inicio")) {
+                parsed.add(change("SIDEBAR_NAV_LOGO", "BACKGROUND_COLOR", logoBg));
+            }
+            String logoText = firstColorAfter(normalized, "texto", "letra", "color del texto", "color de texto");
+            if (hasText(logoText) && containsAny(normalized, "logo n", "logo de inicio", "n de la barra lateral") && containsAny(normalized, "texto", "letra", "blanco", "negro")) {
+                parsed.add(change("SIDEBAR_NAV_LOGO", "TEXT_COLOR", logoText));
+            }
+            String settingsIcon = firstColorAfter(normalized, "ajustes de la barra lateral", "boton de ajustes", "icono de ajustes");
+            if (hasText(settingsIcon) && containsAny(normalized, "ajustes", "boton de ajustes", "icono de ajustes")) {
+                parsed.add(change("SIDEBAR_NAV_SETTINGS", "ICON_COLOR", settingsIcon));
+            }
+            String notifBadgeColor = firstColorAfter(normalized,
+                    "contador de notificaciones", "badge de notificaciones", "burbuja de notificaciones", "notificaciones de la barra lateral");
+            if (hasText(notifBadgeColor) && containsAny(normalized, "contador de notificaciones", "badge de notificaciones", "burbuja de notificaciones")) {
+                parsed.add(change("SIDEBAR_NAV_NOTIF_BADGE",
+                        containsAny(normalized, "texto", "numero", "numeros", "letra") ? "TEXT_COLOR" : "BACKGROUND_COLOR",
+                        notifBadgeColor));
+            }
+            if (!parsed.isEmpty()) {
+                logRuleMatch("PARSE_SIDEBAR_NAV", consulta, parsed);
+                return parsed;
+            }
+        }
+        if (!isFullChatListThemeRequest(consulta) && isBothIndividualAndGroupScopeRequest(consulta) && hasText(inferredColor)) {
             parsed.add(change("CHAT_LIST_ITEM", "BACKGROUND_COLOR", inferredColor));
             parsed.add(change("CHAT_LIST_ITEM_GROUP", "BACKGROUND_COLOR", inferredColor));
             logRuleMatch("PARSE_BOTH_INDIVIDUAL_AND_GROUP_ITEMS", consulta, parsed);
@@ -2434,22 +3514,22 @@ public class AiUiCustomizationValidationService {
         boolean mentionsAudioPreview = containsAny(normalized, "preview de audio", "audio preview", "nota de voz", "audio");
         boolean mentionsImagePreview = containsAny(normalized, "preview de imagen", "image preview", "imagen", "imagenes");
         boolean mentionsGroupBadges = containsAny(normalized, "badges", "badge", "contador", "mensajes sin leer", "no leidos");
-        if (isGroupAudioPreviewScopedRequest(consulta) && hasText(inferredColor)) {
+        if (!isFullChatListThemeRequest(consulta) && isGroupAudioPreviewScopedRequest(consulta) && hasText(inferredColor)) {
             parsed.addAll(buildGroupAudioPreviewScopedColorGroup(inferredColor));
             logRuleMatch("PARSE_GROUP_AUDIO_PREVIEW_SCOPED", consulta, parsed);
             return parsed;
         }
-        if (isIndividualAudioPreviewScopedRequest(consulta) && hasText(inferredColor)) {
+        if (!isFullChatListThemeRequest(consulta) && isIndividualAudioPreviewScopedRequest(consulta) && hasText(inferredColor)) {
             parsed.addAll(buildIndividualAudioPreviewScopedColorGroup(inferredColor));
             logRuleMatch("PARSE_INDIVIDUAL_AUDIO_PREVIEW_SCOPED", consulta, parsed);
             return parsed;
         }
-        if (isGroupBadgesScopedRequest(consulta) && hasText(inferredColor)) {
+        if (!isFullChatListThemeRequest(consulta) && isGroupBadgesScopedRequest(consulta) && hasText(inferredColor)) {
             parsed.addAll(buildGroupBadgesScopedColorGroup(inferredColor));
             logRuleMatch("PARSE_GROUP_BADGES_SCOPED", consulta, parsed);
             return parsed;
         }
-        if (isIndividualFilePreviewRequest(consulta) && hasText(inferredColor)) {
+        if (!isFullChatListThemeRequest(consulta) && isIndividualFilePreviewRequest(consulta) && hasText(inferredColor)) {
             parsed.addAll(buildIndividualFilePreviewScopedColorGroup(inferredColor));
             logRuleMatch("PARSE_INDIVIDUAL_FILE_PREVIEW_SCOPED", consulta, parsed);
             return parsed;
@@ -2532,6 +3612,27 @@ public class AiUiCustomizationValidationService {
         return parsed;
     }
 
+    private List<UiCustomizationChangeDTO> buildGroupActiveScopedChanges(String consulta) {
+        List<UiCustomizationChangeDTO> changes = new ArrayList<>();
+        String normalized = normalizeSemanticText(consulta);
+        String background = firstColorAfter(normalized, "fondo", "background", "color de fondo");
+        String text = firstColorAfter(normalized, "texto", "textos", "letra", "letras", "color del texto", "color de texto");
+        String border = firstColorAfter(normalized, "borde", "bordes", "contorno", "border", "color del borde");
+
+        if (hasText(background)) {
+            changes.add(change("CHAT_LIST_ITEM_GROUP_ACTIVE", "BACKGROUND_COLOR", background));
+        }
+        if (hasText(text)) {
+            changes.add(change("CHAT_LIST_ITEM_GROUP_ACTIVE", "TEXT_COLOR", text));
+        }
+        if (containsAny(normalized, "sin borde", "quita el borde", "quitar borde", "elimina el borde", "sin contorno")) {
+            changes.add(change("CHAT_LIST_ITEM_GROUP_ACTIVE", "BORDER_WIDTH", "0px"));
+        } else if (hasText(border)) {
+            changes.add(change("CHAT_LIST_ITEM_GROUP_ACTIVE", "BORDER_COLOR", border));
+        }
+        return changes;
+    }
+
     private String firstColorAfter(String normalized, String... anchors) {
         for (String anchor : anchors) {
             int idx = normalized.indexOf(anchor);
@@ -2597,10 +3698,71 @@ public class AiUiCustomizationValidationService {
     }
 
     private boolean isChatListPanelThemeRequest(String consulta) {
+        if (isScopedPinMenuRequest(consulta)) {
+            return false;
+        }
         String normalized = normalizeSemanticText(consulta);
         return containsAny(normalized,
                 "fondo del listado", "listado de chats", "lista de chats", "panel de chats",
                 "zona izquierda de chats", "bloque de chats", "todos los estilos del listado", "estilos visuales del listado");
+    }
+
+    private boolean isFullChatListThemeRequest(String consulta) {
+        if (isScopedPinMenuRequest(consulta)) {
+            return false;
+        }
+        String normalized = normalizeSemanticText(consulta);
+        boolean baseListTheme = containsAny(normalized,
+                "todo el listado", "todo el listado de chats", "listado de chats completo",
+                "todo el panel de chats", "panel de chats completo", "panel de chats",
+                "lista de chats", "lista de chats completa", "todo la lista de chats",
+                "theme completo", "tema completo", "aplica modo claro al listado de chats completo");
+        boolean coverage = containsAny(normalized,
+                "modo claro", "modo oscuro", "incluyendo encabezado", "incluyendo iconos",
+                "incluyendo buscador", "incluyendo filtros", "incluyendo chats individuales",
+                "incluyendo chats grupales", "incluyendo previews", "incluyendo audios",
+                "incluyendo imagenes", "incluyendo imágenes", "incluyendo archivos",
+                "incluyendo contadores", "incluyendo badges", "incluyendo desplegables",
+                "incluyendo chat activo", "incluyendo chats no leidos", "incluyendo chats no leídos",
+                "incluyendo nombres");
+        return baseListTheme || (isChatListPanelThemeRequest(consulta) && coverage);
+    }
+
+    private boolean isFullSidebarThemeRequest(String consulta) {
+        String normalized = normalizeSemanticText(consulta);
+        boolean baseSidebarTheme = containsAny(normalized,
+                "toda la barra lateral", "barra lateral completa", "sidebar completa", "todo el sidebar",
+                "todo el menu lateral", "todo el menu de la barra lateral", "tema azul moderno a toda la sidebar");
+        boolean visualTheme = containsAny(normalized,
+                "modo oscuro", "modo claro", "dark mode", "light mode", "tema", "estilo", "moderno", "elegante");
+        return baseSidebarTheme || (isSidebarRequest(normalized) && visualTheme && containsAny(normalized, "toda", "completa", "todo"));
+    }
+
+    private String resolveFullChatListThemeBaseColor(String consulta) {
+        String inferredColor = resolveColorFromText(consulta);
+        String normalized = normalizeSemanticText(consulta);
+        if (!hasText(inferredColor) && containsAny(normalized, "negro", "oscuro", "modo oscuro")) {
+            inferredColor = "#111827";
+        }
+        if (!hasText(inferredColor) && containsAny(normalized, "blanco", "claro", "modo claro")) {
+            inferredColor = "#ffffff";
+        }
+        return inferredColor;
+    }
+
+    private String resolveFullSidebarThemeBaseColor(String consulta) {
+        String inferredColor = resolveColorFromText(consulta);
+        String normalized = normalizeSemanticText(consulta);
+        if (!hasText(inferredColor) && containsAny(normalized, "negro", "oscuro", "modo oscuro", "dark mode")) {
+            inferredColor = "#111827";
+        }
+        if (!hasText(inferredColor) && containsAny(normalized, "blanco", "claro", "modo claro", "light mode")) {
+            inferredColor = "#ffffff";
+        }
+        if (!hasText(inferredColor) && containsAny(normalized, "azul")) {
+            inferredColor = "#2563eb";
+        }
+        return inferredColor;
     }
 
     private boolean isWhiteElegantThemeRequest(String consulta) {
@@ -2614,10 +3776,12 @@ public class AiUiCustomizationValidationService {
         if (containsAny(normalized,
                 "todo el listado", "todos los estilos", "tema completo", "listado de chats", "panel de chats",
                 "zona izquierda", "que combine", "incluyendo filtros", "incluyendo chats no leidos",
+                "toda la barra lateral", "sidebar completa", "menu lateral completo",
                 "incluyendo previews", "incluyendo desplegable")) {
             return true;
         }
-        if ("CHAT_LIST_PANEL".equals(area) || "CHAT_LIST_FILTERS".equals(area) || "CHAT_LIST_PIN_MENU".equals(area)) {
+        if ("CHAT_LIST_PANEL".equals(area) || "CHAT_LIST_FILTERS".equals(area) || "CHAT_LIST_PIN_MENU".equals(area)
+                || "SIDEBAR_NAV_PANEL".equals(normalizeArea(area))) {
             return true;
         }
         if (explicitChanges != null) {
@@ -2728,6 +3892,10 @@ public class AiUiCustomizationValidationService {
 
     private String resolveChatStateAreaFromConsulta(String consulta, String currentArea) {
         String normalized = normalizeSemanticText(consulta);
+        if (isGroupActiveChatRequest(consulta)) {
+            LOGGER.info("[AI][UI_CUSTOMIZATION_RULE_MATCH] rule=GROUP_ACTIVE_ITEM area=CHAT_LIST_ITEM_GROUP_ACTIVE consulta={}", safe(consulta));
+            return "CHAT_LIST_ITEM_GROUP_ACTIVE";
+        }
         if (containsAny(normalized, "chat seleccionado", "chat activo", "item seleccionado")) {
             return "CHAT_LIST_ITEM_ACTIVE";
         }
@@ -2737,8 +3905,333 @@ public class AiUiCustomizationValidationService {
         return currentArea;
     }
 
+    private String resolveChatListSpecificAreaFromConsulta(String consulta, String currentArea) {
+        String normalized = normalizeSemanticText(consulta);
+        if (containsAny(normalized, "estado vacio del listado", "pantalla sin chats", "mensaje de no hay chats", "sin chats")) {
+            return "CHAT_LIST_EMPTY_STATE";
+        }
+        if (containsAny(normalized, "seccion de chats publicos", "panel de comunidades", "listado de chats publicos")) {
+            return "CHAT_LIST_PUBLIC_PANEL";
+        }
+        if (containsAny(normalized, "tarjeta de chat publico", "tarjetas de chats publicos", "card de comunidad", "boton unirme")) {
+            return "CHAT_LIST_PUBLIC_CARD";
+        }
+        if (containsAny(normalized, "punto de estado del listado", "indicador conectado", "indicador ausente", "estado online del chat", "puntito verde de conectado")) {
+            return "CHAT_LIST_STATUS_DOT";
+        }
+        if (containsAny(normalized, "estrella de favorito", "indicador favorito", "icono de chat favorito")) {
+            return "CHAT_LIST_FAVORITE_INDICATOR";
+        }
+        if (containsAny(normalized, "icono de silenciado", "indicador de chat silenciado", "campana tachada del listado")) {
+            return "CHAT_LIST_MUTED_INDICATOR";
+        }
+        if (containsAny(normalized, "candado de chat cerrado", "indicador de chat cerrado", "texto de chat cerrado")) {
+            return "CHAT_LIST_CLOSED_INDICATOR";
+        }
+        if (containsAny(normalized, "preview de sticker", "sticker del ultimo mensaje", "icono de sticker del listado", "texto sticker en el listado")) {
+            if (isStrictGroupOnlyScope(consulta, currentArea)) {
+                return "CHAT_LIST_ITEM_GROUP_STICKER_PREVIEW";
+            }
+            if (isStrictIndividualScope(consulta, currentArea)) {
+                return "CHAT_LIST_ITEM_STICKER_PREVIEW";
+            }
+            return "CHAT_LIST_STICKER_PREVIEW";
+        }
+        if (containsAny(normalized, "nombre del chat", "texto del nombre del chat", "nombre de la conversacion", "nombre del grupo")) {
+            if (isGroupActiveChatRequest(consulta)) {
+                return "CHAT_LIST_ITEM_GROUP_ACTIVE";
+            }
+            if (containsAny(normalized, "seleccionado", "activo")) {
+                return containsAny(normalized, "grupo", "grupal") ? "CHAT_LIST_ITEM_GROUP_ACTIVE" : "CHAT_LIST_ITEM_ACTIVE";
+            }
+            return "CHAT_LIST_ITEM_NAME";
+        }
+        return currentArea;
+    }
+
+    private String resolveChatListSpecificPropertyFromConsulta(String consulta, String area, String currentProperty) {
+        String normalizedProperty = normalizeProperty(currentProperty);
+        if (hasText(normalizedProperty)) {
+            return normalizedProperty;
+        }
+        String normalizedArea = normalizeArea(area);
+        if (!hasText(normalizedArea) || !normalizedArea.startsWith("CHAT_LIST")) {
+            return normalizedProperty;
+        }
+        String normalized = normalizeSemanticText(consulta);
+        if (isRemoveBorderRequest(consulta)) {
+            return "BORDER_WIDTH";
+        }
+        if (containsAny(normalized, "grosor", "ancho", "width")) {
+            return "WIDTH";
+        }
+        if (containsAny(normalized, "alto", "height")) {
+            return "HEIGHT";
+        }
+        if (containsAny(normalized, "separacion", "espaciado", "gap")) {
+            return "GAP";
+        }
+        if (containsAny(normalized, "opacidad", "opacity")) {
+            return "OPACITY";
+        }
+        if (containsAny(normalized, "sombra", "shadow")) {
+            return "SHADOW_PRESET";
+        }
+        if (containsAny(normalized, "negrita", "peso", "font weight")) {
+            return "FONT_WEIGHT";
+        }
+        if (containsAny(normalized, "tamano", "tamaño", "fuente", "letra")) {
+            return "FONT_SIZE";
+        }
+        if (containsAny(normalized, "borde", "contorno", "border")) {
+            return "BORDER_COLOR";
+        }
+        if (containsAny(normalized, "icono", "estrella", "campana", "candado")) {
+            return "ICON_COLOR";
+        }
+        if (containsAny(normalized, "texto", "nombre", "letra", "hora", "fecha")) {
+            return "TEXT_COLOR";
+        }
+        if ("CHAT_LIST_STATUS_DOT".equals(normalizedArea)) {
+            return "BACKGROUND_COLOR";
+        }
+        if ("CHAT_LIST_PUBLIC_CARD".equals(normalizedArea) && containsAny(normalized, "hover")) {
+            return "HOVER_BACKGROUND_COLOR";
+        }
+        if (Set.of("CHAT_LIST_ITEM_NAME", "CHAT_LIST_ITEM_ACTIVE", "CHAT_LIST_ITEM_GROUP_ACTIVE").contains(normalizedArea)) {
+            return "TEXT_COLOR";
+        }
+        if (Set.of("CHAT_LIST_MUTED_INDICATOR", "CHAT_LIST_FAVORITE_INDICATOR", "CHAT_LIST_CLOSED_INDICATOR").contains(normalizedArea)) {
+            return "ICON_COLOR";
+        }
+        if (Set.of("CHAT_LIST_STICKER_PREVIEW", "CHAT_LIST_ITEM_STICKER_PREVIEW", "CHAT_LIST_ITEM_GROUP_STICKER_PREVIEW").contains(normalizedArea)) {
+            return "TEXT_COLOR";
+        }
+        if (Set.of("CHAT_LIST_EMPTY_STATE", "CHAT_LIST_PUBLIC_PANEL", "CHAT_LIST_PUBLIC_CARD").contains(normalizedArea)) {
+            return "BACKGROUND_COLOR";
+        }
+        return normalizedProperty;
+    }
+
+    private String resolveSidebarAreaFromConsulta(String consulta, String currentArea) {
+        String normalized = normalizeSemanticText(consulta);
+        if (!isSidebarRequest(normalized) && !isSidebarArea(currentArea)) {
+            return currentArea;
+        }
+        if (containsAny(normalized, "contador de notificaciones", "badge de notificaciones", "burbuja de notificaciones", "notificaciones de la barra lateral")) {
+            LOGGER.info("[AI][UI_CUSTOMIZATION_RULE_MATCH] rule=SIDEBAR_NAV_NOTIF_BADGE consulta={}", safe(consulta));
+            return "SIDEBAR_NAV_NOTIF_BADGE";
+        }
+        if (containsAny(normalized, "ajustes de la barra lateral", "boton de ajustes", "icono de ajustes")) {
+            LOGGER.info("[AI][UI_CUSTOMIZATION_RULE_MATCH] rule=SIDEBAR_NAV_SETTINGS consulta={}", safe(consulta));
+            return "SIDEBAR_NAV_SETTINGS";
+        }
+        if (containsAny(normalized, "indicador activo", "linea activa", "marca activa", "puntito activo")) {
+            LOGGER.info("[AI][UI_CUSTOMIZATION_RULE_MATCH] rule=SIDEBAR_NAV_ACTIVE_INDICATOR consulta={}", safe(consulta));
+            return "SIDEBAR_NAV_ACTIVE_INDICATOR";
+        }
+        if (containsAny(normalized, "tooltip de la barra lateral", "texto emergente de la sidebar", "etiqueta al pasar el raton")) {
+            LOGGER.info("[AI][UI_CUSTOMIZATION_RULE_MATCH] rule=SIDEBAR_NAV_TOOLTIP consulta={}", safe(consulta));
+            return "SIDEBAR_NAV_TOOLTIP";
+        }
+        if (containsAny(normalized, "avatar de la barra lateral", "foto de perfil de la barra lateral", "perfil de la barra lateral")) {
+            LOGGER.info("[AI][UI_CUSTOMIZATION_RULE_MATCH] rule=SIDEBAR_NAV_AVATAR consulta={}", safe(consulta));
+            return "SIDEBAR_NAV_AVATAR";
+        }
+        if (containsAny(normalized, "nexo ia", "icono de nexo ia", "boton de nexo ia", "icono svg de nexo ia")) {
+            LOGGER.info("[AI][UI_CUSTOMIZATION_RULE_MATCH] rule=SIDEBAR_NAV_AI_ICON consulta={}", safe(consulta));
+            return "SIDEBAR_NAV_AI_ICON";
+        }
+        if (containsAny(normalized, "logo n", "logo de inicio", "n de la barra lateral", "icono nexo de inicio")) {
+            LOGGER.info("[AI][UI_CUSTOMIZATION_RULE_MATCH] rule=SIDEBAR_NAV_LOGO consulta={}", safe(consulta));
+            return "SIDEBAR_NAV_LOGO";
+        }
+        if (containsAny(normalized, "parte inferior de la barra lateral", "zona inferior de la sidebar", "perfil y ajustes")) {
+            LOGGER.info("[AI][UI_CUSTOMIZATION_RULE_MATCH] rule=SIDEBAR_NAV_BOTTOM consulta={}", safe(consulta));
+            return "SIDEBAR_NAV_BOTTOM";
+        }
+        if (containsAny(normalized, "grupo superior", "iconos superiores", "zona superior de la barra lateral")) {
+            LOGGER.info("[AI][UI_CUSTOMIZATION_RULE_MATCH] rule=SIDEBAR_NAV_GROUP consulta={}", safe(consulta));
+            return "SIDEBAR_NAV_GROUP";
+        }
+        if (containsAny(normalized, "iconos activos", "iconos seleccionados")) {
+            LOGGER.info("[AI][UI_CUSTOMIZATION_RULE_MATCH] rule=SIDEBAR_NAV_ICON_ACTIVE consulta={}", safe(consulta));
+            return "SIDEBAR_NAV_ICON_ACTIVE";
+        }
+        if (containsAny(normalized, "boton activo de la barra lateral", "icono activo de la barra lateral", "seccion activa", "item seleccionado de la sidebar")) {
+            LOGGER.info("[AI][UI_CUSTOMIZATION_RULE_MATCH] rule=SIDEBAR_NAV_ITEM_ACTIVE consulta={}", safe(consulta));
+            return "SIDEBAR_NAV_ITEM_ACTIVE";
+        }
+        if (containsAny(normalized, "botones de la barra lateral", "items de la barra lateral", "opciones de la barra lateral", "iconos con fondo")) {
+            LOGGER.info("[AI][UI_CUSTOMIZATION_RULE_MATCH] rule=SIDEBAR_NAV_ITEM consulta={}", safe(consulta));
+            return "SIDEBAR_NAV_ITEM";
+        }
+        if (containsAny(normalized, "iconos de la barra lateral", "iconos del menu lateral", "iconos de la sidebar")) {
+            LOGGER.info("[AI][UI_CUSTOMIZATION_RULE_MATCH] rule=SIDEBAR_NAV_ICON consulta={}", safe(consulta));
+            return "SIDEBAR_NAV_ICON";
+        }
+        if (containsAny(normalized, "barra lateral", "sidebar", "barra izquierda", "menu lateral", "menu de la izquierda", "navegacion lateral", "panel lateral izquierdo")) {
+            LOGGER.info("[AI][UI_CUSTOMIZATION_RULE_MATCH] rule=SIDEBAR_NAV_PANEL consulta={}", safe(consulta));
+            return "SIDEBAR_NAV_PANEL";
+        }
+        return normalizeArea(currentArea);
+    }
+
+    private String resolveSidebarPropertyFromConsulta(String consulta, String area, String currentProperty) {
+        String normalizedProperty = normalizeProperty(currentProperty);
+        if (hasText(normalizedProperty)) {
+            return normalizedProperty;
+        }
+        if (!isSidebarArea(area)) {
+            return normalizedProperty;
+        }
+        String normalized = normalizeSemanticText(consulta);
+        if (isRemoveBorderRequest(consulta)) {
+            return "BORDER_WIDTH";
+        }
+        if (containsAny(normalized, "ancho", "width")) {
+            return "WIDTH";
+        }
+        if (containsAny(normalized, "opacidad", "opacity")) {
+            return "OPACITY";
+        }
+        if (containsAny(normalized, "sombra", "shadow")) {
+            return "SHADOW_PRESET";
+        }
+        if (containsAny(normalized, "tamano", "tamaño", "fuente", "letra") && "SIDEBAR_NAV_LOGO".equals(normalizeArea(area))) {
+            return "FONT_SIZE";
+        }
+        if (containsAny(normalized, "borde", "contorno", "border")) {
+            return "BORDER_COLOR";
+        }
+        if (containsAny(normalized, "texto", "letra", "label")) {
+            return "TEXT_COLOR";
+        }
+        if ("SIDEBAR_NAV_ICON".equals(normalizeArea(area))
+                || "SIDEBAR_NAV_ICON_ACTIVE".equals(normalizeArea(area))
+                || "SIDEBAR_NAV_SETTINGS".equals(normalizeArea(area))) {
+            return "ICON_COLOR";
+        }
+        if ("SIDEBAR_NAV_ACTIVE_INDICATOR".equals(normalizeArea(area))) {
+            return "BACKGROUND_COLOR";
+        }
+        if ("SIDEBAR_NAV_AVATAR".equals(normalizeArea(area)) && containsAny(normalized, "avatar", "perfil")) {
+            return "BACKGROUND_COLOR";
+        }
+        if ("SIDEBAR_NAV_NOTIF_BADGE".equals(normalizeArea(area))) {
+            if (containsAny(normalized, "texto", "numero", "numeros", "letra")) {
+                return "TEXT_COLOR";
+            }
+            if (containsAny(normalized, "borde", "contorno", "border")) {
+                return "BORDER_COLOR";
+            }
+            return "BACKGROUND_COLOR";
+        }
+        if ("SIDEBAR_NAV_TOOLTIP".equals(normalizeArea(area)) && containsAny(normalized, "tooltip", "texto emergente", "etiqueta")) {
+            return containsAny(normalized, "texto", "letra") ? "TEXT_COLOR" : "BACKGROUND_COLOR";
+        }
+        return "BACKGROUND_COLOR";
+    }
+
+    private boolean isSidebarRequest(String normalized) {
+        return isSidebarNavRequest(normalized)
+                || containsAny(normalized, "panel lateral izquierdo", "menu de la izquierda", "iconos superiores", "perfil y ajustes", "logo n", "nexo ia");
+    }
+
+    private boolean isSidebarArea(String area) {
+        String normalizedArea = normalizeArea(area);
+        return normalizedArea != null && normalizedArea.startsWith("SIDEBAR_NAV");
+    }
+
+    private SidebarRepair repairSidebarNavIntent(String semantic,
+                                                 String action,
+                                                 String area,
+                                                 String property,
+                                                 String value,
+                                                 String valuePreset,
+                                                 List<UiCustomizationChangeDTO> inputChanges,
+                                                 Boolean needsClarification) {
+        if (!isSidebarNavRequest(semantic)) {
+            return new SidebarRepair(action, area, property, value, valuePreset, inputChanges, needsClarification);
+        }
+        LOGGER.info("[AI][UI_CUSTOMIZATION_CLARIFICATION_SKIPPED] reason=SIDEBAR_NAV_SCOPE semantic={}", safe(semantic));
+        List<UiCustomizationChangeDTO> sidebarChanges = parseDeterministicMultiChanges(semantic);
+        if (areAllSidebarChanges(sidebarChanges) && sidebarChanges.size() > 1) {
+            return new SidebarRepair("UPDATE_STYLE_MULTI", null, null, null, null, sidebarChanges, Boolean.FALSE);
+        }
+
+        String repairedArea = resolveSidebarAreaFromConsulta(semantic, area);
+        if (hasText(repairedArea) && !repairedArea.equals(normalizeArea(area))) {
+            LOGGER.info("[AI][UI_CUSTOMIZATION_AREA_REPAIRED] from={} to={} reason=SIDEBAR_NAV_SCOPE",
+                    safe(area), safe(repairedArea));
+        }
+        String repairedProperty = resolveSidebarPropertyFromConsulta(semantic, repairedArea, property);
+        if (hasText(repairedArea) && hasText(repairedProperty)) {
+            LOGGER.info("[AI][UI_CUSTOMIZATION_RULE_MATCH] rule={} property={}", safe(repairedArea), safe(repairedProperty));
+        }
+        String repairedValue = value;
+        if (!hasText(repairedValue)
+                && Set.of("BACKGROUND_COLOR", "TEXT_COLOR", "BORDER_COLOR", "ICON_COLOR", "HOVER_BACKGROUND_COLOR").contains(normalizeProperty(repairedProperty))) {
+            repairedValue = resolveColorFromText(semantic);
+        }
+        String repairedAction = action;
+        boolean resolvedSidebarPayload = hasText(repairedArea) && hasText(repairedProperty) && hasText(repairedValue);
+        if ((Boolean.TRUE.equals(needsClarification) || "NEEDS_CLARIFICATION".equals(normalizeUpper(action))) && resolvedSidebarPayload) {
+            repairedAction = "UPDATE_STYLE";
+        }
+        return new SidebarRepair(repairedAction, repairedArea, repairedProperty, repairedValue, valuePreset, inputChanges,
+                resolvedSidebarPayload ? Boolean.FALSE : needsClarification);
+    }
+
+    private boolean isSidebarNavRequest(String semantic) {
+        String normalized = normalizeSemanticText(semantic);
+        return containsAny(normalized,
+                "barra lateral", "sidebar", "barra izquierda", "menu lateral", "menu de la izquierda", "panel lateral",
+                "panel de la barra lateral", "navegacion lateral", "sidebar nav");
+    }
+
+    private boolean areAllSidebarChanges(List<UiCustomizationChangeDTO> changes) {
+        if (changes == null || changes.isEmpty()) {
+            return false;
+        }
+        for (UiCustomizationChangeDTO change : changes) {
+            if (change == null || !isSidebarArea(change.getArea())) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private record SidebarRepair(String action,
+                                 String area,
+                                 String property,
+                                 String value,
+                                 String valuePreset,
+                                 List<UiCustomizationChangeDTO> changes,
+                                 Boolean needsClarification) {}
+
+    private boolean isGroupActiveChatRequest(String consulta) {
+        String normalized = normalizeSemanticText(consulta);
+        boolean mentionsGroup = containsAny(normalized, "grupal", "grupales", "grupo", "grupos");
+        boolean mentionsActive = containsAny(normalized,
+                "activo", "activos", "seleccionado", "seleccionados", "pulsado", "pulsados", "marcado", "marcados");
+        boolean mentionsChat = containsAny(normalized, "chat", "chats", "item", "items", "fila", "filas");
+        return mentionsGroup && mentionsActive && (mentionsChat || mentionsGroup);
+    }
+
+    private String semanticSource(String consulta, String label) {
+        String q = consulta == null ? "" : consulta;
+        String l = label == null ? "" : label;
+        return (q + " " + l).trim();
+    }
+
     private String resolvePinMenuAreaFromConsulta(String consulta, String currentArea) {
         String normalized = normalizeSemanticText(consulta);
+        if (containsAny(normalized,
+                "desplegable de mensajes", "menu de mensajes", "menu del mensaje",
+                "opciones de mensajes", "opciones del mensaje", "menu de opciones de mensajes")) {
+            return "MESSAGE_OPTIONS_DROPDOWN";
+        }
         if (containsAny(normalized,
                 "icono del desplegable", "icono de opciones", "boton que abre el menu",
                 "boton que abre el menu del chat", "icono de los tres puntos", "tres puntos del chat", "flecha del desplegable")) {
@@ -2769,6 +4262,22 @@ public class AiUiCustomizationValidationService {
         }
         if (containsAny(normalized, "opcion de denunciar", "opciones de denunciar", "report")) {
             return "CHAT_LIST_PIN_MENU_REPORT";
+        }
+        return currentArea;
+    }
+
+    private String resolveChatItemDateAreaFromConsulta(String consulta, String currentArea) {
+        String normalized = normalizeSemanticText(consulta);
+        if (containsAny(normalized,
+                "fecha del ultimo mensaje",
+                "hora del ultimo mensaje",
+                "ultimafecha",
+                "fecha del chat",
+                "hora del chat",
+                "timestamp del listado de chats",
+                "fecha que aparece a la derecha del chat",
+                "hora que aparece a la derecha del chat")) {
+            return "CHAT_LIST_ITEM_DATE";
         }
         return currentArea;
     }
@@ -2970,6 +4479,9 @@ public class AiUiCustomizationValidationService {
     }
 
     private boolean isStrictGroupOnlyScope(String consulta, String area) {
+        if (isFullChatListThemeRequest(consulta)) {
+            return false;
+        }
         if ("CHAT_LIST_ITEM_GROUP".equals(area) && !isIndividualListRequest(consulta)) {
             return true;
         }
@@ -2989,6 +4501,9 @@ public class AiUiCustomizationValidationService {
     }
 
     private boolean isStrictIndividualScope(String consulta, String area) {
+        if (isFullChatListThemeRequest(consulta)) {
+            return false;
+        }
         if ("CHAT_LIST_ITEM".equals(area) && !isStrictGroupOnlyScope(consulta, area) && !isGroupListRequest(consulta)) {
             return true;
         }
@@ -3068,7 +4583,7 @@ public class AiUiCustomizationValidationService {
                                                  String property,
                                                  String value,
                                                  String valuePreset) {
-        String p = property;
+        String p = normalizeProperty(property);
         String v = value;
         String preset = valuePreset;
         String reason = null;
@@ -3098,6 +4613,26 @@ public class AiUiCustomizationValidationService {
                 preset = "MIN";
                 reason = "BORDER_WIDTH_MIN_CLAMP";
                 minAllowed = "0px";
+            }
+        }
+        if ("WIDTH".equals(p) && isPxValue(v)) {
+            int requested = parseFontPx(v);
+            int[] allowed = new int[]{1, 2, 3, 4, 6, 8};
+            int nearest = allowed[0];
+            int delta = Integer.MAX_VALUE;
+            for (int candidate : allowed) {
+                int distance = Math.abs(candidate - requested);
+                if (distance < delta) {
+                    delta = distance;
+                    nearest = candidate;
+                }
+            }
+            String applied = nearest + "px";
+            if (!applied.equals(v.trim().toLowerCase(Locale.ROOT))) {
+                v = applied;
+                reason = "WIDTH_NORMALIZE";
+                maxAllowed = "8px";
+                minAllowed = "1px";
             }
         }
         if ("FONT_SIZE".equals(p) && isPxValue(v)) {
@@ -3297,29 +4832,129 @@ public class AiUiCustomizationValidationService {
         if (!hasText(area) || !hasText(property)) {
             return false;
         }
-        if ("CHAT_LIST_ITEM_GROUP_PREVIEW".equals(area)) {
-            return Set.of("TEXT_COLOR", "PREVIEW_SENDER_TEXT_COLOR", "FONT_SIZE").contains(property);
+        String normalizedArea = normalizeArea(area);
+        String normalizedProperty = normalizeProperty(property);
+        if ("SIDEBAR_NAV_PANEL".equals(normalizedArea)) {
+            return Set.of("BACKGROUND_COLOR", "TEXT_COLOR", "BORDER_COLOR", "BORDER_WIDTH", "BORDER_RADIUS", "SHADOW_PRESET").contains(normalizedProperty);
         }
-        if ("CHAT_LIST_ITEM_GROUP_AUDIO_PREVIEW".equals(area)) {
-            return Set.of("BACKGROUND_COLOR", "TEXT_COLOR", "ICON_COLOR", "BORDER_COLOR", "LABEL_COLOR", "SEPARATOR_COLOR", "TIME_COLOR").contains(property);
+        if ("SIDEBAR_NAV_GROUP".equals(normalizedArea)) {
+            return Set.of("BACKGROUND_COLOR", "BORDER_COLOR").contains(normalizedProperty);
         }
-        if ("CHAT_LIST_ITEM_GROUP_FILE_PREVIEW".equals(area)) {
-            return Set.of("BACKGROUND_COLOR", "TEXT_COLOR", "ICON_COLOR", "BORDER_COLOR").contains(property);
+        if ("SIDEBAR_NAV_BOTTOM".equals(normalizedArea)) {
+            return Set.of("BACKGROUND_COLOR", "BORDER_COLOR").contains(normalizedProperty);
         }
-        if ("CHAT_LIST_ITEM_GROUP_IMAGE_PREVIEW".equals(area)) {
-            return Set.of("BACKGROUND_COLOR", "TEXT_COLOR", "ICON_COLOR", "BORDER_COLOR").contains(property);
+        if ("SIDEBAR_NAV_ITEM".equals(normalizedArea)) {
+            return Set.of("BACKGROUND_COLOR", "TEXT_COLOR", "ICON_COLOR", "BORDER_COLOR", "BORDER_WIDTH", "BORDER_RADIUS",
+                    "HOVER_BACKGROUND_COLOR", "HOVER_TEXT_COLOR", "HOVER_ICON_COLOR").contains(normalizedProperty);
         }
-        if ("CHAT_LIST_ITEM_GROUP_DRAFT_PREVIEW".equals(area)) {
-            return Set.of("TEXT_COLOR", "LABEL_COLOR").contains(property);
+        if ("SIDEBAR_NAV_ITEM_ACTIVE".equals(normalizedArea)) {
+            return Set.of("BACKGROUND_COLOR", "TEXT_COLOR", "ICON_COLOR", "BORDER_COLOR", "BORDER_WIDTH", "BORDER_RADIUS").contains(normalizedProperty);
         }
-        if ("CHAT_LIST_ITEM_GROUP_BADGES".equals(area)) {
-            return Set.of("BACKGROUND_COLOR", "TEXT_COLOR", "BORDER_COLOR", "BADGE_COLOR").contains(property);
+        if ("SIDEBAR_NAV_ACTIVE_INDICATOR".equals(normalizedArea)) {
+            return Set.of("BACKGROUND_COLOR", "BORDER_COLOR", "WIDTH").contains(normalizedProperty);
         }
-        if ("CHAT_LIST_ITEM_GROUP_ACTIONS".equals(area)) {
-            return Set.of("ICON_COLOR", "HOVER_BACKGROUND_COLOR", "TEXT_COLOR").contains(property);
+        if ("SIDEBAR_NAV_LOGO".equals(normalizedArea)) {
+            return Set.of("BACKGROUND_COLOR", "TEXT_COLOR", "BORDER_COLOR", "BORDER_RADIUS", "FONT_SIZE", "SHADOW_PRESET").contains(normalizedProperty);
         }
-        if ("CHAT_LIST_ITEM_GROUP_STATUS_PILLS".equals(area)) {
-            return Set.of("REPORTED_BACKGROUND_COLOR", "REPORTED_TEXT_COLOR", "BLOCKED_BACKGROUND_COLOR", "BLOCKED_TEXT_COLOR", "BORDER_COLOR").contains(property);
+        if ("SIDEBAR_NAV_ICON".equals(normalizedArea)) {
+            return Set.of("ICON_COLOR", "TEXT_COLOR").contains(normalizedProperty);
+        }
+        if ("SIDEBAR_NAV_ICON_ACTIVE".equals(normalizedArea)) {
+            return Set.of("ICON_COLOR", "TEXT_COLOR").contains(normalizedProperty);
+        }
+        if ("SIDEBAR_NAV_AI_ICON".equals(normalizedArea)) {
+            return Set.of("BACKGROUND_COLOR", "BORDER_COLOR", "BORDER_RADIUS", "OPACITY").contains(normalizedProperty);
+        }
+        if ("SIDEBAR_NAV_TOOLTIP".equals(normalizedArea)) {
+            return Set.of("BACKGROUND_COLOR", "TEXT_COLOR", "BORDER_COLOR", "BORDER_RADIUS", "SHADOW_PRESET").contains(normalizedProperty);
+        }
+        if ("SIDEBAR_NAV_AVATAR".equals(normalizedArea)) {
+            return Set.of("BACKGROUND_COLOR", "TEXT_COLOR", "BORDER_COLOR", "BORDER_WIDTH", "BORDER_RADIUS").contains(normalizedProperty);
+        }
+        if ("SIDEBAR_NAV_NOTIF_BADGE".equals(normalizedArea)) {
+            return Set.of("BACKGROUND_COLOR", "TEXT_COLOR", "BORDER_COLOR", "BORDER_WIDTH", "BORDER_RADIUS", "FONT_SIZE", "FONT_WEIGHT").contains(normalizedProperty);
+        }
+        if ("SIDEBAR_NAV_SETTINGS".equals(normalizedArea)) {
+            return Set.of("BACKGROUND_COLOR", "TEXT_COLOR", "ICON_COLOR", "HOVER_BACKGROUND_COLOR").contains(normalizedProperty);
+        }
+        if ("CHAT_LIST_ITEM".equals(normalizedArea) || "CHAT_LIST_ITEM_GROUP".equals(normalizedArea) || "CHAT_LIST_ITEM_UNREAD".equals(normalizedArea)) {
+            return Set.of("BACKGROUND_COLOR", "TEXT_COLOR", "BORDER_COLOR", "BORDER_WIDTH", "BORDER_RADIUS", "HOVER_BACKGROUND_COLOR").contains(normalizedProperty);
+        }
+        if ("CHAT_LIST_ITEM_ACTIVE".equals(normalizedArea)) {
+            return Set.of("BACKGROUND_COLOR", "TEXT_COLOR", "BORDER_COLOR", "BORDER_WIDTH", "BORDER_RADIUS", "HOVER_BACKGROUND_COLOR").contains(normalizedProperty);
+        }
+        if ("CHAT_LIST_ITEM_GROUP_ACTIVE".equals(normalizedArea)) {
+            return Set.of("BACKGROUND_COLOR", "TEXT_COLOR", "BORDER_COLOR", "BORDER_WIDTH", "BORDER_RADIUS", "HOVER_BACKGROUND_COLOR").contains(normalizedProperty);
+        }
+        if ("CHAT_LIST_ITEM_NAME".equals(normalizedArea) || "CHAT_LIST_ITEM_NAME_SCOPED".equals(normalizedArea) || "CHAT_LIST_ITEM_GROUP_NAME".equals(normalizedArea)) {
+            return Set.of("TEXT_COLOR", "FONT_SIZE", "FONT_WEIGHT").contains(normalizedProperty);
+        }
+        if ("CHAT_LIST_STATUS_DOT".equals(normalizedArea)) {
+            return Set.of("BACKGROUND_COLOR", "BORDER_COLOR", "WIDTH", "HEIGHT", "OPACITY").contains(normalizedProperty);
+        }
+        if ("CHAT_LIST_ITEM_GROUP_PREVIEW".equals(normalizedArea)) {
+            return Set.of("TEXT_COLOR", "PREVIEW_SENDER_TEXT_COLOR", "FONT_SIZE").contains(normalizedProperty);
+        }
+        if ("CHAT_LIST_ITEM_GROUP_AUDIO_PREVIEW".equals(normalizedArea)) {
+            return Set.of("BACKGROUND_COLOR", "TEXT_COLOR", "ICON_COLOR", "BORDER_COLOR", "LABEL_COLOR", "SEPARATOR_COLOR", "TIME_COLOR").contains(normalizedProperty);
+        }
+        if ("CHAT_LIST_ITEM_GROUP_FILE_PREVIEW".equals(normalizedArea)) {
+            return Set.of("BACKGROUND_COLOR", "TEXT_COLOR", "ICON_COLOR", "BORDER_COLOR").contains(normalizedProperty);
+        }
+        if ("CHAT_LIST_ITEM_GROUP_IMAGE_PREVIEW".equals(normalizedArea)) {
+            return Set.of("BACKGROUND_COLOR", "TEXT_COLOR", "ICON_COLOR", "BORDER_COLOR").contains(normalizedProperty);
+        }
+        if ("CHAT_LIST_STICKER_PREVIEW".equals(normalizedArea)
+                || "CHAT_LIST_ITEM_STICKER_PREVIEW".equals(normalizedArea)
+                || "CHAT_LIST_ITEM_GROUP_STICKER_PREVIEW".equals(normalizedArea)) {
+            return Set.of("BACKGROUND_COLOR", "TEXT_COLOR", "ICON_COLOR", "BORDER_COLOR", "BORDER_RADIUS", "FONT_SIZE", "OPACITY", "GAP").contains(normalizedProperty);
+        }
+        if ("CHAT_LIST_ITEM_GROUP_DRAFT_PREVIEW".equals(normalizedArea)) {
+            return Set.of("TEXT_COLOR", "LABEL_COLOR").contains(normalizedProperty);
+        }
+        if ("CHAT_LIST_ITEM_GROUP_BADGES".equals(normalizedArea)) {
+            return Set.of("BACKGROUND_COLOR", "TEXT_COLOR", "BORDER_COLOR", "BADGE_COLOR").contains(normalizedProperty);
+        }
+        if ("CHAT_LIST_ITEM_GROUP_ACTIONS".equals(normalizedArea)) {
+            return Set.of("ICON_COLOR", "HOVER_BACKGROUND_COLOR", "TEXT_COLOR").contains(normalizedProperty);
+        }
+        if ("CHAT_LIST_ITEM_GROUP_STATUS_PILLS".equals(normalizedArea)) {
+            return Set.of("REPORTED_BACKGROUND_COLOR", "REPORTED_TEXT_COLOR", "BLOCKED_BACKGROUND_COLOR", "BLOCKED_TEXT_COLOR", "BORDER_COLOR").contains(normalizedProperty);
+        }
+        if ("CHAT_LIST_MUTED_INDICATOR".equals(normalizedArea)
+                || "CHAT_LIST_FAVORITE_INDICATOR".equals(normalizedArea)
+                || "CHAT_LIST_CLOSED_INDICATOR".equals(normalizedArea)) {
+            return Set.of("BACKGROUND_COLOR", "TEXT_COLOR", "ICON_COLOR", "BORDER_COLOR", "BORDER_RADIUS").contains(normalizedProperty);
+        }
+        if ("CHAT_LIST_EMPTY_STATE".equals(normalizedArea) || "CHAT_LIST_PUBLIC_PANEL".equals(normalizedArea)) {
+            return Set.of("BACKGROUND_COLOR", "TEXT_COLOR", "BORDER_COLOR", "BORDER_RADIUS", "SHADOW_PRESET").contains(normalizedProperty);
+        }
+        if ("CHAT_LIST_PUBLIC_CARD".equals(normalizedArea)) {
+            return Set.of("BACKGROUND_COLOR", "TEXT_COLOR", "BORDER_COLOR", "BORDER_RADIUS", "HOVER_BACKGROUND_COLOR").contains(normalizedProperty);
+        }
+        if ("CHAT_LIST_ITEM_DATE".equals(normalizedArea)) {
+            return Set.of("TEXT_COLOR", "FONT_SIZE", "FONT_WEIGHT").contains(normalizedProperty);
+        }
+        if ("CHAT_LIST_HEADER".equals(normalizedArea)) {
+            return Set.of("BACKGROUND_COLOR", "TEXT_COLOR", "ICON_COLOR", "BORDER_COLOR", "BORDER_RADIUS", "SHADOW_PRESET").contains(normalizedProperty);
+        }
+        if ("CHAT_LIST_TITLE".equals(normalizedArea)) {
+            return Set.of("TEXT_COLOR", "FONT_SIZE", "FONT_WEIGHT", "ICON_COLOR").contains(normalizedProperty);
+        }
+        if ("CHAT_LIST_HEADER_ACTIONS".equals(normalizedArea)) {
+            return Set.of("BACKGROUND_COLOR", "TEXT_COLOR", "ICON_COLOR", "GAP", "BORDER_COLOR").contains(normalizedProperty);
+        }
+        if ("CHAT_LIST_HEADER_ICON_BUTTON".equals(normalizedArea)) {
+            return Set.of("BACKGROUND_COLOR", "TEXT_COLOR", "ICON_COLOR", "BORDER_COLOR", "BORDER_RADIUS", "HOVER_BACKGROUND_COLOR", "ACTIVE_BACKGROUND_COLOR", "SHADOW_PRESET").contains(normalizedProperty);
+        }
+        if ("CHAT_LIST_HEADER_ICON".equals(normalizedArea)) {
+            return Set.of("ICON_COLOR", "TEXT_COLOR", "FONT_SIZE").contains(normalizedProperty);
+        }
+        if ("CHAT_LIST_HEADER_MENU".equals(normalizedArea)) {
+            return Set.of("BACKGROUND_COLOR", "TEXT_COLOR", "BORDER_COLOR", "BORDER_RADIUS", "SHADOW_PRESET").contains(normalizedProperty);
+        }
+        if ("CHAT_LIST_HEADER_MENU_ITEM".equals(normalizedArea)) {
+            return Set.of("BACKGROUND_COLOR", "TEXT_COLOR", "ICON_COLOR", "HOVER_BACKGROUND_COLOR", "BORDER_RADIUS", "FONT_SIZE").contains(normalizedProperty);
         }
         return true;
     }
@@ -3327,6 +4962,224 @@ public class AiUiCustomizationValidationService {
     private record AreaProperty(String area, String property) {}
 
     private record NormalizedInput(String property, String value, String valuePreset, String reason, String maxAllowedValue, String minAllowedValue) {}
+
+    private void logScopeResult(UiCustomizationScopeDTO scope) {
+        if (scope == null) {
+            return;
+        }
+        LOGGER.info("[AI][UI_SCOPE_RESULT] module={} element={} chatType={} state={} subElement={}",
+                safe(scope.getModule()),
+                safe(scope.getElement()),
+                safe(scope.getChatType()),
+                safe(scope.getState()),
+                safe(scope.getSubElement()));
+    }
+
+    private String resolveAreaFromScope(UiCustomizationScopeDTO scope) {
+        if (scope == null) {
+            return null;
+        }
+        String module = normalizeUpper(scope.getModule());
+        String element = normalizeUpper(scope.getElement());
+        String chatType = normalizeUpper(scope.getChatType());
+        String state = normalizeUpper(scope.getState());
+        String subElement = normalizeUpper(scope.getSubElement());
+        if (!"CHAT_LIST".equals(module)) {
+            return switch (module) {
+                case "AI_POPUP" -> "AI_SEARCH_POPUP";
+                case "SIDEBAR" -> resolveSidebarAreaFromScope(element, state, subElement);
+                case "PROFILE" -> "TOPBAR_PROFILE";
+                default -> null;
+            };
+        }
+        return switch (element) {
+            case "PANEL" -> "CHAT_LIST_PANEL";
+            case "HEADER" -> "CHAT_LIST_HEADER";
+            case "TITLE" -> "CHAT_LIST_TITLE";
+            case "HEADER_ACTIONS" -> "CHAT_LIST_HEADER_ACTIONS";
+            case "SEARCH" -> "CHAT_LIST_SEARCH";
+            case "FILTERS" -> "CHAT_LIST_FILTERS";
+            case "FILTER_BUTTON" -> "ACTIVE".equals(state) || "SELECTED".equals(state)
+                    ? "CHAT_LIST_FILTER_BUTTONS_ACTIVE"
+                    : "CHAT_LIST_FILTER_BUTTONS";
+            case "CHAT_ITEM" -> resolveChatItemArea(chatType, state);
+            case "PREVIEW" -> "GROUP".equals(chatType) ? "CHAT_LIST_ITEM_GROUP_PREVIEW"
+                    : "INDIVIDUAL".equals(chatType) ? "CHAT_LIST_ITEM_PREVIEW" : "CHAT_LIST_PREVIEW";
+            case "AUDIO_PREVIEW" -> "GROUP".equals(chatType) ? "CHAT_LIST_ITEM_GROUP_AUDIO_PREVIEW"
+                    : "INDIVIDUAL".equals(chatType) ? "CHAT_LIST_ITEM_AUDIO_PREVIEW" : "CHAT_LIST_AUDIO_PREVIEW";
+            case "FILE_PREVIEW" -> "GROUP".equals(chatType) ? "CHAT_LIST_ITEM_GROUP_FILE_PREVIEW"
+                    : "INDIVIDUAL".equals(chatType) ? "CHAT_LIST_ITEM_FILE_PREVIEW" : "CHAT_LIST_FILE_PREVIEW";
+            case "IMAGE_PREVIEW" -> "GROUP".equals(chatType) ? "CHAT_LIST_ITEM_GROUP_IMAGE_PREVIEW"
+                    : "INDIVIDUAL".equals(chatType) ? "CHAT_LIST_ITEM_IMAGE_PREVIEW" : "CHAT_LIST_IMAGE_PREVIEW";
+            case "STICKER_PREVIEW" -> "GROUP".equals(chatType) ? "CHAT_LIST_ITEM_GROUP_STICKER_PREVIEW"
+                    : "INDIVIDUAL".equals(chatType) ? "CHAT_LIST_ITEM_STICKER_PREVIEW" : "CHAT_LIST_STICKER_PREVIEW";
+            case "BADGE" -> "GROUP".equals(chatType) ? "CHAT_LIST_ITEM_GROUP_BADGES" : "CHAT_LIST_BADGES";
+            case "DATE" -> "CHAT_LIST_ITEM_DATE";
+            case "AVATAR" -> "CHAT_LIST_AVATAR";
+            case "STATUS_DOT" -> "CHAT_LIST_STATUS_DOT";
+            case "NAME" -> "CHAT_LIST_ITEM_NAME";
+            case "MUTED_INDICATOR" -> "CHAT_LIST_MUTED_INDICATOR";
+            case "FAVORITE_INDICATOR" -> "CHAT_LIST_FAVORITE_INDICATOR";
+            case "CLOSED_INDICATOR" -> "CHAT_LIST_CLOSED_INDICATOR";
+            case "EMPTY_STATE" -> "CHAT_LIST_EMPTY_STATE";
+            case "PUBLIC_PANEL" -> "CHAT_LIST_PUBLIC_PANEL";
+            case "PUBLIC_CARD" -> "CHAT_LIST_PUBLIC_CARD";
+            case "PIN_MENU" -> switch (subElement) {
+                case "REPORT_ACTION" -> "CHAT_LIST_PIN_MENU_REPORT";
+                case "DANGER_ACTION" -> "CHAT_LIST_PIN_MENU_DANGER";
+                case "ITEM" -> "CHAT_LIST_PIN_MENU_ITEM";
+                default -> "CHAT_LIST_PIN_MENU";
+            };
+            case "PIN_TOGGLE" -> "CHAT_LIST_PIN_TOGGLE";
+            case "ACTIONS_MENU" -> "CHAT_LIST_ACTIONS_MENU";
+            default -> null;
+        };
+    }
+
+    private String resolveChatItemArea(String chatType, String state) {
+        if ("UNREAD".equals(state)) {
+            return "CHAT_LIST_ITEM_UNREAD";
+        }
+        if ("ACTIVE".equals(state) || "SELECTED".equals(state)) {
+            return "GROUP".equals(chatType) ? "CHAT_LIST_ITEM_GROUP_ACTIVE" : "CHAT_LIST_ITEM_ACTIVE";
+        }
+        return "GROUP".equals(chatType) ? "CHAT_LIST_ITEM_GROUP" : "CHAT_LIST_ITEM";
+    }
+
+    private String resolveSidebarAreaFromScope(String element, String state, String subElement) {
+        if ("ICON".equals(subElement)) {
+            return "ACTIVE".equals(state) || "SELECTED".equals(state)
+                    ? "SIDEBAR_NAV_ICON_ACTIVE"
+                    : "SIDEBAR_NAV_ICON";
+        }
+        if ("ITEM".equals(element) || "CHAT_ITEM".equals(element)) {
+            return "ACTIVE".equals(state) || "SELECTED".equals(state)
+                    ? "SIDEBAR_NAV_ITEM_ACTIVE"
+                    : "SIDEBAR_NAV_ITEM";
+        }
+        return switch (element) {
+            case "GROUP" -> "SIDEBAR_NAV_GROUP";
+            case "BOTTOM" -> "SIDEBAR_NAV_BOTTOM";
+            case "TOOLTIP" -> "SIDEBAR_NAV_TOOLTIP";
+            case "AVATAR" -> "SIDEBAR_NAV_AVATAR";
+            case "BADGE" -> "SIDEBAR_NAV_NOTIF_BADGE";
+            case "ACTIVE_INDICATOR" -> "SIDEBAR_NAV_ACTIVE_INDICATOR";
+            case "LOGO" -> "SIDEBAR_NAV_LOGO";
+            default -> "SIDEBAR_NAV_PANEL";
+        };
+    }
+
+    private List<UiCustomizationChangeDTO> applyResolvedAreaToChanges(List<UiCustomizationChangeDTO> inputChanges, String resolvedArea) {
+        if (!hasText(resolvedArea) || inputChanges == null || inputChanges.isEmpty()) {
+            return inputChanges;
+        }
+        List<UiCustomizationChangeDTO> normalized = new ArrayList<>();
+        for (UiCustomizationChangeDTO change : inputChanges) {
+            if (change == null) {
+                continue;
+            }
+            UiCustomizationChangeDTO copy = new UiCustomizationChangeDTO();
+            copy.setArea(hasText(change.getArea()) ? change.getArea() : resolvedArea);
+            copy.setProperty(change.getProperty());
+            copy.setValue(change.getValue());
+            copy.setValuePreset(change.getValuePreset());
+            normalized.add(copy);
+        }
+        return normalized.isEmpty() ? inputChanges : normalized;
+    }
+
+    private boolean hasResolvableVisualPayload(String property,
+                                              String value,
+                                              List<UiCustomizationChangeDTO> inputChanges) {
+        return (inputChanges != null && !inputChanges.isEmpty())
+                || (hasText(property) && hasText(value));
+    }
+
+    private String resolveActionFromPayload(String property,
+                                            String value,
+                                            List<UiCustomizationChangeDTO> inputChanges) {
+        if (inputChanges != null && inputChanges.size() > 1) {
+            return "UPDATE_STYLE_MULTI";
+        }
+        if (inputChanges != null && inputChanges.size() == 1) {
+            return "UPDATE_STYLE";
+        }
+        return hasText(property) && hasText(value) ? "UPDATE_STYLE" : "UPDATE_STYLE";
+    }
+
+    private boolean isPinMenuArea(String area) {
+        return Set.of("CHAT_LIST_PIN_MENU", "CHAT_LIST_PIN_MENU_ITEM", "CHAT_LIST_PIN_MENU_REPORT", "CHAT_LIST_PIN_MENU_DANGER")
+                .contains(normalizeUpper(area));
+    }
+
+    private String normalizeUpper(String value) {
+        return value == null ? "" : value.trim().toUpperCase(Locale.ROOT);
+    }
+
+    private record ActionNormalization(String action,
+                                       String area,
+                                       String property,
+                                       String value,
+                                       List<UiCustomizationChangeDTO> changes,
+                                       boolean normalized) {}
+
+    private ActionNormalization normalizeSingleAreaGroupAction(String action,
+                                                               String area,
+                                                               String property,
+                                                               String value,
+                                                               List<UiCustomizationChangeDTO> changes) {
+        if (!"UPDATE_STYLE_GROUP".equals(action)) {
+            return new ActionNormalization(action, area, property, value, changes, false);
+        }
+
+        boolean hasChanges = changes != null && !changes.isEmpty();
+        if (!hasChanges && isSimpleAreaPropertyValue(area, property, value)) {
+            LOGGER.info("[AI][UI_CUSTOMIZATION_ACTION_NORMALIZED] from=UPDATE_STYLE_GROUP to=UPDATE_STYLE reason=SINGLE_AREA_PROPERTY_VALUE area={} property={}",
+                    safe(area), safe(property));
+            return new ActionNormalization("UPDATE_STYLE", area, property, value, changes, true);
+        }
+
+        if (!hasChanges) {
+            return new ActionNormalization(action, area, property, value, changes, false);
+        }
+
+        List<UiCustomizationChangeDTO> normalizedChanges = new ArrayList<>();
+        String scopedArea = hasText(area) ? area : null;
+        for (UiCustomizationChangeDTO change : changes) {
+            UiCustomizationChangeDTO normalizedChange = normalizeGroupChange(change);
+            if (!isValidGroupChange(normalizedChange)) {
+                return new ActionNormalization(action, area, property, value, changes, false);
+            }
+            if (scopedArea == null) {
+                scopedArea = normalizedChange.getArea();
+            }
+            if (!scopedArea.equals(normalizedChange.getArea())) {
+                return new ActionNormalization(action, area, property, value, changes, false);
+            }
+            normalizedChanges.add(normalizedChange);
+        }
+
+        if (scopedArea != null && !ALLOWED_AREAS.contains(scopedArea)) {
+            return new ActionNormalization(action, area, property, value, changes, false);
+        }
+
+        LOGGER.info("[AI][UI_CUSTOMIZATION_ACTION_NORMALIZED] from=UPDATE_STYLE_GROUP to=UPDATE_STYLE_MULTI reason=SINGLE_AREA_VALID_CHANGES area={} property={}",
+                safe(scopedArea), safe(property));
+        return new ActionNormalization("UPDATE_STYLE_MULTI", null, null, null, normalizedChanges, true);
+    }
+
+    private boolean isSimpleAreaPropertyValue(String area, String property, String value) {
+        if (!hasText(area) || !hasText(property) || !hasText(value)) {
+            return false;
+        }
+        if (!ALLOWED_AREAS.contains(area) || !ALLOWED_PROPERTIES.contains(property)) {
+            return false;
+        }
+        if (!isPropertyAllowedForArea(area, property)) {
+            return false;
+        }
+        return hasText(resolveValue(property, value, null));
+    }
 
     private String safe(String value) {
         return value == null ? "" : value.replaceAll("\\s+", " ").trim();
@@ -3336,3 +5189,6 @@ public class AiUiCustomizationValidationService {
         return value != null && !value.trim().isEmpty();
     }
 }
+
+
+

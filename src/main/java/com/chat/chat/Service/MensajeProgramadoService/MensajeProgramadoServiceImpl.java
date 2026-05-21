@@ -2,6 +2,7 @@ package com.chat.chat.Service.MensajeProgramadoService;
 
 import com.chat.chat.DTO.AdminDirectMessageScheduledRequestDTO;
 import com.chat.chat.DTO.AdminDirectMessagePayloadDTO;
+import com.chat.chat.DTO.AiEncryptedResponseDTO;
 import com.chat.chat.DTO.BulkEmailRequestDTO;
 import com.chat.chat.DTO.EmailAttachmentDTO;
 import com.chat.chat.DTO.MensajeDTO;
@@ -9,6 +10,7 @@ import com.chat.chat.DTO.MensajeProgramadoDTO;
 import com.chat.chat.DTO.ProgramarMensajeItemDTO;
 import com.chat.chat.DTO.ProgramarMensajeRequestDTO;
 import com.chat.chat.DTO.ProgramarMensajeResponseDTO;
+import com.chat.chat.DTO.ScheduledMessageMineDTO;
 import com.chat.chat.DTO.ScheduledAttachmentMetaDTO;
 import com.chat.chat.DTO.ScheduledBatchResponseDTO;
 import com.chat.chat.DTO.ScheduledRecipientUserDTO;
@@ -31,6 +33,7 @@ import com.chat.chat.Repository.MensajeProgramadoRepository;
 import com.chat.chat.Repository.MensajeRepository;
 import com.chat.chat.Repository.UploadFileMetadataRepository;
 import com.chat.chat.Repository.UsuarioRepository;
+import com.chat.chat.Service.AiService.AiEncryptedContextService;
 import com.chat.chat.Service.EmailService.EmailService;
 import com.chat.chat.Utils.Constantes;
 import com.chat.chat.Utils.E2EDiagnosticUtils;
@@ -49,7 +52,9 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.security.access.AccessDeniedException;
@@ -126,6 +131,7 @@ public class MensajeProgramadoServiceImpl implements MensajeProgramadoService {
     private final UploadFileMetadataRepository uploadFileMetadataRepository;
     private final SimpMessagingTemplate messagingTemplate;
     private final JdbcTemplate jdbcTemplate;
+    private final AiEncryptedContextService aiEncryptedContextService;
     private final CifradorE2EMensajeProgramadoService cifradorE2EMensajeProgramadoService;
     private final MensajeProgramadoMapper mensajeProgramadoMapper;
     private final EmailService emailService;
@@ -161,6 +167,7 @@ public class MensajeProgramadoServiceImpl implements MensajeProgramadoService {
                                         UploadFileMetadataRepository uploadFileMetadataRepository,
                                         SimpMessagingTemplate messagingTemplate,
                                         JdbcTemplate jdbcTemplate,
+                                        AiEncryptedContextService aiEncryptedContextService,
                                         CifradorE2EMensajeProgramadoService cifradorE2EMensajeProgramadoService,
                                         MensajeProgramadoMapper mensajeProgramadoMapper,
                                         EmailService emailService) {
@@ -174,6 +181,7 @@ public class MensajeProgramadoServiceImpl implements MensajeProgramadoService {
         this.uploadFileMetadataRepository = uploadFileMetadataRepository;
         this.messagingTemplate = messagingTemplate;
         this.jdbcTemplate = jdbcTemplate;
+        this.aiEncryptedContextService = aiEncryptedContextService;
         this.cifradorE2EMensajeProgramadoService = cifradorE2EMensajeProgramadoService;
         this.mensajeProgramadoMapper = mensajeProgramadoMapper;
         this.emailService = emailService;
@@ -1068,6 +1076,161 @@ public class MensajeProgramadoServiceImpl implements MensajeProgramadoService {
         int start = (int) Math.min(pageable.getOffset(), items.size());
         int end = Math.min(start + pageable.getPageSize(), items.size());
         return new PageImpl<>(items.subList(start, end), pageable, items.size());
+    }
+
+    @Override
+    @Transactional
+    public Page<ScheduledMessageMineDTO> listarMisMensajesProgramados(EstadoMensajeProgramado status, Pageable pageable) {
+        Long userId = securityUtils.getAuthenticatedUserId();
+        if (userId == null) {
+            throw new AccessDeniedException(Constantes.ERR_NO_AUTORIZADO);
+        }
+        EstadoMensajeProgramado effectiveStatus = status;
+        int safePage = pageable == null ? 0 : Math.max(pageable.getPageNumber(), 0);
+        int safeSize = pageable == null ? 20 : Math.min(Math.max(pageable.getPageSize(), 1), 50);
+        Pageable effectivePageable = PageRequest.of(
+                safePage,
+                safeSize,
+                Sort.by(Sort.Direction.DESC, "id"));
+        LOGGER.info("[SCHEDULED_MESSAGE_LIST_MINE] userId={} status={} page={} size={}",
+                userId, effectiveStatus, safePage, safeSize);
+        Page<MensajeProgramadoEntity> page = effectiveStatus == null
+                ? mensajeProgramadoRepository.findByCreatedByIdOrderByIdDesc(userId, effectivePageable)
+                : mensajeProgramadoRepository.findByCreatedByIdAndStatusOrderByIdDesc(userId, effectiveStatus, effectivePageable);
+        return page.map(entity -> toMineDto(entity, userId));
+    }
+
+    private ScheduledMessageMineDTO toMineDto(MensajeProgramadoEntity entity, Long authenticatedUserId) {
+        ScheduledMessageMineDTO dto = mensajeProgramadoMapper.toMineDto(entity);
+        fillChatMetadata(dto, entity, authenticatedUserId);
+        return dto;
+    }
+
+    private void fillChatMetadata(ScheduledMessageMineDTO dto, MensajeProgramadoEntity entity, Long authenticatedUserId) {
+        if (dto == null || entity == null) {
+            return;
+        }
+        Long chatId = dto.getChatId();
+        if (chatId == null && entity.getChat() != null) {
+            chatId = entity.getChat().getId();
+            dto.setChatId(chatId);
+        }
+        LOGGER.info("[SCHEDULED_MESSAGE_MINE_CHAT_RESOLVE] scheduledId={} chatId={} userId={}",
+                entity.getId(), chatId, authenticatedUserId);
+        if (chatId == null) {
+            LOGGER.info("[SCHEDULED_MESSAGE_MINE_CHAT_NOT_FOUND] scheduledId={} chatId={}", entity.getId(), null);
+            return;
+        }
+
+        Optional<ChatIndividualEntity> individualOpt = chatIndividualRepository.findById(chatId);
+        if (individualOpt.isPresent()) {
+            ChatIndividualEntity individual = individualOpt.get();
+            if (!belongsToIndividualChat(individual, authenticatedUserId)) {
+                LOGGER.info("[SCHEDULED_MESSAGE_MINE_CHAT_FORBIDDEN] scheduledId={} chatId={} userId={}",
+                        entity.getId(), chatId, authenticatedUserId);
+                applyUnavailableChatMetadata(dto);
+                return;
+            }
+            UsuarioEntity receptor = resolveOtherUser(individual, authenticatedUserId);
+            String receptorNombre = buildFullName(receptor);
+            dto.setChatTipo(Constantes.CHAT_TIPO_INDIVIDUAL);
+            dto.setReceptorId(receptor == null ? null : receptor.getId());
+            String receptorNombreCifrado = encryptForUser(receptorNombre, authenticatedUserId);
+            dto.setReceptorNombre(receptorNombreCifrado);
+            dto.setChatNombre(receptorNombreCifrado);
+            dto.setChatFoto(receptor == null ? null : receptor.getFotoUrl());
+            dto.setChatGrupalId(null);
+            dto.setNombreGrupo(null);
+            LOGGER.info("[SCHEDULED_MESSAGE_MINE_CHAT_RESOLVED] scheduledId={} chatTipo={} chatNombre={}",
+                    entity.getId(), dto.getChatTipo(), safe(receptorNombre));
+            return;
+        }
+
+        Optional<ChatGrupalEntity> groupOpt = chatGrupalRepository.findByIdWithUsuarios(chatId);
+        if (groupOpt.isPresent()) {
+            ChatGrupalEntity group = groupOpt.get();
+            if (!belongsToGroupChat(group, authenticatedUserId)) {
+                LOGGER.info("[SCHEDULED_MESSAGE_MINE_CHAT_FORBIDDEN] scheduledId={} chatId={} userId={}",
+                        entity.getId(), chatId, authenticatedUserId);
+                applyUnavailableChatMetadata(dto);
+                return;
+            }
+            String nombreGrupo = normalizeText(group.getNombreGrupo());
+            dto.setChatTipo(Constantes.CHAT_TIPO_GRUPAL);
+            dto.setChatGrupalId(group.getId());
+            dto.setNombreGrupo(nombreGrupo);
+            dto.setChatNombre(nombreGrupo);
+            dto.setChatFoto(group.getFotoUrl());
+            dto.setReceptorId(null);
+            dto.setReceptorNombre(null);
+            LOGGER.info("[SCHEDULED_MESSAGE_MINE_CHAT_RESOLVED] scheduledId={} chatTipo={} chatNombre={}",
+                    entity.getId(), dto.getChatTipo(), safe(nombreGrupo));
+            return;
+        }
+
+        LOGGER.info("[SCHEDULED_MESSAGE_MINE_CHAT_NOT_FOUND] scheduledId={} chatId={}", entity.getId(), chatId);
+    }
+
+    private boolean belongsToIndividualChat(ChatIndividualEntity chat, Long authenticatedUserId) {
+        if (chat == null || authenticatedUserId == null) {
+            return false;
+        }
+        return (chat.getUsuario1() != null && authenticatedUserId.equals(chat.getUsuario1().getId()))
+                || (chat.getUsuario2() != null && authenticatedUserId.equals(chat.getUsuario2().getId()));
+    }
+
+    private boolean belongsToGroupChat(ChatGrupalEntity group, Long authenticatedUserId) {
+        if (group == null || authenticatedUserId == null || group.getUsuarios() == null) {
+            return false;
+        }
+        return group.getUsuarios().stream()
+                .filter(Objects::nonNull)
+                .anyMatch(user -> authenticatedUserId.equals(user.getId()));
+    }
+
+    private UsuarioEntity resolveOtherUser(ChatIndividualEntity chat, Long authenticatedUserId) {
+        if (chat == null) {
+            return null;
+        }
+        UsuarioEntity usuario1 = chat.getUsuario1();
+        UsuarioEntity usuario2 = chat.getUsuario2();
+        if (usuario1 != null && authenticatedUserId != null && authenticatedUserId.equals(usuario1.getId())) {
+            return usuario2;
+        }
+        if (usuario2 != null && authenticatedUserId != null && authenticatedUserId.equals(usuario2.getId())) {
+            return usuario1;
+        }
+        return usuario2 != null ? usuario2 : usuario1;
+    }
+
+    private String normalizeText(String value) {
+        return StringUtils.hasText(value) ? value.trim() : null;
+    }
+
+    private String encryptForUser(String plainText, Long authenticatedUserId) {
+        String normalized = normalizeText(plainText);
+        if (!StringUtils.hasText(normalized) || authenticatedUserId == null) {
+            return null;
+        }
+        AiEncryptedResponseDTO encrypted = aiEncryptedContextService.encryptAiResponseForUser(normalized, authenticatedUserId);
+        if (encrypted == null || !encrypted.isSuccess() || !StringUtils.hasText(encrypted.getEncryptedPayload())) {
+            return null;
+        }
+        return encrypted.getEncryptedPayload();
+    }
+
+    private void applyUnavailableChatMetadata(ScheduledMessageMineDTO dto) {
+        dto.setChatNombre("Chat no disponible");
+        dto.setChatTipo(null);
+        dto.setChatFoto(null);
+        dto.setReceptorId(null);
+        dto.setReceptorNombre(null);
+        dto.setChatGrupalId(null);
+        dto.setNombreGrupo(null);
+    }
+
+    private String safe(String value) {
+        return value == null ? "" : value.replaceAll("\\s+", " ").trim();
     }
 
     @Override

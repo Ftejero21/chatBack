@@ -1,6 +1,7 @@
 package com.chat.chat.Service.AiService;
 
 import com.chat.chat.Configuracion.DeepSeekProperties;
+import com.chat.chat.DTO.AiUsageInfoDTO;
 import com.chat.chat.Exceptions.SemanticApiException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -24,6 +25,7 @@ import java.util.List;
 public class DeepSeekApiClientImpl implements DeepSeekApiClient {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(DeepSeekApiClientImpl.class);
+    private static final ThreadLocal<AiUsageInfoDTO> LAST_USAGE = new ThreadLocal<>();
 
     private final RestTemplate restTemplate;
     private final RestTemplate adminReportRestTemplate;
@@ -83,19 +85,23 @@ public class DeepSeekApiClientImpl implements DeepSeekApiClient {
                     new HttpEntity<>(request, headers),
                     DeepSeekChatResponse.class
             );
-            String content = extractContent(response.getBody());
+            DeepSeekChatResponse responseBody = response.getBody();
+            logUsage(responseBody, request.getModel(), request.getMaxTokens());
+            String content = extractContent(responseBody);
             if (!StringUtils.hasText(content)) {
                 throw new SemanticApiException(HttpStatus.BAD_GATEWAY, "AI_EMPTY_RESPONSE",
                         "DeepSeek devolvio una respuesta vacia.", null);
             }
             return content.trim();
         } catch (HttpStatusCodeException ex) {
+            LAST_USAGE.remove();
             HttpStatus status = HttpStatus.resolve(ex.getStatusCode().value());
             LOGGER.warn("[AI][DEEPSEEK] request-failed status={} bodyLength={}",
                     ex.getStatusCode().value(),
                     ex.getResponseBodyAsString() == null ? 0 : ex.getResponseBodyAsString().length());
             throw mapHttpException(status);
         } catch (ResourceAccessException ex) {
+            LAST_USAGE.remove();
             LOGGER.warn("[AI][DEEPSEEK] request-timeout type={}", ex.getClass().getSimpleName());
             throw new SemanticApiException(HttpStatus.GATEWAY_TIMEOUT, "AI_TIMEOUT",
                     "La solicitud a DeepSeek ha excedido el tiempo limite.", null);
@@ -126,6 +132,47 @@ public class DeepSeekApiClientImpl implements DeepSeekApiClient {
             return null;
         }
         return firstChoice.getMessage().getContent();
+    }
+
+    private void logUsage(DeepSeekChatResponse response, String model, Integer maxOutputTokens) {
+        if (response == null || response.getUsage() == null) {
+            LAST_USAGE.remove();
+            LOGGER.info("[AI][DEEPSEEK][USAGE] usageMissing=true");
+            return;
+        }
+        DeepSeekUsage usage = response.getUsage();
+        AiUsageInfoDTO usageInfo = new AiUsageInfoDTO();
+        usageInfo.setModel(model);
+        usageInfo.setPromptTokens(usage.getPrompt_tokens());
+        usageInfo.setCompletionTokens(usage.getCompletion_tokens());
+        usageInfo.setTotalTokens(usage.getTotal_tokens());
+        usageInfo.setOutputTokens(usage.getCompletion_tokens());
+        LAST_USAGE.set(usageInfo);
+        LOGGER.info("[AI][DEEPSEEK][USAGE] model={} promptTokens={} completionTokens={} totalTokens={} maxOutputTokens={}",
+                model,
+                usage.getPrompt_tokens(),
+                usage.getCompletion_tokens(),
+                usage.getTotal_tokens(),
+                maxOutputTokens);
+    }
+
+    @Override
+    public AiUsageInfoDTO getLastUsage() {
+        AiUsageInfoDTO usage = LAST_USAGE.get();
+        if (usage == null) {
+            return null;
+        }
+        AiUsageInfoDTO copy = new AiUsageInfoDTO();
+        copy.setModel(usage.getModel());
+        copy.setPromptTokens(usage.getPromptTokens());
+        copy.setCompletionTokens(usage.getCompletionTokens());
+        copy.setTotalTokens(usage.getTotalTokens());
+        copy.setInputCacheHitTokens(usage.getInputCacheHitTokens());
+        copy.setInputCacheMissTokens(usage.getInputCacheMissTokens());
+        copy.setOutputTokens(usage.getOutputTokens());
+        copy.setEstimatedCostUsd(usage.getEstimatedCostUsd());
+        LAST_USAGE.remove();
+        return copy;
     }
 
     private SemanticApiException mapHttpException(HttpStatus status) {
@@ -202,6 +249,7 @@ public class DeepSeekApiClientImpl implements DeepSeekApiClient {
 
     public static class DeepSeekChatResponse {
         private List<DeepSeekChoice> choices;
+        private DeepSeekUsage usage;
 
         public List<DeepSeekChoice> getChoices() {
             return choices;
@@ -209,6 +257,44 @@ public class DeepSeekApiClientImpl implements DeepSeekApiClient {
 
         public void setChoices(List<DeepSeekChoice> choices) {
             this.choices = choices;
+        }
+
+        public DeepSeekUsage getUsage() {
+            return usage;
+        }
+
+        public void setUsage(DeepSeekUsage usage) {
+            this.usage = usage;
+        }
+    }
+
+    public static class DeepSeekUsage {
+        private Integer prompt_tokens;
+        private Integer completion_tokens;
+        private Integer total_tokens;
+
+        public Integer getPrompt_tokens() {
+            return prompt_tokens;
+        }
+
+        public void setPrompt_tokens(Integer prompt_tokens) {
+            this.prompt_tokens = prompt_tokens;
+        }
+
+        public Integer getCompletion_tokens() {
+            return completion_tokens;
+        }
+
+        public void setCompletion_tokens(Integer completion_tokens) {
+            this.completion_tokens = completion_tokens;
+        }
+
+        public Integer getTotal_tokens() {
+            return total_tokens;
+        }
+
+        public void setTotal_tokens(Integer total_tokens) {
+            this.total_tokens = total_tokens;
         }
     }
 

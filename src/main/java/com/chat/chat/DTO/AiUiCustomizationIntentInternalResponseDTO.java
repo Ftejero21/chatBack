@@ -16,7 +16,12 @@ public class AiUiCustomizationIntentInternalResponseDTO {
     private String label;
     private Double confidence;
     private ColorIntentDTO colorIntent;
+    private UiCustomizationScopeDTO scope;
+    private Boolean needsClarification;
+    private String clarificationReason;
+    private String clarificationQuestion;
     private List<UiCustomizationChangeDTO> changes;
+    private AiUsageInfoDTO usage;
 
     public AiUiCustomizationIntentInternalResponseDTO() {}
 
@@ -56,6 +61,20 @@ public class AiUiCustomizationIntentInternalResponseDTO {
     public ColorIntentDTO getColorIntent() { return colorIntent; }
     public void setColorIntent(ColorIntentDTO colorIntent) { this.colorIntent = colorIntent; }
 
+    public UiCustomizationScopeDTO getScope() { return scope; }
+    public void setScope(UiCustomizationScopeDTO scope) { this.scope = scope; }
+
+    public Boolean getNeedsClarification() { return needsClarification; }
+    public void setNeedsClarification(Boolean needsClarification) { this.needsClarification = needsClarification; }
+
+    public String getClarificationReason() { return clarificationReason; }
+    public void setClarificationReason(String clarificationReason) { this.clarificationReason = clarificationReason; }
+
+    public String getClarificationQuestion() { return clarificationQuestion; }
+    public void setClarificationQuestion(String clarificationQuestion) { this.clarificationQuestion = clarificationQuestion; }
+
     public List<UiCustomizationChangeDTO> getChanges() { return changes; }
     public void setChanges(List<UiCustomizationChangeDTO> changes) { this.changes = changes; }
+    public AiUsageInfoDTO getUsage() { return usage; }
+    public void setUsage(AiUsageInfoDTO usage) { this.usage = usage; }
 }

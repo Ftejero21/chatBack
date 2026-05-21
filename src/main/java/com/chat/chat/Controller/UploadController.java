@@ -74,7 +74,7 @@ public class UploadController {
             @RequestParam(value = "chatId", required = false) Long chatId,
             @RequestParam(value = "messageId", required = false) Long messageId,
             HttpServletRequest request) {
-        httpRateLimitService.checkUpload(request, "file-download");
+        httpRateLimitService.checkDownload(request, "file-download");
         return uploadService.downloadEncryptedFile(url, chatId, messageId);
     }
 }

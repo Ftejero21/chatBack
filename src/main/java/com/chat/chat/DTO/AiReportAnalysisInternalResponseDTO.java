@@ -10,6 +10,7 @@ public class AiReportAnalysisInternalResponseDTO {
     private String gravedad;
     private String resumen;
     private String accionSugerida;
+    private AiUsageInfoDTO usage;
 
     public boolean isSuccess() {
         return success;
@@ -73,5 +74,13 @@ public class AiReportAnalysisInternalResponseDTO {
 
     public void setAccionSugerida(String accionSugerida) {
         this.accionSugerida = accionSugerida;
+    }
+
+    public AiUsageInfoDTO getUsage() {
+        return usage;
+    }
+
+    public void setUsage(AiUsageInfoDTO usage) {
+        this.usage = usage;
     }
 }

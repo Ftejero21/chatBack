@@ -17,6 +17,9 @@ public class AiUiCustomizationResponseDTO {
     private Double confidence;
     private ColorIntentDTO colorIntent;
     private List<UiCustomizationChangeDTO> changes;
+    private Boolean needsClarification;
+    private String clarificationReason;
+    private String clarificationQuestion;
     private Boolean normalized;
     private String normalizationReason;
     private String requestedValue;
@@ -64,6 +67,15 @@ public class AiUiCustomizationResponseDTO {
 
     public List<UiCustomizationChangeDTO> getChanges() { return changes; }
     public void setChanges(List<UiCustomizationChangeDTO> changes) { this.changes = changes; }
+
+    public Boolean getNeedsClarification() { return needsClarification; }
+    public void setNeedsClarification(Boolean needsClarification) { this.needsClarification = needsClarification; }
+
+    public String getClarificationReason() { return clarificationReason; }
+    public void setClarificationReason(String clarificationReason) { this.clarificationReason = clarificationReason; }
+
+    public String getClarificationQuestion() { return clarificationQuestion; }
+    public void setClarificationQuestion(String clarificationQuestion) { this.clarificationQuestion = clarificationQuestion; }
 
     public Boolean getNormalized() { return normalized; }
     public void setNormalized(Boolean normalized) { this.normalized = normalized; }

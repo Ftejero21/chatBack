@@ -1,10 +1,12 @@
 package com.chat.chat.Utils;
 
+import com.chat.chat.DTO.AiSmartActionHistoryDTO;
 import com.chat.chat.DTO.ChatGrupalDTO;
 import com.chat.chat.DTO.ChatIndividualDTO;
 import com.chat.chat.DTO.MensajeDTO;
 import com.chat.chat.DTO.NotificationDTO;
 import com.chat.chat.DTO.UsuarioDTO;
+import com.chat.chat.Entity.AiSmartActionHistoryEntity;
 import com.chat.chat.Entity.ChatGrupalEntity;
 import com.chat.chat.Entity.ChatIndividualEntity;
 import com.chat.chat.Entity.MensajeEntity;
@@ -14,6 +16,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -21,6 +24,7 @@ public class MappingUtils {
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     private static final String MOTIVO_TEMPORAL_EXPIRADO = "TEMPORAL_EXPIRADO";
+    private static final DateTimeFormatter SMART_ACTION_HISTORY_FORMATTER = DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm");
 
     private static String safeFotoUrl(String url) {
         return (url == null || url.isBlank()) ? null : url;
@@ -44,6 +48,28 @@ public class MappingUtils {
     public static List<NotificationDTO> notificationEntityListADto(List<NotificationEntity> list) {
         return list == null ? List.of()
                 : list.stream().map(MappingUtils::notificationEntityADto).collect(Collectors.toList());
+    }
+
+    public static AiSmartActionHistoryDTO aiSmartActionHistoryEntityToDto(AiSmartActionHistoryEntity entity) {
+        if (entity == null) {
+            return null;
+        }
+        AiSmartActionHistoryDTO dto = new AiSmartActionHistoryDTO();
+        dto.setId(entity.getId());
+        dto.setConsulta(entity.getConsulta());
+        dto.setTarget(entity.getTarget());
+        dto.setAction(entity.getAction());
+        dto.setCodigo(entity.getCodigo());
+        dto.setSuccess(entity.getSuccess());
+        dto.setClarificationReason(entity.getClarificationReason());
+        dto.setLabel(entity.getLabel());
+        dto.setArea(entity.getArea());
+        dto.setProperty(entity.getProperty());
+        dto.setValue(entity.getValue());
+        dto.setResultCount(entity.getResultCount());
+        dto.setCreatedAt(entity.getCreatedAt());
+        dto.setCreatedAtFormatted(entity.getCreatedAt() == null ? null : entity.getCreatedAt().format(SMART_ACTION_HISTORY_FORMATTER));
+        return dto;
     }
 
     public static UsuarioEntity usuarioDtoAEntity(UsuarioDTO dto) {

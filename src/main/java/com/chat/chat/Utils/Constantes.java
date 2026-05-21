@@ -52,6 +52,7 @@ public class Constantes {
 
     public static final String GRUPAL_ES_MIEMBRO = GRUPAL + "/{groupId}/es-miembro/{userId}";
     public static final String CHATS_USUARIO = "/usuario/{usuarioId}/todos";
+    public static final String CHAT_USUARIOS_DISPONIBLES = "/usuarios-disponibles";
     public static final String GRUPALES_USUARIO = "/grupal/usuario/{usuarioId}";
 
     // Rutas Notificaciones
@@ -91,6 +92,7 @@ public class Constantes {
     public static final String MENSAJES_RESTAURAR = "/mensajes/{mensajeId}/restaurar";
     public static final String POLL_VOTE = "/poll/{mensajeId}/vote";
     public static final String MENSAJES_PROGRAMADOS = "/scheduled";
+    public static final String MENSAJES_PROGRAMADOS_MIOS = "/scheduled/mine";
     public static final String MENSAJES_PROGRAMADOS_CANCELAR = "/scheduled/{id}/cancel";
     public static final String GRUPAL_ADD_USUARIOS = "/{groupId}/usuarios";
     public static final String CHAT_PINNED = "/pinned";
@@ -118,6 +120,12 @@ public class Constantes {
     public static final String AI_SUMMARY_ENCRYPTED_PATH = "/resumir-conversacion/encrypted";
     public static final String AI_MESSAGE_SEARCH_ENCRYPTED_PATH = "/buscar-mensajes/encrypted";
     public static final String AI_SMART_ACTION_PATH = "/smart-action";
+    public static final String AI_SMART_ACTION_HISTORY_PATH = "/smart-action/history";
+    public static final String AI_SMART_ACTION_HISTORY_ITEM_PATH = "/smart-action/history/{id}";
+    public static final String AI_SMART_ACTION_SUGGESTIONS_PATH = "/smart-action/suggestions";
+    public static final String AI_USAGE_ME_SUMMARY_PATH = "/usage/me/summary";
+    public static final String AI_USAGE_ME_QUERIES_PATH = "/usage/me/queries";
+    public static final String AI_USAGE_ME_BY_ENDPOINT_PATH = "/usage/me/by-endpoint";
 
     // Subrutas Restantes
     public static final String USUARIOS_SUB = "/usuarios";

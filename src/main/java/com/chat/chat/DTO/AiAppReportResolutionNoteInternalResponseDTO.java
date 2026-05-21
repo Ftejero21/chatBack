@@ -6,6 +6,7 @@ public class AiAppReportResolutionNoteInternalResponseDTO {
     private String codigo;
     private String mensaje;
     private String resolucionMotivo;
+    private AiUsageInfoDTO usage;
 
     public AiAppReportResolutionNoteInternalResponseDTO() {}
 
@@ -39,5 +40,13 @@ public class AiAppReportResolutionNoteInternalResponseDTO {
 
     public void setResolucionMotivo(String resolucionMotivo) {
         this.resolucionMotivo = resolucionMotivo;
+    }
+
+    public AiUsageInfoDTO getUsage() {
+        return usage;
+    }
+
+    public void setUsage(AiUsageInfoDTO usage) {
+        this.usage = usage;
     }
 }

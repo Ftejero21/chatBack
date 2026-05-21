@@ -13,6 +13,7 @@ public class AiSemanticRerankInternalResponseDTO {
     private String motivoCoincidencia;
     private List<Long> idsOrdenados;
     private Boolean needsClarification;
+    private AiUsageInfoDTO usage;
 
     public boolean isSuccess() { return success; }
     public void setSuccess(boolean success) { this.success = success; }
@@ -40,4 +41,6 @@ public class AiSemanticRerankInternalResponseDTO {
 
     public Boolean getNeedsClarification() { return needsClarification; }
     public void setNeedsClarification(Boolean needsClarification) { this.needsClarification = needsClarification; }
+    public AiUsageInfoDTO getUsage() { return usage; }
+    public void setUsage(AiUsageInfoDTO usage) { this.usage = usage; }
 }

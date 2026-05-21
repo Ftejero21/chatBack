@@ -26,15 +26,22 @@ public class AiReportAnalysisMicroserviceClientImpl implements AiReportAnalysisM
 
     private final RestTemplate restTemplate;
     private final TejechatAiServiceProperties tejechatAiServiceProperties;
+    private final AiUsageMetricAuthenticatedCaptureService usageCaptureService;
+    private final AiUsageLimitService aiUsageLimitService;
 
     public AiReportAnalysisMicroserviceClientImpl(@Qualifier("aiReportAnalysisRestTemplate") RestTemplate restTemplate,
-                                                  TejechatAiServiceProperties tejechatAiServiceProperties) {
+                                                  TejechatAiServiceProperties tejechatAiServiceProperties,
+                                                  AiUsageMetricAuthenticatedCaptureService usageCaptureService,
+                                                  AiUsageLimitService aiUsageLimitService) {
         this.restTemplate = restTemplate;
         this.tejechatAiServiceProperties = tejechatAiServiceProperties;
+        this.usageCaptureService = usageCaptureService;
+        this.aiUsageLimitService = aiUsageLimitService;
     }
 
     @Override
     public AiReportAnalysisInternalResponseDTO analizarDenuncia(String requestId, AiReportAnalysisInternalRequestDTO request) {
+        aiUsageLimitService.assertCurrentUserCanUseAi();
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         headers.set(INTERNAL_API_KEY_HEADER, tejechatAiServiceProperties.getInternalKey());
@@ -49,19 +56,32 @@ public class AiReportAnalysisMicroserviceClientImpl implements AiReportAnalysisM
                     new HttpEntity<>(request, headers),
                     AiReportAnalysisInternalResponseDTO.class
             );
+            AiReportAnalysisInternalResponseDTO body = response.getBody();
+            usageCaptureService.capture(
+                    requestId,
+                    "REPORT_ANALYSIS",
+                    body == null ? null : body.getAccionSugerida(),
+                    "REPORT_ANALYSIS",
+                    body == null ? null : body.getUsage(),
+                    body != null && body.isSuccess(),
+                    body == null ? "AI_SERVICE_EMPTY_RESPONSE" : body.getCodigo()
+            );
             LOGGER.info("[AI][REPORT_ANALYSIS_CLIENT] requestId={} service-status={} hasBody={}",
-                    requestId, response.getStatusCode().value(), response.getBody() != null);
-            return response.getBody();
+                    requestId, response.getStatusCode().value(), body != null);
+            return body;
         } catch (ResourceAccessException ex) {
+            usageCaptureService.capture(requestId, "REPORT_ANALYSIS", null, "REPORT_ANALYSIS", null, false, "AI_SERVICE_UNAVAILABLE");
             LOGGER.warn("[AI][REPORT_ANALYSIS_CLIENT] requestId={} service-unavailable type={}", requestId, ex.getClass().getSimpleName());
             throw new AiReportAnalysisMicroserviceUnavailableException(ex);
         } catch (HttpStatusCodeException ex) {
+            usageCaptureService.capture(requestId, "REPORT_ANALYSIS", null, "REPORT_ANALYSIS", null, false, "AI_SERVICE_ERROR");
             LOGGER.warn("[AI][REPORT_ANALYSIS_CLIENT] requestId={} service-error status={} bodyLength={}",
                     requestId,
                     ex.getStatusCode().value(),
                     ex.getResponseBodyAsString() == null ? 0 : ex.getResponseBodyAsString().length());
             throw new AiReportAnalysisMicroserviceException(ex);
         } catch (RestClientException ex) {
+            usageCaptureService.capture(requestId, "REPORT_ANALYSIS", null, "REPORT_ANALYSIS", null, false, "AI_SERVICE_ERROR");
             LOGGER.warn("[AI][REPORT_ANALYSIS_CLIENT] requestId={} service-error type={}", requestId, ex.getClass().getSimpleName());
             throw new AiReportAnalysisMicroserviceException(ex);
         }

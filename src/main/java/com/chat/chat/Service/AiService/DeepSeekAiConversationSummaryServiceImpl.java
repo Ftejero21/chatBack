@@ -19,6 +19,7 @@ import org.springframework.validation.annotation.Validated;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.UUID;
 
 @Service
 @Validated
@@ -36,6 +37,8 @@ public class DeepSeekAiConversationSummaryServiceImpl implements AiConversationS
     private final SecurityUtils securityUtils;
     private final ChatIndividualRepository chatIndividualRepository;
     private final ChatGrupalRepository chatGrupalRepository;
+    private final AiUsageMetricCaptureService aiUsageMetricCaptureService;
+    private final AiUsageLimitService aiUsageLimitService;
 
     public DeepSeekAiConversationSummaryServiceImpl(AiProperties aiProperties,
                                                     DeepSeekProperties deepSeekProperties,
@@ -43,7 +46,9 @@ public class DeepSeekAiConversationSummaryServiceImpl implements AiConversationS
                                                     AiRateLimitService aiRateLimitService,
                                                     SecurityUtils securityUtils,
                                                     ChatIndividualRepository chatIndividualRepository,
-                                                    ChatGrupalRepository chatGrupalRepository) {
+                                                    ChatGrupalRepository chatGrupalRepository,
+                                                    AiUsageMetricCaptureService aiUsageMetricCaptureService,
+                                                    AiUsageLimitService aiUsageLimitService) {
         this.aiProperties = aiProperties;
         this.deepSeekProperties = deepSeekProperties;
         this.deepSeekApiClient = deepSeekApiClient;
@@ -51,6 +56,8 @@ public class DeepSeekAiConversationSummaryServiceImpl implements AiConversationS
         this.securityUtils = securityUtils;
         this.chatIndividualRepository = chatIndividualRepository;
         this.chatGrupalRepository = chatGrupalRepository;
+        this.aiUsageMetricCaptureService = aiUsageMetricCaptureService;
+        this.aiUsageLimitService = aiUsageLimitService;
     }
 
     @Override
@@ -100,8 +107,10 @@ public class DeepSeekAiConversationSummaryServiceImpl implements AiConversationS
 
         SummaryStyle style = SummaryStyle.fromValue(request == null ? null : request.getEstilo());
         int maxLineas = resolveMaxLineas(request == null ? null : request.getMaxLineas(), style);
+        aiUsageLimitService.assertCurrentUserCanUseAi();
 
         try {
+            String requestId = UUID.randomUUID().toString();
             LOGGER.info("[AI][SUMMARY] request userId={} tipoChat={} mensajes={} contextLength={} estilo={} maxLineas={}",
                     userId,
                     chatType,
@@ -114,6 +123,16 @@ public class DeepSeekAiConversationSummaryServiceImpl implements AiConversationS
                     userContent,
                     deepSeekProperties.getSummaryMaxOutputTokens()
             );
+            aiUsageMetricCaptureService.capture(
+                    userId,
+                    requestId,
+                    "SUMMARY",
+                    style.name(),
+                    chatType,
+                    deepSeekApiClient.getLastUsage(),
+                    true,
+                    null
+            );
             aiRateLimitService.registrarUso(userId);
             String cleanedSummary = normalizeInput(summary);
             if (!hasText(cleanedSummary)) {
@@ -121,6 +140,16 @@ public class DeepSeekAiConversationSummaryServiceImpl implements AiConversationS
             }
             return success(cleanedSummary);
         } catch (SemanticApiException ex) {
+            aiUsageMetricCaptureService.capture(
+                    userId,
+                    UUID.randomUUID().toString(),
+                    "SUMMARY",
+                    style.name(),
+                    chatType,
+                    null,
+                    false,
+                    ex.getCode()
+            );
             LOGGER.warn("[AI][SUMMARY] provider-error userId={} tipoChat={} code={} status={}",
                     userId,
                     chatType,
